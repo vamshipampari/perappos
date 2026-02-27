@@ -30,6 +30,7 @@ export default function AppScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const db = useDatabase();
   const webViewRef = useRef<WebView>(null);
+  const hasLoadedOnceRef = useRef(false);
 
   const [phase, setPhase] = useState<Phase>('loading');
   const [app, setApp] = useState<InstalledApp | null>(null);
@@ -122,6 +123,7 @@ export default function AppScreen() {
     setMenuVisible(false);
     setWebError(null);
     setWebLoading(true);
+    hasLoadedOnceRef.current = false;
     webViewRef.current?.reload();
   }, []);
 
@@ -288,15 +290,21 @@ export default function AppScreen() {
             /* Loading / error */
             onNavigationStateChange={(navState) => setWebCanGoBack(navState.canGoBack)}
             onLoadStart={() => {
-              setWebLoading(true);
+              // Keep loading UI for initial page load, not every in-app navigation.
+              if (!hasLoadedOnceRef.current) setWebLoading(true);
               setWebError(null);
             }}
-            onLoadEnd={() => setWebLoading(false)}
+            onLoadEnd={() => {
+              hasLoadedOnceRef.current = true;
+              setWebLoading(false);
+            }}
             onError={(e) => {
+              hasLoadedOnceRef.current = true;
               setWebLoading(false);
               setWebError(e.nativeEvent.description ?? 'Failed to load');
             }}
             onHttpError={(e) => {
+              hasLoadedOnceRef.current = true;
               setWebLoading(false);
               setWebError(`HTTP ${e.nativeEvent.statusCode} — ${e.nativeEvent.url}`);
             }}
@@ -535,6 +543,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255, 255, 255, 0.88)',
     alignItems: 'center',
     justifyContent: 'center',
+    pointerEvents: 'none',
   },
 });
 

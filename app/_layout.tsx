@@ -94,7 +94,9 @@ export default function RootLayout() {
             name="app/[id]"
             options={{
               headerShown: false,
-              presentation: 'fullScreenModal',
+              presentation: 'card',
+              gestureEnabled: true,
+              animation: 'slide_from_right',
             }}
           />
         </Stack>
