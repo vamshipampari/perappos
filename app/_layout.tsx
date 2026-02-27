@@ -53,6 +53,13 @@ const initializeDatabase = async (db: import('expo-sqlite').SQLiteDatabase) => {
     );
   `);
 
+  // Add bundle_html column if it doesn't exist yet (migration for existing DBs).
+  try {
+    await db.execAsync('ALTER TABLE apps ADD COLUMN bundle_html TEXT');
+  } catch {
+    // Column already exists — safe to ignore.
+  }
+
   await seedDemoApps(db);
 };
 

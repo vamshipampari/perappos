@@ -14,8 +14,6 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import WebView from 'react-native-webview';
 
-import * as FileSystem from 'expo-file-system/legacy';
-
 import { useDatabase } from '@/hooks/useDatabase';
 import type { InstalledApp } from '@/hooks/useInstalledApps';
 import { handleVaultMessage } from '@/lib/vaultBridge';
@@ -70,19 +68,9 @@ export default function AppScreen() {
           id
         ).catch(() => {});
 
-        // For local bundles, read HTML into memory so we can pass it directly
-        // to WebView instead of using a file:// URI (avoids iOS WKWebView
-        // file-access restrictions on iOS 16+).
-        if (foundApp.source_type !== 'url') {
-          try {
-            const html = await FileSystem.readAsStringAsync(
-              `file://${foundApp.bundle_path}/index.html`,
-              { encoding: FileSystem.EncodingType.UTF8 }
-            );
-            setBundleHtml(html);
-          } catch (e) {
-            console.warn('[AppScreen] Could not read bundle HTML, falling back to file URI', e);
-          }
+        // Use HTML stored in DB (avoids iOS WKWebView file:// restrictions).
+        if (foundApp.bundle_html) {
+          setBundleHtml(foundApp.bundle_html);
         }
 
         setApp(foundApp);

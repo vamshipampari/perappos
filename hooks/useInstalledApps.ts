@@ -9,6 +9,7 @@ export interface InstalledApp {
   bundle_path: string;
   source_type: string;
   source_url: string | null;
+  bundle_html: string | null;
   bundle_hash: string | null;
   auto_update: number;
   permissions: string;
