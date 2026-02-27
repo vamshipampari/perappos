@@ -1,108 +1,556 @@
 import { router, useLocalSearchParams } from 'expo-router';
-import { useEffect, useRef } from 'react';
-import { ActivityIndicator, Text, TouchableOpacity, View } from 'react-native';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  ActivityIndicator,
+  Alert,
+  Modal,
+  Pressable,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import WebView from 'react-native-webview';
 
 import { useDatabase } from '@/hooks/useDatabase';
-import { useInstalledApps } from '@/hooks/useInstalledApps';
+import type { InstalledApp } from '@/hooks/useInstalledApps';
+import { handleVaultMessage } from '@/lib/vaultBridge';
+import { buildVaultShim } from '@/lib/vaultShim';
+
+// ── Types ─────────────────────────────────────────────────────────────────────
+
+type Phase = 'loading' | 'ready' | 'not_found';
+
+// ── Screen ────────────────────────────────────────────────────────────────────
 
 export default function AppScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const db = useDatabase();
-  const { apps, recordOpen } = useInstalledApps();
   const webViewRef = useRef<WebView>(null);
 
-  const app = apps.find((a) => a.app_id === id);
+  const [phase, setPhase] = useState<Phase>('loading');
+  const [app, setApp] = useState<InstalledApp | null>(null);
+  const [shimJS, setShimJS] = useState('');
+  const [webLoading, setWebLoading] = useState(true);
+  const [webError, setWebError] = useState<string | null>(null);
+  const [menuVisible, setMenuVisible] = useState(false);
 
+  // ── Initial load: fetch app row + all KV data from SQLite ─────────────────
   useEffect(() => {
-    if (id) {
-      recordOpen(id);
-    }
-  }, [id]);
+    if (!id) return;
+    (async () => {
+      try {
+        const [foundApp, kvRows] = await Promise.all([
+          db.getFirstAsync<InstalledApp>('SELECT * FROM apps WHERE app_id = ?', id),
+          db.getAllAsync<{ key: string; value: string }>(
+            'SELECT key, value FROM app_data WHERE app_id = ?',
+            id
+          ),
+        ]);
 
-  if (!app) {
+        if (!foundApp) {
+          setPhase('not_found');
+          return;
+        }
+
+        // Build preloaded KV map — embedded in shim so reads are synchronous
+        const preloadedKV: Record<string, string> = {};
+        for (const row of kvRows) preloadedKV[row.key] = row.value;
+
+        // Record open (non-blocking)
+        db.runAsync(
+          `UPDATE apps SET last_opened = datetime('now'), open_count = open_count + 1
+           WHERE app_id = ?`,
+          id
+        ).catch(() => {});
+
+        setApp(foundApp);
+        setShimJS(buildVaultShim(foundApp.app_id, preloadedKV));
+        setPhase('ready');
+      } catch (e) {
+        console.error('[AppScreen] load error:', e);
+        setPhase('not_found');
+      }
+    })();
+  }, [id, db]);
+
+  // ── Bridge: WebView → native ──────────────────────────────────────────────
+  const handleMessage = useCallback(
+    async (event: { nativeEvent: { data: string } }) => {
+      if (!app) return;
+      await handleVaultMessage(event.nativeEvent.data, db, webViewRef, {
+        app_id: app.app_id,
+        name: app.name,
+        source_url: app.source_url,
+        installed_at: app.installed_at,
+        open_count: app.open_count,
+      });
+    },
+    [db, app]
+  );
+
+  // ── Menu actions ──────────────────────────────────────────────────────────
+
+  const handleRefresh = useCallback(() => {
+    setMenuVisible(false);
+    setWebError(null);
+    setWebLoading(true);
+    webViewRef.current?.reload();
+  }, []);
+
+  const handleCheckUpdate = useCallback(() => {
+    setMenuVisible(false);
+    Alert.alert(
+      app?.source_type === 'url' ? 'Always Up to Date' : 'No Updates',
+      app?.source_type === 'url'
+        ? "This app loads directly from its source URL — it's always current."
+        : 'No update mechanism configured for this app.',
+      [{ text: 'OK' }]
+    );
+  }, [app]);
+
+  const handleAppInfo = useCallback(async () => {
+    if (!app) return;
+    setMenuVisible(false);
+    try {
+      const countRow = await db.getFirstAsync<{ n: number }>(
+        'SELECT COUNT(*) AS n FROM app_data WHERE app_id = ?',
+        app.app_id
+      );
+      const entries = countRow?.n ?? 0;
+      const installed = new Date(app.installed_at).toLocaleDateString(undefined, {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+      });
+      Alert.alert(
+        app.name,
+        [
+          `Source: ${app.source_url ?? app.bundle_path}`,
+          `Type: ${app.source_type === 'url' ? 'Web URL' : 'Local bundle'}`,
+          `Installed: ${installed}`,
+          `Opened: ${app.open_count} time${app.open_count === 1 ? '' : 's'}`,
+          `Stored data: ${entries} entr${entries === 1 ? 'y' : 'ies'}`,
+        ].join('\n'),
+        [{ text: 'OK' }]
+      );
+    } catch {
+      // non-critical
+    }
+  }, [app, db]);
+
+  const handleDelete = useCallback(() => {
+    if (!app) return;
+    setMenuVisible(false);
+    Alert.alert(
+      `Delete "${app.name}"?`,
+      'This will permanently remove the app and all its stored data.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await db.runAsync('DELETE FROM app_data WHERE app_id = ?', app.app_id);
+              await db.runAsync('DELETE FROM apps WHERE app_id = ?', app.app_id);
+            } catch {
+              // ignore
+            }
+            router.back();
+          },
+        },
+      ]
+    );
+  }, [app, db]);
+
+  // ── Render: initial loading ───────────────────────────────────────────────
+
+  if (phase === 'loading') {
     return (
-      <SafeAreaView style={{ flex: 1, backgroundColor: '#FFFFFF' }}>
-        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12 }}>
-          <Text style={{ fontSize: 20, fontWeight: '600', color: '#1C1C1E' }}>App not found</Text>
-          <TouchableOpacity onPress={() => router.back()}>
-            <Text style={{ fontSize: 16, color: '#007AFF' }}>Go back</Text>
-          </TouchableOpacity>
-        </View>
+      <View style={styles.center}>
+        <ActivityIndicator size="large" color="#007AFF" />
+      </View>
+    );
+  }
+
+  if (phase === 'not_found' || !app) {
+    return (
+      <SafeAreaView style={styles.center}>
+        <Text style={styles.errorTitle}>App not found</Text>
+        <TouchableOpacity onPress={() => router.back()}>
+          <Text style={styles.link}>Go back</Text>
+        </TouchableOpacity>
       </SafeAreaView>
     );
   }
 
-  const uri = app.source_url ?? `file://${app.bundle_path}/index.html`;
+  // ── Render: viewer ────────────────────────────────────────────────────────
+
+  const webViewSource =
+    app.source_type === 'url' && app.source_url
+      ? { uri: app.source_url }
+      : { uri: `file://${app.bundle_path}/index.html` };
 
   return (
-    <View style={{ flex: 1, backgroundColor: '#000000' }}>
-      {/* Header bar */}
-      <SafeAreaView edges={['top']} style={{ backgroundColor: '#1C1C1E' }}>
-        <View
-          style={{
-            flexDirection: 'row',
-            alignItems: 'center',
-            paddingHorizontal: 16,
-            paddingVertical: 10,
-            gap: 12,
-          }}
+    <SafeAreaView style={styles.root} edges={['top']}>
+      {/* ── Header bar ──────────────────────────────────────────────────── */}
+      <View style={styles.header}>
+        <TouchableOpacity
+          onPress={() => router.back()}
+          hitSlop={10}
+          style={styles.headerBtn}
         >
-          <TouchableOpacity onPress={() => router.back()} hitSlop={8}>
-            <Text style={{ fontSize: 17, color: '#007AFF' }}>✕</Text>
-          </TouchableOpacity>
+          <Text style={styles.headerBtnText}>←</Text>
+        </TouchableOpacity>
+
+        {/* App identity */}
+        <View style={styles.headerCenter}>
           <View
-            style={{
-              width: 28,
-              height: 28,
-              borderRadius: 7,
-              backgroundColor: app.icon_bg_color,
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
+            style={[styles.headerIcon, { backgroundColor: app.icon_bg_color }]}
           >
-            <Text style={{ fontSize: 14 }}>{app.icon_emoji}</Text>
+            <Text style={{ fontSize: 12 }}>{app.icon_emoji}</Text>
           </View>
-          <Text
-            style={{ flex: 1, fontSize: 16, fontWeight: '600', color: '#FFFFFF' }}
-            numberOfLines={1}
-          >
+          <Text style={styles.headerTitle} numberOfLines={1}>
             {app.name}
           </Text>
-          <TouchableOpacity
-            onPress={() => webViewRef.current?.reload()}
-            hitSlop={8}
-          >
-            <Text style={{ fontSize: 17, color: '#007AFF' }}>↻</Text>
-          </TouchableOpacity>
         </View>
-      </SafeAreaView>
 
-      {/* WebView */}
-      <WebView
-        ref={webViewRef}
-        source={{ uri }}
-        style={{ flex: 1 }}
-        startInLoadingState
-        renderLoading={() => (
-          <View
-            style={{
-              position: 'absolute',
-              inset: 0,
-              alignItems: 'center',
-              justifyContent: 'center',
-              backgroundColor: '#FFFFFF',
+        <TouchableOpacity
+          onPress={() => setMenuVisible(true)}
+          hitSlop={10}
+          style={[styles.headerBtn, styles.headerBtnRight]}
+        >
+          <Text style={styles.menuDots}>•••</Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* ── WebView + overlays ──────────────────────────────────────────── */}
+      <View style={styles.webContainer}>
+        {webError ? (
+          <View style={styles.center}>
+            <Text style={{ fontSize: 36, marginBottom: 16 }}>⚠️</Text>
+            <Text style={styles.errorTitle}>Couldn't load this app</Text>
+            <Text style={styles.errorDetail}>{webError}</Text>
+            <TouchableOpacity onPress={handleRefresh} style={styles.retryBtn}>
+              <Text style={styles.retryBtnText}>Retry</Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <WebView
+            ref={webViewRef}
+            source={webViewSource}
+            style={styles.webView}
+            /* Shim: runs before any page script — makes localStorage sync */
+            injectedJavaScriptBeforeContentLoaded={shimJS}
+            onMessage={handleMessage}
+            /* Permissions */
+            javaScriptEnabled
+            domStorageEnabled
+            allowFileAccess
+            allowFileAccessFromFileURLs
+            allowUniversalAccessFromFileURLs={false}
+            originWhitelist={['*']}
+            /* Media */
+            allowsInlineMediaPlayback
+            mediaPlaybackRequiresUserAction={false}
+            /* Loading / error */
+            onLoadStart={() => {
+              setWebLoading(true);
+              setWebError(null);
             }}
-          >
+            onLoadEnd={() => setWebLoading(false)}
+            onError={(e) => {
+              setWebLoading(false);
+              setWebError(e.nativeEvent.description ?? 'Failed to load');
+            }}
+            onHttpError={(e) => {
+              setWebLoading(false);
+              setWebError(`HTTP ${e.nativeEvent.statusCode} — ${e.nativeEvent.url}`);
+            }}
+          />
+        )}
+
+        {/* Loading spinner — sits above the WebView until it finishes */}
+        {webLoading && !webError && (
+          <View style={styles.loadingOverlay}>
             <ActivityIndicator size="large" color="#007AFF" />
           </View>
         )}
-        allowsInlineMediaPlayback
-        mediaPlaybackRequiresUserAction={false}
-        javaScriptEnabled
-        domStorageEnabled
+      </View>
+
+      {/* ── Three-dot action sheet ──────────────────────────────────────── */}
+      <ActionSheet
+        visible={menuVisible}
+        title={app.name}
+        onDismiss={() => setMenuVisible(false)}
+        actions={[
+          { label: 'Refresh', onPress: handleRefresh },
+          { label: 'Check for Update', onPress: handleCheckUpdate },
+          { label: 'App Info', onPress: handleAppInfo },
+        ]}
+        destructiveActions={[
+          { label: 'Delete App', onPress: handleDelete },
+        ]}
       />
-    </View>
+    </SafeAreaView>
   );
 }
+
+// ── ActionSheet ───────────────────────────────────────────────────────────────
+// Cross-platform iOS-style bottom action sheet using Modal.
+
+interface SheetAction {
+  label: string;
+  onPress: () => void;
+}
+
+function ActionSheet({
+  visible,
+  title,
+  actions,
+  destructiveActions = [],
+  onDismiss,
+}: {
+  visible: boolean;
+  title: string;
+  actions: SheetAction[];
+  destructiveActions?: SheetAction[];
+  onDismiss: () => void;
+}) {
+  return (
+    <Modal
+      visible={visible}
+      transparent
+      animationType="slide"
+      statusBarTranslucent
+      onRequestClose={onDismiss}
+    >
+      <View style={sheet.wrapper}>
+        {/* Tap-away backdrop */}
+        <Pressable style={StyleSheet.absoluteFill} onPress={onDismiss} />
+
+        <View style={sheet.container}>
+          {/* Title card */}
+          <View style={sheet.group}>
+            <View style={sheet.titleRow}>
+              <Text style={sheet.titleText} numberOfLines={1}>
+                {title}
+              </Text>
+            </View>
+          </View>
+
+          {/* Normal actions */}
+          <View style={sheet.group}>
+            {actions.map((action, i) => (
+              <View key={action.label}>
+                <TouchableOpacity
+                  onPress={action.onPress}
+                  activeOpacity={0.55}
+                  style={sheet.row}
+                >
+                  <Text style={sheet.rowText}>{action.label}</Text>
+                </TouchableOpacity>
+                {i < actions.length - 1 && <View style={sheet.separator} />}
+              </View>
+            ))}
+          </View>
+
+          {/* Destructive actions */}
+          {destructiveActions.length > 0 && (
+            <View style={sheet.group}>
+              {destructiveActions.map((action, i) => (
+                <View key={action.label}>
+                  <TouchableOpacity
+                    onPress={action.onPress}
+                    activeOpacity={0.55}
+                    style={sheet.row}
+                  >
+                    <Text style={[sheet.rowText, sheet.destructiveText]}>
+                      {action.label}
+                    </Text>
+                  </TouchableOpacity>
+                  {i < destructiveActions.length - 1 && (
+                    <View style={sheet.separator} />
+                  )}
+                </View>
+              ))}
+            </View>
+          )}
+
+          {/* Cancel */}
+          <View style={sheet.group}>
+            <TouchableOpacity
+              onPress={onDismiss}
+              activeOpacity={0.55}
+              style={sheet.row}
+            >
+              <Text style={[sheet.rowText, sheet.cancelText]}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+// ── Styles ────────────────────────────────────────────────────────────────────
+
+const styles = StyleSheet.create({
+  root: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+  },
+  center: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FFFFFF',
+    gap: 12,
+    padding: 24,
+  },
+  errorTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#1C1C1E',
+    textAlign: 'center',
+  },
+  errorDetail: {
+    fontSize: 13,
+    color: '#8E8E93',
+    textAlign: 'center',
+    lineHeight: 18,
+  },
+  link: {
+    fontSize: 16,
+    color: '#007AFF',
+  },
+  retryBtn: {
+    marginTop: 8,
+    backgroundColor: '#007AFF',
+    borderRadius: 10,
+    paddingHorizontal: 28,
+    paddingVertical: 12,
+  },
+  retryBtnText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+
+  // Header
+  header: {
+    height: 44,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderBottomWidth: 0.5,
+    borderBottomColor: '#E5E5EA',
+    paddingHorizontal: 4,
+  },
+  headerBtn: {
+    width: 44,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  headerBtnRight: {
+    alignItems: 'flex-end',
+    paddingRight: 10,
+  },
+  headerBtnText: {
+    fontSize: 22,
+    color: '#007AFF',
+    lineHeight: 26,
+  },
+  headerCenter: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingHorizontal: 4,
+  },
+  headerIcon: {
+    width: 22,
+    height: 22,
+    borderRadius: 5,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  headerTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#1C1C1E',
+    flexShrink: 1,
+  },
+  menuDots: {
+    fontSize: 16,
+    color: '#007AFF',
+    letterSpacing: 1.5,
+    lineHeight: 20,
+  },
+
+  // WebView layer
+  webContainer: {
+    flex: 1,
+  },
+  webView: {
+    flex: 1,
+  },
+  loadingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(255, 255, 255, 0.88)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+});
+
+const sheet = StyleSheet.create({
+  wrapper: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    backgroundColor: 'rgba(0,0,0,0.35)',
+  },
+  container: {
+    paddingHorizontal: 8,
+    paddingBottom: 34, // accommodate home indicator
+    gap: 8,
+  },
+  group: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 13,
+    overflow: 'hidden',
+  },
+  titleRow: {
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    alignItems: 'center',
+  },
+  titleText: {
+    fontSize: 13,
+    color: '#8E8E93',
+    fontWeight: '500',
+  },
+  row: {
+    paddingVertical: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  rowText: {
+    fontSize: 17,
+    color: '#007AFF',
+  },
+  destructiveText: {
+    color: '#FF3B30',
+  },
+  cancelText: {
+    fontWeight: '600',
+  },
+  separator: {
+    height: 0.5,
+    backgroundColor: '#E5E5EA',
+    marginLeft: 0,
+  },
+});

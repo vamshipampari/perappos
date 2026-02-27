@@ -1,4 +1,4 @@
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { useCallback } from 'react';
 import { FlatList, Pressable, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -164,7 +164,15 @@ function FAB() {
 }
 
 export default function HomeScreen() {
-  const { apps, loading } = useInstalledApps();
+  const { apps, loading, refresh } = useInstalledApps();
+
+  // Re-query whenever the tab comes into focus (e.g. after deleting an app
+  // in the viewer screen and navigating back).
+  useFocusEffect(
+    useCallback(() => {
+      refresh();
+    }, [refresh])
+  );
 
   const renderItem = useCallback(
     ({ item }: { item: InstalledApp }) => <AppGridItem app={item} />,
