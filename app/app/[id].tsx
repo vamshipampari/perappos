@@ -14,6 +14,8 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import WebView from 'react-native-webview';
 
+import * as FileSystem from 'expo-file-system/legacy';
+
 import { useDatabase } from '@/hooks/useDatabase';
 import type { InstalledApp } from '@/hooks/useInstalledApps';
 import { handleVaultMessage } from '@/lib/vaultBridge';
@@ -33,6 +35,7 @@ export default function AppScreen() {
   const [phase, setPhase] = useState<Phase>('loading');
   const [app, setApp] = useState<InstalledApp | null>(null);
   const [shimJS, setShimJS] = useState('');
+  const [bundleHtml, setBundleHtml] = useState<string | null>(null);
   const [webLoading, setWebLoading] = useState(true);
   const [webError, setWebError] = useState<string | null>(null);
   const [menuVisible, setMenuVisible] = useState(false);
@@ -66,6 +69,21 @@ export default function AppScreen() {
            WHERE app_id = ?`,
           id
         ).catch(() => {});
+
+        // For local bundles, read HTML into memory so we can pass it directly
+        // to WebView instead of using a file:// URI (avoids iOS WKWebView
+        // file-access restrictions on iOS 16+).
+        if (foundApp.source_type !== 'url') {
+          try {
+            const html = await FileSystem.readAsStringAsync(
+              `file://${foundApp.bundle_path}/index.html`,
+              { encoding: FileSystem.EncodingType.UTF8 }
+            );
+            setBundleHtml(html);
+          } catch (e) {
+            console.warn('[AppScreen] Could not read bundle HTML, falling back to file URI', e);
+          }
+        }
 
         setApp(foundApp);
         setShimJS(buildVaultShim(foundApp.app_id, preloadedKV));
@@ -203,10 +221,14 @@ export default function AppScreen() {
 
   // ── Render: viewer ────────────────────────────────────────────────────────
 
+  // Prefer in-memory HTML for local bundles — avoids iOS WKWebView file://
+  // restrictions. Falls back to file:// URI if the read failed.
   const webViewSource =
     app.source_type === 'url' && app.source_url
       ? { uri: app.source_url }
-      : { uri: `file://${app.bundle_path}/index.html` };
+      : bundleHtml
+        ? { html: bundleHtml, baseUrl: '' }
+        : { uri: `file://${app.bundle_path}/index.html` };
 
   return (
     <SafeAreaView style={styles.root} edges={['top', 'bottom']}>
