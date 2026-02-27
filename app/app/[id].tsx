@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  BackHandler,
   Modal,
   Pressable,
   StyleSheet,
@@ -35,6 +36,7 @@ export default function AppScreen() {
   const [webLoading, setWebLoading] = useState(true);
   const [webError, setWebError] = useState<string | null>(null);
   const [menuVisible, setMenuVisible] = useState(false);
+  const [webCanGoBack, setWebCanGoBack] = useState(false);
 
   // ── Initial load: fetch app row + all KV data from SQLite ─────────────────
   useEffect(() => {
@@ -89,6 +91,19 @@ export default function AppScreen() {
     },
     [db, app]
   );
+
+  // ── Android hardware back button ─────────────────────────────────────────
+  useEffect(() => {
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (webCanGoBack) {
+        webViewRef.current?.goBack();
+      } else {
+        router.back();
+      }
+      return true; // always consume — we handle it ourselves
+    });
+    return () => sub.remove();
+  }, [webCanGoBack]);
 
   // ── Menu actions ──────────────────────────────────────────────────────────
 
@@ -194,7 +209,7 @@ export default function AppScreen() {
       : { uri: `file://${app.bundle_path}/index.html` };
 
   return (
-    <SafeAreaView style={styles.root} edges={['top']}>
+    <SafeAreaView style={styles.root} edges={['top', 'bottom']}>
       {/* ── Header bar ──────────────────────────────────────────────────── */}
       <View style={styles.header}>
         <TouchableOpacity
@@ -256,6 +271,7 @@ export default function AppScreen() {
             allowsInlineMediaPlayback
             mediaPlaybackRequiresUserAction={false}
             /* Loading / error */
+            onNavigationStateChange={(navState) => setWebCanGoBack(navState.canGoBack)}
             onLoadStart={() => {
               setWebLoading(true);
               setWebError(null);
