@@ -6,6 +6,8 @@ import { SQLiteProvider } from 'expo-sqlite';
 import { Suspense, useEffect } from 'react';
 import { ActivityIndicator, View } from 'react-native';
 
+import { seedDemoApps } from '@/utils/createDemoApp';
+
 SplashScreen.preventAutoHideAsync();
 
 const DB_NAME = 'perappos.db';
@@ -50,6 +52,8 @@ const initializeDatabase = async (db: import('expo-sqlite').SQLiteDatabase) => {
       PRIMARY KEY (category, key)
     );
   `);
+
+  await seedDemoApps(db);
 };
 
 export default function RootLayout() {

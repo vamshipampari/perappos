@@ -1,5 +1,5 @@
 import { router, useFocusEffect } from 'expo-router';
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback } from 'react';
 import { FlatList, Pressable, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Animated, {
@@ -8,9 +8,7 @@ import Animated, {
   withSpring,
 } from 'react-native-reanimated';
 
-import { useDatabase } from '@/hooks/useDatabase';
 import { useInstalledApps, InstalledApp } from '@/hooks/useInstalledApps';
-import { seedDemoApps } from '@/lib/demoApps';
 
 const NUM_COLUMNS = 3;
 const ITEM_HORIZONTAL_PADDING = 16;
@@ -167,16 +165,6 @@ function FAB() {
 
 export default function HomeScreen() {
   const { apps, loading, refresh } = useInstalledApps();
-  const db = useDatabase();
-  const seeded = useRef(false);
-
-  // On first load, if no apps exist, seed the demo apps then refresh.
-  useEffect(() => {
-    if (!loading && apps.length === 0 && !seeded.current) {
-      seeded.current = true;
-      seedDemoApps(db).then(() => refresh());
-    }
-  }, [loading, apps.length, db, refresh]);
 
   // Re-query whenever the tab comes into focus (e.g. after deleting an app
   // in the viewer screen and navigating back).
