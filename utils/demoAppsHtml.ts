@@ -846,3 +846,11 @@ init();
 </script>
 </body>
 </html>`;
+
+// Lookup map used by the viewer as a fallback when bundle_html is missing
+// from the DB (e.g. records created before the column was added).
+export const DEMO_HTML_BY_NAME: Record<string, string> = {
+  'Workout Log': WORKOUT_LOG_HTML,
+  'Daily Habits': DAILY_HABITS_HTML,
+  'Expense Snap': EXPENSE_SNAP_HTML,
+};

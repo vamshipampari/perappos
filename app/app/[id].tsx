@@ -18,6 +18,7 @@ import { useDatabase } from '@/hooks/useDatabase';
 import type { InstalledApp } from '@/hooks/useInstalledApps';
 import { handleVaultMessage } from '@/lib/vaultBridge';
 import { buildVaultShim } from '@/lib/vaultShim';
+import { DEMO_HTML_BY_NAME } from '@/utils/demoAppsHtml';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -68,10 +69,14 @@ export default function AppScreen() {
           id
         ).catch(() => {});
 
-        // Use HTML stored in DB (avoids iOS WKWebView file:// restrictions).
-        if (foundApp.bundle_html) {
-          setBundleHtml(foundApp.bundle_html);
-        }
+        // Resolve HTML to pass directly to WebView — avoids iOS WKWebView
+        // file:// restrictions. Priority:
+        //   1. bundle_html column (set for all new/backfilled demo records)
+        //   2. Known demo HTML by name (fallback for pre-migration records)
+        const html =
+          foundApp.bundle_html ??
+          (foundApp.source_type !== 'url' ? DEMO_HTML_BY_NAME[foundApp.name] ?? null : null);
+        if (html) setBundleHtml(html);
 
         setApp(foundApp);
         setShimJS(buildVaultShim(foundApp.app_id, preloadedKV));
