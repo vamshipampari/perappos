@@ -1,4 +1,5 @@
 import { router, useLocalSearchParams } from 'expo-router';
+import * as FileSystem from 'expo-file-system/legacy';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -70,14 +71,29 @@ export default function AppScreen() {
           id
         ).catch(() => {});
 
-        // Resolve HTML to pass directly to WebView — avoids iOS WKWebView
-        // file:// restrictions. Priority:
-        //   1. bundle_html column (set for all new/backfilled demo records)
-        //   2. Known demo HTML by name (fallback for pre-migration records)
-        const html =
-          foundApp.bundle_html ??
-          (foundApp.source_type !== 'url' ? DEMO_HTML_BY_NAME[foundApp.name] ?? null : null);
-        if (html) setBundleHtml(html);
+        if (foundApp.source_type !== 'url') {
+          const normalized = foundApp.bundle_path.replace(/^file:\/\//, '').replace(/\/$/, '');
+          const htmlPath = normalized.toLowerCase().endsWith('.html')
+            ? normalized
+            : `${normalized}/index.html`;
+
+          let html: string | null = null;
+          try {
+            html = await FileSystem.readAsStringAsync(htmlPath, {
+              encoding: FileSystem.EncodingType.UTF8,
+            });
+          } catch {
+            // Fallback for legacy demo rows or missing bundle files.
+            html =
+              foundApp.bundle_html ??
+              (foundApp.source_type === 'demo'
+                ? DEMO_HTML_BY_NAME[foundApp.name] ?? null
+                : null);
+          }
+          if (html) setBundleHtml(html);
+        } else {
+          setBundleHtml(null);
+        }
 
         setApp(foundApp);
         setShimJS(buildVaultShim(foundApp.app_id, preloadedKV));
@@ -216,14 +232,15 @@ export default function AppScreen() {
 
   // ── Render: viewer ────────────────────────────────────────────────────────
 
-  // Prefer in-memory HTML for local bundles — avoids iOS WKWebView file://
-  // restrictions. Falls back to file:// URI if the read failed.
+  // Source resolution for v1:
+  //   'url' + source_url → load live from internet (online mode)
+  //   everything else     → load local HTML string (local mode)
   const webViewSource =
     app.source_type === 'url' && app.source_url
       ? { uri: app.source_url }
       : bundleHtml
-        ? { html: bundleHtml, baseUrl: '' }
-        : { uri: `file://${app.bundle_path}/index.html` };
+        ? { html: bundleHtml, baseUrl: '' as const }
+        : { html: '<!doctype html><html><body></body></html>', baseUrl: '' as const };
 
   return (
     <SafeAreaView style={styles.root} edges={['top', 'bottom']}>
@@ -282,7 +299,7 @@ export default function AppScreen() {
             domStorageEnabled
             allowFileAccess
             allowFileAccessFromFileURLs
-            allowUniversalAccessFromFileURLs={false}
+            allowUniversalAccessFromFileURLs
             originWhitelist={['*']}
             /* Media */
             allowsInlineMediaPlayback
