@@ -1,8 +1,9 @@
 import * as Crypto from 'expo-crypto';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
-import { Stack, router } from 'expo-router';
-import { useState } from 'react';
+import * as Haptics from 'expo-haptics';
+import { Stack, router, useLocalSearchParams } from 'expo-router';
+import { Component, type ErrorInfo, type ReactNode, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -17,6 +18,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { useToast } from '@/components/Toast';
 import { useDatabase } from '@/hooks/useDatabase';
 import { useInstalledApps } from '@/hooks/useInstalledApps';
 
@@ -275,8 +277,69 @@ async function extractAndBundle(
 // ── Screen ────────────────────────────────────────────────────────────────────
 
 export default function AddScreen() {
+  return (
+    <AddScreenErrorBoundary>
+      <AddScreenContent />
+    </AddScreenErrorBoundary>
+  );
+}
+
+interface AddScreenErrorBoundaryProps {
+  children: ReactNode;
+}
+
+interface AddScreenErrorBoundaryState {
+  hasError: boolean;
+}
+
+class AddScreenErrorBoundary extends Component<
+  AddScreenErrorBoundaryProps,
+  AddScreenErrorBoundaryState
+> {
+  state: AddScreenErrorBoundaryState = { hasError: false };
+
+  static getDerivedStateFromError(): AddScreenErrorBoundaryState {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    console.error('[AddScreen] Unhandled render error:', error, info);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <SafeAreaView style={styles.boundaryRoot} edges={['bottom']}>
+          <View style={styles.boundaryCard}>
+            <Text style={styles.boundaryTitle}>Something went wrong</Text>
+            <Text style={styles.boundaryBody}>
+              Please reopen Add App and try again.
+            </Text>
+            <TouchableOpacity
+              onPress={() => router.back()}
+              activeOpacity={0.8}
+              style={styles.boundaryBtn}
+            >
+              <Text style={styles.boundaryBtnText}>Go Back</Text>
+            </TouchableOpacity>
+          </View>
+        </SafeAreaView>
+      );
+    }
+
+    return this.props.children;
+  }
+}
+
+function AddScreenContent() {
+  const params = useLocalSearchParams<{ replace_app_id?: string; replace_url?: string }>();
   const db = useDatabase();
   const { refresh } = useInstalledApps();
+  const { showToast } = useToast();
+  const replaceAppId =
+    typeof params.replace_app_id === 'string' ? params.replace_app_id : null;
+  const replaceUrlParam =
+    typeof params.replace_url === 'string' ? params.replace_url : null;
 
   const [step, setStep] = useState<Step>('input');
   const [url, setUrl] = useState('');
@@ -291,35 +354,69 @@ export default function AddScreen() {
 
   const platform = detectPlatform(url);
 
+  useEffect(() => {
+    if (replaceUrlParam && url.length === 0) {
+      setUrl(String(replaceUrlParam));
+    }
+  }, [replaceUrlParam, url.length]);
+
+  useEffect(() => {
+    if (!replaceAppId) return;
+    (async () => {
+      try {
+        const existing = await db.getFirstAsync<{
+          name: string;
+          icon_emoji: string;
+          icon_bg_color: string;
+          source_url: string | null;
+        }>('SELECT name, icon_emoji, icon_bg_color, source_url FROM apps WHERE app_id = ?', replaceAppId);
+        if (!existing) return;
+        setAppName(existing.name);
+        setSelectedEmoji(existing.icon_emoji ?? '📱');
+        setSelectedBg(existing.icon_bg_color ?? '#DBEAFE');
+        if (!replaceUrlParam && existing.source_url) {
+          setUrl(existing.source_url);
+        }
+      } catch {
+        // non-critical
+      }
+    })();
+  }, [db, replaceAppId, replaceUrlParam]);
+
   // ── Handlers ─────────────────────────────────────────────────────────────
 
   const handleAddFromUrl = async () => {
-    const trimmedUrl = url.trim();
-    if (!trimmedUrl.startsWith('http://') && !trimmedUrl.startsWith('https://')) {
-      Alert.alert('Invalid URL', 'Please enter a URL starting with http:// or https://');
-      return;
-    }
-
-    setError(null);
-    setStep('processing');
-    const appId = Crypto.randomUUID();
-
     try {
-      const metadata = await fetchUrlMetadata(trimmedUrl, setProcessingMsg);
-      setBundle({
-        appId,
-        html: null,
-        name: metadata.name,
-        hash: metadata.hash,
-        size: metadata.size,
-        sourceType: 'url',
-        sourceUrl: trimmedUrl,
-        bundlePath: '',
-      });
-      setAppName(metadata.name);
-      if (metadata.faviconUrl) setSelectedEmoji('🌐');
-      setStep('details');
+      const trimmedUrl = url.trim();
+      if (!trimmedUrl.startsWith('http://') && !trimmedUrl.startsWith('https://')) {
+        Alert.alert('Invalid URL', 'Please enter a URL starting with http:// or https://');
+        return;
+      }
+
+      setError(null);
+      setStep('processing');
+      const appId = replaceAppId ?? Crypto.randomUUID();
+
+      try {
+        const metadata = await fetchUrlMetadata(trimmedUrl, setProcessingMsg);
+        setBundle({
+          appId,
+          html: null,
+          name: metadata.name,
+          hash: metadata.hash,
+          size: metadata.size,
+          sourceType: 'url',
+          sourceUrl: trimmedUrl,
+          bundlePath: '',
+        });
+        setAppName(metadata.name);
+        if (metadata.faviconUrl) setSelectedEmoji('🌐');
+        setStep('details');
+      } catch (metadataError) {
+        throw metadataError;
+      }
     } catch (e) {
+      console.error('[AddScreen] URL import flow failed:', e);
       setError(e instanceof Error ? e.message : 'Failed to read app metadata');
       setStep('input');
     }
@@ -366,28 +463,58 @@ export default function AddScreen() {
     try {
       const finalName = appName.trim() || bundle.name || 'My App';
 
-      await db.runAsync(
-        `INSERT INTO apps
-           (app_id, name, icon_emoji, icon_bg_color, bundle_path, bundle_html,
-            source_type, source_url, bundle_hash, bundle_size, installed_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
-        bundle.appId,
-        finalName,
-        selectedEmoji,
-        selectedBg,
-        bundle.bundlePath,
-        bundle.html,     // local-mode HTML payload (null for URL apps)
-        bundle.sourceType,
-        bundle.sourceUrl ?? null,
-        bundle.hash,
-        bundle.size
-      );
+      if (replaceAppId) {
+        await db.runAsync(
+          `UPDATE apps
+              SET name = ?, icon_emoji = ?, icon_bg_color = ?, bundle_path = ?, bundle_html = ?,
+                  source_type = ?, source_url = ?, bundle_hash = ?, bundle_size = ?,
+                  updated_at = datetime('now')
+            WHERE app_id = ?`,
+          finalName,
+          selectedEmoji,
+          selectedBg,
+          bundle.bundlePath,
+          bundle.html,     // local-mode HTML payload (null for URL apps)
+          bundle.sourceType,
+          bundle.sourceUrl ?? null,
+          bundle.hash,
+          bundle.size,
+          replaceAppId
+        );
+      } else {
+        await db.runAsync(
+          `INSERT INTO apps
+             (app_id, name, icon_emoji, icon_bg_color, bundle_path, bundle_html,
+              source_type, source_url, bundle_hash, bundle_size, installed_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
+          bundle.appId,
+          finalName,
+          selectedEmoji,
+          selectedBg,
+          bundle.bundlePath,
+          bundle.html,     // local-mode HTML payload (null for URL apps)
+          bundle.sourceType,
+          bundle.sourceUrl ?? null,
+          bundle.hash,
+          bundle.size
+        );
+      }
 
       await refresh();
-      router.back();
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      showToast(replaceAppId ? 'App updated ✓' : 'App installed ✓', 'success');
+      setTimeout(() => {
+        try {
+          router.back();
+        } catch (navErr) {
+          console.error('[AddScreen] router.back() failed after install:', navErr);
+          router.push('/(tabs)');
+        }
+      }, 300);
     } catch {
       setStep('details');
-      Alert.alert('Error', 'Failed to install app. Please try again.');
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      showToast('Could not install app', 'error');
     }
   };
 
@@ -410,6 +537,9 @@ export default function AddScreen() {
       />
 
       <SafeAreaView edges={['bottom']} style={styles.root}>
+        {/* ── Drag handle (iOS sheet indicator) ──────────────────────────── */}
+        <View style={styles.dragHandle} />
+
         {/* ── Processing overlay ─────────────────────────────────────────── */}
         {step === 'processing' && (
           <View style={styles.processingOverlay}>
@@ -502,7 +632,9 @@ export default function AddScreen() {
                           url.trim().length === 0 && styles.primaryBtnDisabled,
                         ]}
                       >
-                        <Text style={styles.primaryBtnText}>Add App</Text>
+                        <Text style={styles.primaryBtnText}>
+                          {replaceAppId ? 'Prepare Replacement' : 'Add App'}
+                        </Text>
                       </TouchableOpacity>
                     )}
                   </View>
@@ -619,7 +751,9 @@ export default function AddScreen() {
                     {step === 'installing' ? (
                       <ActivityIndicator size="small" color="#FFFFFF" />
                     ) : (
-                      <Text style={styles.primaryBtnText}>Install App</Text>
+                      <Text style={styles.primaryBtnText}>
+                        {replaceAppId ? 'Replace App Code' : 'Install App'}
+                      </Text>
                     )}
                   </TouchableOpacity>
                 </View>
@@ -638,6 +772,54 @@ const styles = StyleSheet.create({
   root: {
     flex: 1,
     backgroundColor: '#F2F2F7',
+  },
+  dragHandle: {
+    width: 36,
+    height: 5,
+    borderRadius: 2.5,
+    backgroundColor: '#D1D1D6',
+    alignSelf: 'center',
+    marginTop: 8,
+    marginBottom: 4,
+  },
+  boundaryRoot: {
+    flex: 1,
+    backgroundColor: '#F2F2F7',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 20,
+  },
+  boundaryCard: {
+    width: '100%',
+    maxWidth: 360,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
+    padding: 16,
+    alignItems: 'center',
+    gap: 10,
+  },
+  boundaryTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#1C1C1E',
+  },
+  boundaryBody: {
+    fontSize: 14,
+    lineHeight: 20,
+    color: '#3C3C43',
+    textAlign: 'center',
+  },
+  boundaryBtn: {
+    marginTop: 6,
+    backgroundColor: '#007AFF',
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+  },
+  boundaryBtnText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
   },
 
   cancelBtn: {

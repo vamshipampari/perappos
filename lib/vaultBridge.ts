@@ -14,6 +14,7 @@ import * as Notifications from 'expo-notifications';
 import * as Sharing from 'expo-sharing';
 import type { SQLiteDatabase } from 'expo-sqlite';
 import type { RefObject } from 'react';
+import { Share } from 'react-native';
 import type WebView from 'react-native-webview';
 
 type WebViewRef = RefObject<WebView | null>;
@@ -38,7 +39,9 @@ interface RawMessage {
   title?: string;
   body?: string;
   url?: string;
+  text?: string;     // plain-text content for device_share
   message?: string;
+  delay_seconds?: number;
   [k: string]: unknown;
 }
 
@@ -169,23 +172,44 @@ export async function handleVaultMessage(
         break;
       }
 
-      case 'device_notify':
+      case 'device_notify': {
+        // Request permission if not already granted
+        const { granted } = await Notifications.getPermissionsAsync();
+        if (!granted) {
+          const { granted: newGranted } = await Notifications.requestPermissionsAsync();
+          if (!newGranted) {
+            respond(false, 'Notification permission denied');
+            break;
+          }
+        }
+        const delay = typeof msg.delay_seconds === 'number' && msg.delay_seconds > 0
+          ? msg.delay_seconds
+          : null;
         await Notifications.scheduleNotificationAsync({
           content: {
             title: String(msg.title ?? 'Notification'),
             body: String(msg.body ?? ''),
           },
-          trigger: null,
+          trigger: delay
+            ? { type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL, seconds: delay, repeats: false }
+            : null,
         });
         respond(true);
         break;
+      }
 
       case 'device_share': {
-        const canShare = await Sharing.isAvailableAsync();
-        if (canShare && (msg.url || msg.message)) {
-          await Sharing.shareAsync(String(msg.url ?? msg.message ?? ''), {
-            dialogTitle: msg.title ? String(msg.title) : undefined,
-          });
+        const shareUrl = msg.url ? String(msg.url) : null;
+        const shareText = msg.text ? String(msg.text) : (msg.message ? String(msg.message) : null);
+        if (shareUrl) {
+          // Share a file / URL via expo-sharing sheet
+          const canShare = await Sharing.isAvailableAsync();
+          if (canShare) {
+            await Sharing.shareAsync(shareUrl, { dialogTitle: shareText ?? undefined });
+          }
+        } else if (shareText) {
+          // Text-only share via the native share sheet
+          await Share.share({ message: shareText });
         }
         respond(true);
         break;

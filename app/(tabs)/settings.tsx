@@ -1,4 +1,5 @@
 import * as FileSystem from 'expo-file-system/legacy';
+import * as Haptics from 'expo-haptics';
 import * as LocalAuthentication from 'expo-local-authentication';
 import * as Sharing from 'expo-sharing';
 import React, { useCallback, useEffect, useState } from 'react';
@@ -268,6 +269,7 @@ export default function SettingsScreen() {
   };
 
   const handleAppLockToggle = async (next: boolean) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     if (next) {
       const enrolled = await LocalAuthentication.isEnrolledAsync();
       if (!enrolled) {
@@ -288,6 +290,7 @@ export default function SettingsScreen() {
   };
 
   const handleAutoUpdateToggle = async (next: boolean) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setAutoUpdate(next);
     await savePref('auto_update', String(next));
   };

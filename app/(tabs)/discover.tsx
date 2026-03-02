@@ -9,11 +9,28 @@ export default function DiscoverScreen() {
           Discover
         </Text>
       </View>
-      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12 }}>
-        <Text style={{ fontSize: 36 }}>✦</Text>
-        <Text style={{ fontSize: 20, fontWeight: '600', color: '#1C1C1E' }}>Coming soon</Text>
-        <Text style={{ fontSize: 15, color: '#8E8E93', textAlign: 'center', paddingHorizontal: 32 }}>
-          Browse and install curated mini-apps from the community.
+
+      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 40, gap: 0 }}>
+        {/* Soft illustration placeholder */}
+        <View
+          style={{
+            width: 100,
+            height: 100,
+            borderRadius: 28,
+            backgroundColor: '#F2F2F7',
+            alignItems: 'center',
+            justifyContent: 'center',
+            marginBottom: 24,
+          }}
+        >
+          <Text style={{ fontSize: 52 }}>🔮</Text>
+        </View>
+
+        <Text style={{ fontSize: 20, fontWeight: '600', color: '#1C1C1E', textAlign: 'center', marginBottom: 10 }}>
+          Coming soon
+        </Text>
+        <Text style={{ fontSize: 15, color: '#8E8E93', textAlign: 'center', lineHeight: 22 }}>
+          Browse and share app templates with the Perappos community.
         </Text>
       </View>
     </SafeAreaView>

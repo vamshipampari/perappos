@@ -13,10 +13,21 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import Animated, {
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from 'react-native-reanimated';
 import WebView from 'react-native-webview';
 
 import { useDatabase } from '@/hooks/useDatabase';
 import type { InstalledApp } from '@/hooks/useInstalledApps';
+import {
+  applyUrlAppUpdate,
+  checkForUpdates,
+  getLatestBackup,
+  revertToPreviousVersion,
+} from '@/lib/appUpdates';
 import { handleVaultMessage } from '@/lib/vaultBridge';
 import { buildVaultShim } from '@/lib/vaultShim';
 import { DEMO_HTML_BY_NAME } from '@/utils/demoAppsHtml';
@@ -41,6 +52,14 @@ export default function AppScreen() {
   const [webError, setWebError] = useState<string | null>(null);
   const [menuVisible, setMenuVisible] = useState(false);
   const [webCanGoBack, setWebCanGoBack] = useState(false);
+  const [checkingUpdate, setCheckingUpdate] = useState(false);
+
+  // WebView fades in from 0 → 1 once the page finishes loading
+  const webOpacity = useSharedValue(0);
+  const webViewAnimStyle = useAnimatedStyle(() => ({
+    flex: 1,
+    opacity: webOpacity.value,
+  }));
 
   // ── Initial load: fetch app row + all KV data from SQLite ─────────────────
   useEffect(() => {
@@ -140,28 +159,76 @@ export default function AppScreen() {
     setWebError(null);
     setWebLoading(true);
     hasLoadedOnceRef.current = false;
+    webOpacity.value = 0;
     webViewRef.current?.reload();
-  }, []);
+  }, [webOpacity]);
 
-  const handleCheckUpdate = useCallback(() => {
-    setMenuVisible(false);
-    Alert.alert(
-      app?.source_type === 'url' ? 'Always Up to Date' : 'No Updates',
-      app?.source_type === 'url'
-        ? "This app loads directly from its source URL — it's always current."
-        : 'No update mechanism configured for this app.',
-      [{ text: 'OK' }]
-    );
-  }, [app]);
+  const handleCheckUpdate = useCallback(async () => {
+    if (!app || checkingUpdate) return;
+    if (app.source_type !== 'url') {
+      setMenuVisible(false);
+      Alert.alert('No Updates', 'Updates are only available for URL apps.');
+      return;
+    }
+
+    setCheckingUpdate(true);
+    try {
+      const result = await checkForUpdates(app);
+      if (!result.available) {
+        setMenuVisible(false);
+        Alert.alert('Already up to date', 'Already up to date ✓');
+        return;
+      }
+
+      setMenuVisible(false);
+      Alert.alert('Update available!', 'Download now?', [
+        { text: 'Later', style: 'cancel' },
+        {
+          text: 'Update',
+          onPress: async () => {
+            try {
+              const latest = await db.getFirstAsync<InstalledApp>(
+                'SELECT * FROM apps WHERE app_id = ?',
+                app.app_id
+              );
+              if (!latest) return;
+              const applied = await applyUrlAppUpdate(db, latest, result.newHash);
+              if (!applied.updated) {
+                Alert.alert('Already up to date', 'Already up to date ✓');
+                return;
+              }
+
+              const refreshed = await db.getFirstAsync<InstalledApp>(
+                'SELECT * FROM apps WHERE app_id = ?',
+                app.app_id
+              );
+              if (refreshed) setApp(refreshed);
+              Alert.alert('Success', 'Updated to latest version ✓');
+            } catch {
+              Alert.alert('Update failed', 'Could not apply update.');
+            }
+          },
+        },
+      ]);
+    } catch {
+      setMenuVisible(false);
+      Alert.alert('Update check failed', 'Please try again.');
+    } finally {
+      setCheckingUpdate(false);
+    }
+  }, [app, checkingUpdate, db]);
 
   const handleAppInfo = useCallback(async () => {
     if (!app) return;
     setMenuVisible(false);
     try {
-      const countRow = await db.getFirstAsync<{ n: number }>(
-        'SELECT COUNT(*) AS n FROM app_data WHERE app_id = ?',
-        app.app_id
-      );
+      const [countRow, backup] = await Promise.all([
+        db.getFirstAsync<{ n: number }>(
+          'SELECT COUNT(*) AS n FROM app_data WHERE app_id = ?',
+          app.app_id
+        ),
+        getLatestBackup(db, app.app_id),
+      ]);
       const entries = countRow?.n ?? 0;
       const installed = new Date(app.installed_at).toLocaleDateString(undefined, {
         year: 'numeric',
@@ -177,7 +244,31 @@ export default function AppScreen() {
           `Opened: ${app.open_count} time${app.open_count === 1 ? '' : 's'}`,
           `Stored data: ${entries} entr${entries === 1 ? 'y' : 'ies'}`,
         ].join('\n'),
-        [{ text: 'OK' }]
+        [
+          { text: 'Close' },
+          ...(backup
+            ? [{
+                text: 'Revert to Previous Version',
+                onPress: async () => {
+                  try {
+                    const ok = await revertToPreviousVersion(db, app.app_id);
+                    if (!ok) {
+                      Alert.alert('No backup', 'No previous version is available.');
+                      return;
+                    }
+                    const refreshed = await db.getFirstAsync<InstalledApp>(
+                      'SELECT * FROM apps WHERE app_id = ?',
+                      app.app_id
+                    );
+                    if (refreshed) setApp(refreshed);
+                    Alert.alert('Restored', 'Reverted to previous version ✓');
+                  } catch {
+                    Alert.alert('Revert failed', 'Could not restore previous version.');
+                  }
+                },
+              } as const]
+            : []),
+        ]
       );
     } catch {
       // non-critical
@@ -287,51 +378,57 @@ export default function AppScreen() {
             </TouchableOpacity>
           </View>
         ) : (
-          <WebView
-            ref={webViewRef}
-            source={webViewSource}
-            style={styles.webView}
-            /* Shim: runs before any page script — makes localStorage sync */
-            injectedJavaScriptBeforeContentLoaded={shimJS}
-            onMessage={handleMessage}
-            /* Permissions */
-            javaScriptEnabled
-            domStorageEnabled
-            allowFileAccess
-            allowFileAccessFromFileURLs
-            allowUniversalAccessFromFileURLs
-            originWhitelist={['*']}
-            /* Media */
-            allowsInlineMediaPlayback
-            mediaPlaybackRequiresUserAction={false}
-            /* Loading / error */
-            onNavigationStateChange={(navState) => setWebCanGoBack(navState.canGoBack)}
-            onLoadStart={() => {
-              // Keep loading UI for initial page load, not every in-app navigation.
-              if (!hasLoadedOnceRef.current) setWebLoading(true);
-              setWebError(null);
-            }}
-            onLoadEnd={() => {
-              hasLoadedOnceRef.current = true;
-              setWebLoading(false);
-            }}
-            onError={(e) => {
-              hasLoadedOnceRef.current = true;
-              setWebLoading(false);
-              setWebError(e.nativeEvent.description ?? 'Failed to load');
-            }}
-            onHttpError={(e) => {
-              hasLoadedOnceRef.current = true;
-              setWebLoading(false);
-              setWebError(`HTTP ${e.nativeEvent.statusCode} — ${e.nativeEvent.url}`);
-            }}
-          />
+          <Animated.View style={webViewAnimStyle}>
+            <WebView
+              ref={webViewRef}
+              source={webViewSource}
+              style={styles.webView}
+              /* Shim: runs before any page script — makes localStorage sync */
+              injectedJavaScriptBeforeContentLoaded={shimJS}
+              onMessage={handleMessage}
+              /* Permissions */
+              javaScriptEnabled
+              domStorageEnabled
+              allowFileAccess
+              allowFileAccessFromFileURLs
+              allowUniversalAccessFromFileURLs
+              originWhitelist={['*']}
+              /* Media */
+              allowsInlineMediaPlayback
+              mediaPlaybackRequiresUserAction={false}
+              /* Loading / error */
+              onNavigationStateChange={(navState) => setWebCanGoBack(navState.canGoBack)}
+              onLoadStart={() => {
+                if (!hasLoadedOnceRef.current) setWebLoading(true);
+                setWebError(null);
+              }}
+              onLoadEnd={() => {
+                hasLoadedOnceRef.current = true;
+                setWebLoading(false);
+                webOpacity.value = withTiming(1, { duration: 380 });
+              }}
+              onError={(e) => {
+                hasLoadedOnceRef.current = true;
+                setWebLoading(false);
+                setWebError(e.nativeEvent.description ?? 'Failed to load');
+              }}
+              onHttpError={(e) => {
+                hasLoadedOnceRef.current = true;
+                setWebLoading(false);
+                setWebError(`HTTP ${e.nativeEvent.statusCode} — ${e.nativeEvent.url}`);
+              }}
+            />
+          </Animated.View>
         )}
 
-        {/* Loading spinner — sits above the WebView until it finishes */}
+        {/* App-themed splash — shows icon + name while WebView loads, then cross-fades out */}
         {webLoading && !webError && (
-          <View style={styles.loadingOverlay}>
-            <ActivityIndicator size="large" color="#007AFF" />
+          <View style={styles.splashOverlay}>
+            <View style={[styles.splashIcon, { backgroundColor: app.icon_bg_color }]}>
+              <Text style={{ fontSize: 32 }}>{app.icon_emoji}</Text>
+            </View>
+            <Text style={styles.splashName}>{app.name}</Text>
+            <ActivityIndicator style={{ marginTop: 20 }} color="#C7C7CC" />
           </View>
         )}
       </View>
@@ -343,7 +440,12 @@ export default function AppScreen() {
         onDismiss={() => setMenuVisible(false)}
         actions={[
           { label: 'Refresh', onPress: handleRefresh },
-          { label: 'Check for Update', onPress: handleCheckUpdate },
+          {
+            label: checkingUpdate ? 'Checking for Update…' : 'Check for Update',
+            onPress: handleCheckUpdate,
+            loading: checkingUpdate,
+            disabled: checkingUpdate,
+          },
           { label: 'App Info', onPress: handleAppInfo },
         ]}
         destructiveActions={[
@@ -360,6 +462,8 @@ export default function AppScreen() {
 interface SheetAction {
   label: string;
   onPress: () => void;
+  loading?: boolean;
+  disabled?: boolean;
 }
 
 function ActionSheet({
@@ -403,10 +507,16 @@ function ActionSheet({
               <View key={action.label}>
                 <TouchableOpacity
                   onPress={action.onPress}
+                  disabled={action.disabled}
                   activeOpacity={0.55}
-                  style={sheet.row}
+                  style={[sheet.row, action.disabled && { opacity: 0.55 }]}
                 >
-                  <Text style={sheet.rowText}>{action.label}</Text>
+                  <View style={sheet.rowInner}>
+                    {action.loading ? (
+                      <ActivityIndicator size="small" color="#007AFF" />
+                    ) : null}
+                    <Text style={sheet.rowText}>{action.label}</Text>
+                  </View>
                 </TouchableOpacity>
                 {i < actions.length - 1 && <View style={sheet.separator} />}
               </View>
@@ -562,6 +672,32 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     pointerEvents: 'none',
   },
+
+  // App-themed splash shown while the WebView loads
+  splashOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  splashIcon: {
+    width: 80,
+    height: 80,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 4,
+    marginBottom: 16,
+  },
+  splashName: {
+    fontSize: 17,
+    fontWeight: '600',
+    color: '#1C1C1E',
+  },
 });
 
 const sheet = StyleSheet.create({
@@ -594,6 +730,12 @@ const sheet = StyleSheet.create({
     paddingVertical: 16,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  rowInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
   },
   rowText: {
     fontSize: 17,

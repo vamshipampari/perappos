@@ -1,3 +1,4 @@
+import * as Haptics from 'expo-haptics';
 import { Tabs } from 'expo-router';
 import { Text } from 'react-native';
 
@@ -10,12 +11,17 @@ function TabIcon({ symbol, focused }: { symbol: string; focused: boolean }) {
 export default function TabLayout() {
   return (
     <Tabs
+      screenListeners={{
+        tabPress: () => {
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        },
+      }}
       screenOptions={{
         headerShown: false,
         tabBarStyle: {
           backgroundColor: '#FFFFFF',
           borderTopWidth: 0.5,
-          borderTopColor: '#E5E5EA',
+          borderTopColor: '#E5E7EB',
           elevation: 0,
         },
         tabBarActiveTintColor: '#007AFF',
@@ -31,27 +37,21 @@ export default function TabLayout() {
         name="index"
         options={{
           title: 'Home',
-          tabBarIcon: ({ focused }) => (
-            <TabIcon symbol="⊞" focused={focused} />
-          ),
+          tabBarIcon: ({ focused }) => <TabIcon symbol="⊞" focused={focused} />,
         }}
       />
       <Tabs.Screen
         name="discover"
         options={{
           title: 'Discover',
-          tabBarIcon: ({ focused }) => (
-            <TabIcon symbol="✦" focused={focused} />
-          ),
+          tabBarIcon: ({ focused }) => <TabIcon symbol="✦" focused={focused} />,
         }}
       />
       <Tabs.Screen
         name="settings"
         options={{
           title: 'Settings',
-          tabBarIcon: ({ focused }) => (
-            <TabIcon symbol="⚙" focused={focused} />
-          ),
+          tabBarIcon: ({ focused }) => <TabIcon symbol="⚙" focused={focused} />,
         }}
       />
     </Tabs>

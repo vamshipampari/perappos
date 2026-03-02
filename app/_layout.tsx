@@ -1,11 +1,14 @@
 import '../global.css';
 
+import * as LocalAuthentication from 'expo-local-authentication';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
-import { SQLiteProvider } from 'expo-sqlite';
-import { Suspense, useEffect } from 'react';
-import { ActivityIndicator, View } from 'react-native';
+import { SQLiteProvider, useSQLiteContext } from 'expo-sqlite';
+import { Suspense, useCallback, useEffect, useRef, useState } from 'react';
+import { ActivityIndicator, AppState, Text, TouchableOpacity, View } from 'react-native';
 
+import { ToastProvider } from '@/components/Toast';
+import { cleanupExpiredUpdateBackups } from '@/lib/appUpdates';
 import { seedDemoApps } from '@/utils/createDemoApp';
 
 SplashScreen.preventAutoHideAsync();
@@ -51,6 +54,16 @@ const initializeDatabase = async (db: import('expo-sqlite').SQLiteDatabase) => {
       updated_at TEXT DEFAULT (datetime('now')),
       PRIMARY KEY (category, key)
     );
+
+    CREATE TABLE IF NOT EXISTS app_updates (
+      update_id TEXT PRIMARY KEY,
+      app_id TEXT NOT NULL,
+      previous_hash TEXT,
+      backup_path TEXT NOT NULL,
+      created_at TEXT DEFAULT (datetime('now')),
+      expires_at TEXT NOT NULL,
+      reverted_at TEXT
+    );
   `);
 
   // Add bundle_html column if it doesn't exist yet (migration for existing DBs).
@@ -61,7 +74,78 @@ const initializeDatabase = async (db: import('expo-sqlite').SQLiteDatabase) => {
   }
 
   await seedDemoApps(db);
+  await cleanupExpiredUpdateBackups(db);
 };
+
+// ── App Lock Gate ─────────────────────────────────────────────────────────────
+// Reads the 'app_lock' setting from shared_data. When enabled, listens for
+// the app returning to the foreground and requires biometric authentication.
+
+function AppLockGate({ children }: { children: React.ReactNode }) {
+  const db = useSQLiteContext();
+  const [lockEnabled, setLockEnabled] = useState(false);
+  const [locked, setLocked] = useState(false);
+  const appStateRef = useRef(AppState.currentState);
+
+  const authenticate = useCallback(async () => {
+    const result = await LocalAuthentication.authenticateAsync({
+      promptMessage: 'Unlock Perappos',
+      fallbackLabel: 'Use passcode',
+    });
+    if (result.success) setLocked(false);
+  }, []);
+
+  // Read lock preference on mount; lock immediately if enabled
+  useEffect(() => {
+    (async () => {
+      try {
+        const row = await db.getFirstAsync<{ value: string }>(
+          `SELECT value FROM shared_data WHERE category='settings' AND key='app_lock'`
+        );
+        const enabled = row?.value === 'true';
+        setLockEnabled(enabled);
+        if (enabled) {
+          setLocked(true);
+          authenticate();
+        }
+      } catch {
+        // non-critical — defaults (unlocked) are safe
+      }
+    })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Lock whenever the app returns to the foreground
+  useEffect(() => {
+    if (!lockEnabled) return;
+    const sub = AppState.addEventListener('change', (nextState) => {
+      if (appStateRef.current.match(/inactive|background/) && nextState === 'active') {
+        setLocked(true);
+        authenticate();
+      }
+      appStateRef.current = nextState;
+    });
+    return () => sub.remove();
+  }, [lockEnabled, authenticate]);
+
+  if (locked) {
+    return (
+      <View style={{ flex: 1, backgroundColor: '#F2F2F7', alignItems: 'center', justifyContent: 'center', gap: 16 }}>
+        <Text style={{ fontSize: 64 }}>🔒</Text>
+        <Text style={{ fontSize: 20, fontWeight: '600', color: '#1C1C1E' }}>Perappos is locked</Text>
+        <Text style={{ fontSize: 15, color: '#8E8E93' }}>Authenticate to continue</Text>
+        <TouchableOpacity
+          onPress={authenticate}
+          style={{ marginTop: 8, backgroundColor: '#007AFF', paddingHorizontal: 28, paddingVertical: 12, borderRadius: 10 }}
+        >
+          <Text style={{ color: '#FFFFFF', fontSize: 16, fontWeight: '600' }}>Retry</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
+  return <>{children}</>;
+}
 
 export default function RootLayout() {
   useEffect(() => {
@@ -77,29 +161,33 @@ export default function RootLayout() {
       }
     >
       <SQLiteProvider databaseName={DB_NAME} onInit={initializeDatabase} useSuspense>
-        <Stack>
-          <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-          <Stack.Screen
-            name="add"
-            options={{
-              presentation: 'modal',
-              title: 'Add App',
-              headerShown: true,
-              headerStyle: { backgroundColor: '#FFFFFF' },
-              headerTitleStyle: { color: '#1C1C1E', fontWeight: '600' },
-              headerTintColor: '#007AFF',
-            }}
-          />
-          <Stack.Screen
-            name="app/[id]"
-            options={{
-              headerShown: false,
-              presentation: 'card',
-              gestureEnabled: true,
-              animation: 'slide_from_right',
-            }}
-          />
-        </Stack>
+        <ToastProvider>
+        <AppLockGate>
+          <Stack>
+            <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+            <Stack.Screen
+              name="add"
+              options={{
+                presentation: 'modal',
+                title: 'Add App',
+                headerShown: true,
+                headerStyle: { backgroundColor: '#FFFFFF' },
+                headerTitleStyle: { color: '#1C1C1E', fontWeight: '600' },
+                headerTintColor: '#007AFF',
+              }}
+            />
+            <Stack.Screen
+              name="app/[id]"
+              options={{
+                headerShown: false,
+                presentation: 'card',
+                gestureEnabled: true,
+                animation: 'slide_from_right',
+              }}
+            />
+          </Stack>
+        </AppLockGate>
+        </ToastProvider>
       </SQLiteProvider>
     </Suspense>
   );
