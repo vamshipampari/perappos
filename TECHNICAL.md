@@ -7,7 +7,9 @@
 | Framework | Expo (new arch) | SDK 55 |
 | Routing | expo-router | ~55.0.3 |
 | Styling | NativeWind (Tailwind for RN) | ^4.2.2 |
-| Database | expo-sqlite | ~55.0.10 |
+| Local DB | expo-sqlite | ~55.0.10 |
+| Sync DB | PowerSync (`@powersync/react-native`) | latest |
+| Backend | Supabase (`@supabase/supabase-js`) | latest |
 | Animations | react-native-reanimated | 4.2.1 |
 | WebView | react-native-webview | 13.16.0 |
 | Language | TypeScript | ~5.9.2 |
@@ -19,18 +21,32 @@
 ```
 perappos/
 ├── app/
-│   ├── _layout.tsx          Root layout — SQLiteProvider + Stack navigator
+│   ├── _layout.tsx          Root layout — SQLiteProvider + PowerSyncProvider + Stack navigator
+│   ├── auth.tsx             Modal — email OTP sign-in
 │   ├── add.tsx              Modal — add new app (URL or ZIP)
+│   ├── +native-intent.tsx   Deep-link redirect for auth/callback
 │   ├── app/
-│   │   └── [id].tsx         Full-screen WebView for running a mini-app
+│   │   └── [id].tsx         Full-screen WebView runner (BFS asset crawler, update support)
 │   └── (tabs)/
 │       ├── _layout.tsx      Tab bar (Home, Discover, Settings)
 │       ├── index.tsx        Home screen — app grid
 │       ├── discover.tsx     Discover screen (placeholder)
-│       └── settings.tsx     Settings screen
+│       └── settings.tsx     Settings screen (sync status, debug button)
+├── services/
+│   ├── supabase.ts          Supabase client (persistSession, autoRefreshToken)
+│   └── sync/
+│       ├── PowerSyncProvider.tsx  PowerSync DB init, auth-gated connect/disconnect
+│       ├── SupabaseConnector.ts   PowerSync backend connector (fetchCredentials, uploadData)
+│       └── schema.ts              PowerSync table schema (app_data, installed_apps, session_data)
+├── lib/
+│   ├── vaultBridge.ts       WebView → native message handler (db/ls/device/auth/app ops)
+│   ├── vaultShim.ts         JS shim injected into WebView before page load
+│   └── appUpdates.ts        Bundle hash diffing + backup/revert logic
 ├── hooks/
 │   ├── useDatabase.ts       useSQLiteContext() wrapper
 │   └── useInstalledApps.ts  Reads apps table; exposes refresh(), recordOpen()
+├── utils/
+│   └── createDemoApp.ts     Seeds demo apps on first launch
 ├── global.css               @tailwind directives
 ├── tailwind.config.js       NativeWind preset + custom colors
 ├── babel.config.js          babel-preset-expo + nativewind/babel
@@ -61,8 +77,8 @@ Primary store for installed mini-apps.
 | last_opened | TEXT | NULL | ISO8601 |
 | open_count | INTEGER | 0 | Lifetime open count |
 
-### `app_data`
-Per-app persistent key-value store (accessible via WebView bridge).
+### `app_data` (expo-sqlite — app metadata / non-synced)
+Per-app persistent key-value store for local-only data.
 
 | Column | Type | Notes |
 |---|---|---|
@@ -127,6 +143,47 @@ const { apps, loading, error, refresh, recordOpen } = useInstalledApps();
 | `/auth` | Modal | Email OTP sign-in |
 | `/add` | Modal | Add new app |
 | `/app/[id]` | Full-screen modal | WebView runner |
+
+## PowerSync Sync Schema (`services/sync/schema.ts`)
+
+PowerSync manages its own SQLite DB (`powersync.db`) separate from expo-sqlite.
+All writes to these tables are tracked and uploaded to Supabase via `SupabaseConnector`.
+
+| Table | Key columns | Notes |
+|---|---|---|
+| `app_data` | `id TEXT` (= `${appId}/${key}`), `user_id`, `app_id`, `key`, `value`, `updated_at` | Synced KV store for mini-app data |
+| `installed_apps` | `id TEXT`, `app_id`, `name`, `icon_emoji`, `source_type`, `bundle_hash`, etc. | Reserved for future cross-device app sync |
+| `session_data` | `id TEXT`, `app_id`, `session_id`, `key`, `value`, `created_at` | Reserved for ephemeral session state |
+
+> **Supabase schema note:** The `app_data.id` column in Supabase must be `TEXT` (not `UUID`),
+> because PowerSync uses `${appId}/${key}` as a stable composite row ID.
+> Run `ALTER TABLE app_data ALTER COLUMN id TYPE TEXT;` if needed.
+
+### PowerSync Connection lifecycle
+- `PowerSyncProvider` wraps the app and calls `powerSyncDb.connect(connector)` when a Supabase session exists
+- On sign-out, `powerSyncDb.disconnect()` is called
+- `SupabaseConnector.fetchCredentials()` provides the PowerSync endpoint URL + Supabase JWT
+- `SupabaseConnector.uploadData()` processes the CRUD queue and upserts to Supabase with `user_id`
+
+## WebView Bridge (`lib/vaultBridge.ts`)
+
+Mini-apps communicate with native via `window.ReactNativeWebView.postMessage(JSON)`.
+The bridge handler (`handleVaultMessage`) routes by `type`:
+
+| Type | Direction | Description |
+|---|---|---|
+| `ls_set` / `ls_delete` / `ls_clear` | fire-and-forget | localStorage shim — writes to PowerSync `app_data` |
+| `db_set` / `db_get` / `db_get_all` / `db_delete` | request/response | VaultAPI.db — reads/writes PowerSync `app_data` |
+| `device_haptic` | request/response | Trigger haptic feedback |
+| `device_notify` | request/response | Schedule a local notification |
+| `device_share` | request/response | Native share sheet (URL or text) |
+| `auth_get_user` | request/response | Returns `{ id, email }` for signed-in user |
+| `app_get_info` | request/response | Returns app manifest (name, source_url, open_count, etc.) |
+
+The shim (`lib/vaultShim.ts`) is injected via `injectedJavaScriptBeforeContentLoaded` and:
+- Intercepts `localStorage.setItem/getItem/removeItem/clear` and routes them to the bridge
+- Exposes `window.VaultAPI.db`, `window.VaultAPI.device`, `window.VaultAPI.auth`, `window.VaultAPI.app`
+- Pre-populates KV data read at load time so initial reads are synchronous
 
 ## NativeWind Setup Notes
 - v4 requires `presets: [require('nativewind/preset')]` in tailwind.config.js
