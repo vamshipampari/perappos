@@ -1,6 +1,7 @@
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Haptics from 'expo-haptics';
 import * as LocalAuthentication from 'expo-local-authentication';
+import { router } from 'expo-router';
 import * as Sharing from 'expo-sharing';
 import React, { useCallback, useEffect, useState } from 'react';
 import {
@@ -14,6 +15,8 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useDatabase } from '@/hooks/useDatabase';
+import { supabase } from '../../services/supabase';
+import { usePowerSync } from '../../services/sync/PowerSyncProvider';
 
 // ─── Primitives ──────────────────────────────────────────────────────────────
 
@@ -217,11 +220,24 @@ function Section({
 
 export default function SettingsScreen() {
   const db = useDatabase();
+  const { db: syncDb, isConnected } = usePowerSync();
 
   const [appLock, setAppLock] = useState(false);
   const [autoUpdate, setAutoUpdate] = useState(true);
   const [storageUsed, setStorageUsed] = useState(0);
   const [biometricAvailable, setBiometricAvailable] = useState(false);
+  const [userEmail, setUserEmail] = useState<string | null>(null);
+
+  // Track auth state
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUserEmail(session?.user?.email ?? null);
+    });
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUserEmail(session?.user?.email ?? null);
+    });
+    return () => subscription.unsubscribe();
+  }, []);
 
   // Load persisted preferences + storage stats on mount
   useEffect(() => {
@@ -264,8 +280,17 @@ export default function SettingsScreen() {
 
   // ── Handlers ────────────────────────────────────────────────────────────────
 
-  const handleSignIn = () => {
-    Alert.alert('Coming soon', 'Cloud sync & sharing is coming in a future update.');
+  const handleSignOut = async () => {
+    Alert.alert('Sign Out', 'Are you sure you want to sign out?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Sign Out',
+        style: 'destructive',
+        onPress: async () => {
+          await supabase.auth.signOut();
+        },
+      },
+    ]);
   };
 
   const handleAppLockToggle = async (next: boolean) => {
@@ -350,6 +375,27 @@ export default function SettingsScreen() {
     );
   };
 
+  const handleDebugSync = async () => {
+    try {
+      const rows = await syncDb.getAll<{ app_id: string; key: string; value: string }>(
+        'SELECT app_id, key, value FROM app_data LIMIT 10'
+      );
+      const total = await syncDb.getOptional<{ n: number }>('SELECT COUNT(*) AS n FROM app_data');
+      const count = total?.n ?? 0;
+      console.log('[DebugSync] app_data row count:', count);
+      console.log('[DebugSync] first rows:', rows);
+      Alert.alert(
+        `Sync DB: ${count} row${count === 1 ? '' : 's'}`,
+        count === 0
+          ? 'No data in PowerSync app_data table.'
+          : rows.map((r) => `[${r.app_id.slice(0, 8)}] ${r.key} = ${r.value.slice(0, 40)}`).join('\n')
+      );
+    } catch (e) {
+      console.error('[DebugSync] error:', e);
+      Alert.alert('Debug error', String(e));
+    }
+  };
+
   // ── Render ───────────────────────────────────────────────────────────────────
 
   return (
@@ -380,12 +426,35 @@ export default function SettingsScreen() {
       >
         {/* Account */}
         <Section title="Account">
-          <Row
-            kind="chevron"
-            label="Sign In"
-            onPress={handleSignIn}
-            isLast
-          />
+          {userEmail ? (
+            <>
+              <Row kind="value" label="Email" value={userEmail} />
+              <Row
+                kind="value"
+                label="Sync Status"
+                value={isConnected ? 'Connected ✓' : 'Offline'}
+              />
+              <Row
+                kind="chevron"
+                label="Debug: Check Sync DB"
+                onPress={handleDebugSync}
+              />
+              <Row
+                kind="chevron"
+                label="Sign Out"
+                labelColor="#FF3B30"
+                onPress={handleSignOut}
+                isLast
+              />
+            </>
+          ) : (
+            <Row
+              kind="chevron"
+              label="Sign In"
+              onPress={() => router.push('/auth')}
+              isLast
+            />
+          )}
         </Section>
 
         {/* General */}
