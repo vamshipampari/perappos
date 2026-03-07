@@ -7,7 +7,6 @@
     "icon": "./assets/images/icon.png",
     "scheme": "perappos",
     "userInterfaceStyle": "light",
-    "newArchEnabled": true,
     "splash": {
       "image": "./assets/images/splash-icon.png",
       "resizeMode": "contain",
@@ -27,12 +26,10 @@
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
+      "softwareKeyboardLayoutMode": "pan",
       "predictiveBackGestureEnabled": false,
       "package": "com.perappos.app",
-      "permissions": [
-        "NOTIFICATIONS",
-        "VIBRATE"
-      ]
+      "permissions": ["NOTIFICATIONS", "VIBRATE"]
     },
     "web": {
       "bundler": "metro",
@@ -48,7 +45,9 @@
         {
           "color": "#007AFF"
         }
-      ]
+      ],
+      "@journeyapps/react-native-quick-sqlite",
+      "expo-web-browser"
     ],
     "experiments": {
       "typedRoutes": true

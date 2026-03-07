@@ -19,9 +19,16 @@
       "android": {
         "buildType": "apk"
       }
+    },
+    "testflight": {
+      "autoIncrement": true,
+      "ios": {
+        "simulator": false
+      }
     }
   },
   "submit": {
-    "production": {}
+    "production": {},
+    "testflight": {}
   }
 }

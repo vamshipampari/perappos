@@ -6,6 +6,7 @@ import {
   Alert,
   BackHandler,
   Modal,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -22,6 +23,7 @@ import WebView from 'react-native-webview';
 
 import { useDatabase } from '@/hooks/useDatabase';
 import type { InstalledApp } from '@/hooks/useInstalledApps';
+import { usePowerSync } from '../../services/sync/PowerSyncProvider';
 import {
   applyUrlAppUpdate,
   checkForUpdates,
@@ -32,6 +34,18 @@ import { handleVaultMessage } from '@/lib/vaultBridge';
 import { buildVaultShim } from '@/lib/vaultShim';
 import { DEMO_HTML_BY_NAME } from '@/utils/demoAppsHtml';
 
+// ── Android keyboard fix ──────────────────────────────────────────────────────
+// Sets interactive-widget=resizes-content so the WebView viewport shrinks
+// (rather than panning or doing nothing) when the software keyboard appears.
+const ANDROID_KEYBOARD_FIX_JS = `
+  (function() {
+    var meta = document.querySelector('meta[name="viewport"]');
+    if (meta) {
+      meta.content = 'width=device-width, initial-scale=1, interactive-widget=resizes-content';
+    }
+  })();
+`;
+
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 type Phase = 'loading' | 'ready' | 'not_found';
@@ -41,6 +55,7 @@ type Phase = 'loading' | 'ready' | 'not_found';
 export default function AppScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const db = useDatabase();
+  const { db: syncDb } = usePowerSync();
   const webViewRef = useRef<WebView>(null);
   const hasLoadedOnceRef = useRef(false);
 
@@ -68,9 +83,9 @@ export default function AppScreen() {
       try {
         const [foundApp, kvRows] = await Promise.all([
           db.getFirstAsync<InstalledApp>('SELECT * FROM apps WHERE app_id = ?', id),
-          db.getAllAsync<{ key: string; value: string }>(
+          syncDb.getAll<{ key: string; value: string }>(
             'SELECT key, value FROM app_data WHERE app_id = ?',
-            id
+            [id]
           ),
         ]);
 
@@ -122,13 +137,13 @@ export default function AppScreen() {
         setPhase('not_found');
       }
     })();
-  }, [id, db]);
+  }, [id, db, syncDb]);
 
   // ── Bridge: WebView → native ──────────────────────────────────────────────
   const handleMessage = useCallback(
     async (event: { nativeEvent: { data: string } }) => {
       if (!app) return;
-      await handleVaultMessage(event.nativeEvent.data, db, webViewRef, {
+      await handleVaultMessage(event.nativeEvent.data, db, syncDb, webViewRef, {
         app_id: app.app_id,
         name: app.name,
         source_url: app.source_url,
@@ -136,7 +151,7 @@ export default function AppScreen() {
         open_count: app.open_count,
       });
     },
-    [db, app]
+    [db, syncDb, app]
   );
 
   // ── Android hardware back button ─────────────────────────────────────────
@@ -223,9 +238,9 @@ export default function AppScreen() {
     setMenuVisible(false);
     try {
       const [countRow, backup] = await Promise.all([
-        db.getFirstAsync<{ n: number }>(
+        syncDb.getOptional<{ n: number }>(
           'SELECT COUNT(*) AS n FROM app_data WHERE app_id = ?',
-          app.app_id
+          [app.app_id]
         ),
         getLatestBackup(db, app.app_id),
       ]);
@@ -273,7 +288,7 @@ export default function AppScreen() {
     } catch {
       // non-critical
     }
-  }, [app, db]);
+  }, [app, db, syncDb]);
 
   const handleDelete = useCallback(() => {
     if (!app) return;
@@ -288,7 +303,7 @@ export default function AppScreen() {
           style: 'destructive',
           onPress: async () => {
             try {
-              await db.runAsync('DELETE FROM app_data WHERE app_id = ?', app.app_id);
+              await syncDb.execute('DELETE FROM app_data WHERE app_id = ?', [app.app_id]);
               await db.runAsync('DELETE FROM apps WHERE app_id = ?', app.app_id);
             } catch {
               // ignore
@@ -298,7 +313,7 @@ export default function AppScreen() {
         },
       ]
     );
-  }, [app, db]);
+  }, [app, db, syncDb]);
 
   // ── Render: initial loading ───────────────────────────────────────────────
 
@@ -384,7 +399,9 @@ export default function AppScreen() {
               source={webViewSource}
               style={styles.webView}
               /* Shim: runs before any page script — makes localStorage sync */
-              injectedJavaScriptBeforeContentLoaded={shimJS}
+              injectedJavaScriptBeforeContentLoaded={
+                Platform.OS === 'android' ? shimJS + ANDROID_KEYBOARD_FIX_JS : shimJS
+              }
               onMessage={handleMessage}
               /* Permissions */
               javaScriptEnabled

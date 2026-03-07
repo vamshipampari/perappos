@@ -1,7 +1,8 @@
 import '../global.css';
 
+import * as Linking from 'expo-linking';
 import * as LocalAuthentication from 'expo-local-authentication';
-import { Stack } from 'expo-router';
+import { Stack, useRouter } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { SQLiteProvider, useSQLiteContext } from 'expo-sqlite';
 import { Suspense, useCallback, useEffect, useRef, useState } from 'react';
@@ -10,6 +11,8 @@ import { ActivityIndicator, AppState, Text, TouchableOpacity, View } from 'react
 import { ToastProvider } from '@/components/Toast';
 import { cleanupExpiredUpdateBackups } from '@/lib/appUpdates';
 import { seedDemoApps } from '@/utils/createDemoApp';
+import { PowerSyncProvider } from '../services/sync/PowerSyncProvider';
+import { supabase } from '../services/supabase';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -148,9 +151,87 @@ function AppLockGate({ children }: { children: React.ReactNode }) {
 }
 
 export default function RootLayout() {
+  const router = useRouter();
+  const [isDeepLinkReady, setIsDeepLinkReady] = useState(false);
+
   useEffect(() => {
-    SplashScreen.hideAsync();
-  }, []);
+    if (isDeepLinkReady) {
+      SplashScreen.hideAsync();
+    }
+  }, [isDeepLinkReady]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const handleAuthCallback = async (url: string) => {
+      try {
+        if (!url.includes('auth/callback')) return;
+        const [base, hash = ''] = url.split('#');
+        const query = base.includes('?') ? base.split('?')[1] : '';
+
+        const hashParams = new URLSearchParams(hash);
+        const queryParams = new URLSearchParams(query);
+
+        const accessToken =
+          hashParams.get('access_token') ?? queryParams.get('access_token');
+        const refreshToken =
+          hashParams.get('refresh_token') ?? queryParams.get('refresh_token');
+
+        if (accessToken && refreshToken) {
+          await supabase.auth.setSession({
+            access_token: accessToken,
+            refresh_token: refreshToken,
+          });
+          router.replace('/(tabs)/settings');
+          return;
+        }
+
+        const authCode = queryParams.get('code') ?? hashParams.get('code');
+        if (authCode) {
+          const { error } = await supabase.auth.exchangeCodeForSession(authCode);
+          if (!error) {
+            router.replace('/(tabs)/settings');
+          } else {
+            console.error('Auth code exchange error:', error);
+          }
+        }
+      } catch (error) {
+        console.error('Auth callback error:', error);
+      }
+    };
+
+    let sub: ReturnType<typeof Linking.addEventListener> | null = null;
+
+    const initializeDeepLinkHandling = async () => {
+      try {
+        sub = Linking.addEventListener('url', (event) => {
+          void handleAuthCallback(event.url);
+        });
+
+        const initialUrl = await Linking.getInitialURL();
+        if (initialUrl) {
+          await handleAuthCallback(initialUrl);
+        }
+      } catch (error) {
+        console.error('Deep link setup error:', error);
+      } finally {
+        if (isMounted) {
+          setIsDeepLinkReady(true);
+        }
+      }
+    };
+
+    void initializeDeepLinkHandling();
+
+    return () => {
+      isMounted = false;
+      sub?.remove();
+    };
+  }, [router]);
+
+  if (!isDeepLinkReady) {
+    return null;
+  }
 
   return (
     <Suspense
@@ -161,33 +242,42 @@ export default function RootLayout() {
       }
     >
       <SQLiteProvider databaseName={DB_NAME} onInit={initializeDatabase} useSuspense>
-        <ToastProvider>
-        <AppLockGate>
-          <Stack>
-            <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-            <Stack.Screen
-              name="add"
-              options={{
-                presentation: 'modal',
-                title: 'Add App',
-                headerShown: true,
-                headerStyle: { backgroundColor: '#FFFFFF' },
-                headerTitleStyle: { color: '#1C1C1E', fontWeight: '600' },
-                headerTintColor: '#007AFF',
-              }}
-            />
-            <Stack.Screen
-              name="app/[id]"
-              options={{
-                headerShown: false,
-                presentation: 'card',
-                gestureEnabled: true,
-                animation: 'slide_from_right',
-              }}
-            />
-          </Stack>
-        </AppLockGate>
-        </ToastProvider>
+        <PowerSyncProvider>
+          <ToastProvider>
+            <AppLockGate>
+              <Stack>
+                <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+                <Stack.Screen
+                  name="auth"
+                  options={{
+                    presentation: 'modal',
+                    headerShown: false,
+                  }}
+                />
+                <Stack.Screen
+                  name="add"
+                  options={{
+                    presentation: 'modal',
+                    title: 'Add App',
+                    headerShown: true,
+                    headerStyle: { backgroundColor: '#FFFFFF' },
+                    headerTitleStyle: { color: '#1C1C1E', fontWeight: '600' },
+                    headerTintColor: '#007AFF',
+                  }}
+                />
+                <Stack.Screen
+                  name="app/[id]"
+                  options={{
+                    headerShown: false,
+                    presentation: 'card',
+                    gestureEnabled: true,
+                    animation: 'slide_from_right',
+                  }}
+                />
+              </Stack>
+            </AppLockGate>
+          </ToastProvider>
+        </PowerSyncProvider>
       </SQLiteProvider>
     </Suspense>
   );

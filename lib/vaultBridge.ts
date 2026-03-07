@@ -16,6 +16,8 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 import type { RefObject } from 'react';
 import { Share } from 'react-native';
 import type WebView from 'react-native-webview';
+import type { AbstractPowerSyncDatabase } from '@powersync/react-native';
+import { supabase } from '../services/supabase';
 
 type WebViewRef = RefObject<WebView | null>;
 
@@ -50,6 +52,7 @@ interface RawMessage {
 export async function handleVaultMessage(
   raw: string,
   db: SQLiteDatabase,
+  syncDb: AbstractPowerSyncDatabase,
   webViewRef: WebViewRef,
   manifest: AppManifest
 ): Promise<void> {
@@ -83,65 +86,62 @@ export async function handleVaultMessage(
       // These come from the localStorage shim and carry no `id`.
       // We write to SQLite but send no response.
 
-      case 'ls_set':
-        await db.runAsync(
-          `INSERT OR REPLACE INTO app_data (app_id, key, value, updated_at)
-           VALUES (?, ?, ?, datetime('now'))`,
-          appId,
-          msg.key!,
-          msg.value!
+      case 'ls_set': {
+        const { data: { session: lsSession } } = await supabase.auth.getSession();
+        await syncDb.execute(
+          `INSERT OR REPLACE INTO app_data (id, user_id, app_id, key, value, updated_at)
+           VALUES (?, ?, ?, ?, ?, datetime('now'))`,
+          [`${appId}/${msg.key!}`, lsSession?.user?.id ?? null, appId, msg.key!, msg.value!]
         );
         break;
+      }
 
       case 'ls_delete':
-        await db.runAsync(
+        await syncDb.execute(
           `DELETE FROM app_data WHERE app_id = ? AND key = ?`,
-          appId,
-          msg.key!
+          [appId, msg.key!]
         );
         break;
 
       case 'ls_clear':
-        await db.runAsync(`DELETE FROM app_data WHERE app_id = ?`, appId);
+        await syncDb.execute(`DELETE FROM app_data WHERE app_id = ?`, [appId]);
         break;
 
       // ── VaultAPI.db ───────────────────────────────────────────────────────
       // These come from window.VaultAPI.db.* and carry an `id` for the response.
 
-      case 'db_set':
-        await db.runAsync(
-          `INSERT OR REPLACE INTO app_data (app_id, key, value, updated_at)
-           VALUES (?, ?, ?, datetime('now'))`,
-          appId,
-          msg.key!,
-          msg.value!
+      case 'db_set': {
+        const { data: { session: dbSession } } = await supabase.auth.getSession();
+        await syncDb.execute(
+          `INSERT OR REPLACE INTO app_data (id, user_id, app_id, key, value, updated_at)
+           VALUES (?, ?, ?, ?, ?, datetime('now'))`,
+          [`${appId}/${msg.key!}`, dbSession?.user?.id ?? null, appId, msg.key!, msg.value!]
         );
         respond(true);
         break;
+      }
 
       case 'db_get': {
-        const row = await db.getFirstAsync<{ value: string }>(
+        const row = await syncDb.getOptional<{ value: string }>(
           `SELECT value FROM app_data WHERE app_id = ? AND key = ?`,
-          appId,
-          msg.key!
+          [appId, msg.key!]
         );
         respond(row?.value ?? null);
         break;
       }
 
       case 'db_delete':
-        await db.runAsync(
+        await syncDb.execute(
           `DELETE FROM app_data WHERE app_id = ? AND key = ?`,
-          appId,
-          msg.key!
+          [appId, msg.key!]
         );
         respond(true);
         break;
 
       case 'db_get_all': {
-        const rows = await db.getAllAsync<{ key: string; value: string }>(
+        const rows = await syncDb.getAll<{ key: string; value: string }>(
           `SELECT key, value FROM app_data WHERE app_id = ?`,
-          appId
+          [appId]
         );
         respond(Object.fromEntries(rows.map((r) => [r.key, r.value])));
         break;
@@ -217,10 +217,11 @@ export async function handleVaultMessage(
 
       // ── VaultAPI.auth / app ───────────────────────────────────────────────
 
-      case 'auth_get_user':
-        // Phase 2: return signed-in user. Null until cloud auth is implemented.
-        respond(null);
+      case 'auth_get_user': {
+        const { data: { session } } = await supabase.auth.getSession();
+        respond(session ? { id: session.user.id, email: session.user.email } : null);
         break;
+      }
 
       case 'app_get_info':
         respond(manifest);
