@@ -21,9 +21,11 @@ import Animated, {
 } from 'react-native-reanimated';
 import WebView from 'react-native-webview';
 
+import { useToast } from '@/components/Toast';
 import { useDatabase } from '@/hooks/useDatabase';
 import type { InstalledApp } from '@/hooks/useInstalledApps';
 import { usePowerSync } from '../../services/sync/PowerSyncProvider';
+import { shareApp } from '../../services/shareService';
 import {
   applyUrlAppUpdate,
   checkForUpdates,
@@ -56,6 +58,7 @@ export default function AppScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const db = useDatabase();
   const { db: syncDb } = usePowerSync();
+  const { showToast } = useToast();
   const webViewRef = useRef<WebView>(null);
   const hasLoadedOnceRef = useRef(false);
 
@@ -166,6 +169,27 @@ export default function AppScreen() {
     });
     return () => sub.remove();
   }, [webCanGoBack]);
+
+  // ── Share ─────────────────────────────────────────────────────────────────
+
+  const handleShare = useCallback(async () => {
+    if (!app) return;
+    try {
+      const result = await shareApp(app);
+      if (result.error === 'not_signed_in') {
+        Alert.alert('Sign in to Share', 'You need to sign in to share apps.', [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Sign In', onPress: () => router.back() },
+        ]);
+      } else if (!result.success) {
+        Alert.alert('Share failed', 'Could not create share link. Please try again.');
+      } else {
+        showToast('Share link created ✓', 'success');
+      }
+    } catch {
+      Alert.alert('Share failed', 'Could not create share link. Please try again.');
+    }
+  }, [app, showToast]);
 
   // ── Menu actions ──────────────────────────────────────────────────────────
 
@@ -372,13 +396,24 @@ export default function AppScreen() {
           </Text>
         </View>
 
-        <TouchableOpacity
-          onPress={() => setMenuVisible(true)}
-          hitSlop={10}
-          style={[styles.headerBtn, styles.headerBtnRight]}
-        >
-          <Text style={styles.menuDots}>•••</Text>
-        </TouchableOpacity>
+        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+          {app.source_url ? (
+            <TouchableOpacity
+              onPress={handleShare}
+              hitSlop={10}
+              style={styles.headerBtn}
+            >
+              <Text style={{ fontSize: 18, color: '#007AFF' }}>⬆</Text>
+            </TouchableOpacity>
+          ) : null}
+          <TouchableOpacity
+            onPress={() => setMenuVisible(true)}
+            hitSlop={10}
+            style={[styles.headerBtn, styles.headerBtnRight]}
+          >
+            <Text style={styles.menuDots}>•••</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* ── WebView + overlays ──────────────────────────────────────────── */}

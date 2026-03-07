@@ -28,6 +28,7 @@ import { useToast } from '@/components/Toast';
 import { useDatabase } from '@/hooks/useDatabase';
 import { type InstalledApp, useInstalledApps } from '@/hooks/useInstalledApps';
 import { applyUrlAppUpdate, checkForUpdates } from '@/lib/appUpdates';
+import { shareApp } from '../../services/shareService';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -473,6 +474,36 @@ export default function HomeScreen() {
     }
   }, [db, menuTargetApp, updatesAvailable]);
 
+  const performMenuShare = useCallback(async () => {
+    if (!menuTargetApp || menuBusy) return;
+
+    if (!menuTargetApp.source_url) {
+      setMenuVisible(false);
+      Alert.alert('Cannot Share', 'Only URL-based apps can be shared.');
+      return;
+    }
+
+    setMenuBusy(true);
+    try {
+      const result = await shareApp(menuTargetApp);
+      if (result.error === 'not_signed_in') {
+        Alert.alert('Sign in to Share', 'You need to sign in to share apps.', [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Sign In', onPress: () => router.push('/auth') },
+        ]);
+      } else if (!result.success) {
+        Alert.alert('Share failed', 'Could not create share link. Please try again.');
+      } else {
+        showToast('Share link created ✓', 'success');
+      }
+    } catch {
+      Alert.alert('Share failed', 'Could not create share link. Please try again.');
+    } finally {
+      setMenuBusy(false);
+      setMenuVisible(false);
+    }
+  }, [menuTargetApp, menuBusy, showToast]);
+
   const performMenuExportData = useCallback(async () => {
     if (!menuTargetApp || menuBusy) return;
     setMenuBusy(true);
@@ -664,6 +695,21 @@ export default function HomeScreen() {
                 style={{ paddingVertical: 16, alignItems: 'center' }}
               >
                 <Text style={{ fontSize: 17, color: '#007AFF' }}>Export Data</Text>
+              </TouchableOpacity>
+              <View style={{ height: 0.5, backgroundColor: '#E5E5EA' }} />
+              <TouchableOpacity
+                onPress={performMenuShare}
+                disabled={menuBusy || !menuTargetApp?.source_url}
+                style={{ paddingVertical: 16, alignItems: 'center' }}
+              >
+                <Text
+                  style={{
+                    fontSize: 17,
+                    color: menuTargetApp?.source_url ? '#007AFF' : '#C7C7CC',
+                  }}
+                >
+                  Share App
+                </Text>
               </TouchableOpacity>
             </View>
 
