@@ -1,6 +1,6 @@
 # Perappos — Status
 
-## Current Sprint: Home Screen MVP
+## Current Sprint: Auth + Core UX Stabilization
 
 ### ✅ Completed
 - NativeWind v4 fully configured (tailwind.config.js, babel.config.js, metro.config.js, global.css)
@@ -16,12 +16,18 @@
   - FAB (shown only when apps are installed)
 - Discover screen — placeholder
 - Settings screen — full iOS-style grouped list (rounded cards, inset separators):
-  - Account: Sign In → "Coming soon" alert
+  - Account: Sign In modal with email OTP flow (6-digit code)
   - General: Appearance (static), App Lock toggle (biometric via expo-local-authentication, persisted), Auto-Update toggle (persisted to SQLite)
   - Data: Storage Used (live SUM(bundle_size)), Export All Data (JSON via expo-sharing), Clear All Data (destructive confirm)
   - About: version, built-in-Hyderabad tagline
 - WebView screen (`app/app/[id].tsx`) — full-screen with header bar, reload button
 - Add modal (`app/add.tsx`) — name + URL input, emoji + color pickers, live preview
+- Supabase auth integration:
+  - Email OTP sign-in (`app/auth.tsx`) — two-step flow: enter email → receive 6-digit code → verify
+  - No magic link / deep link required; works reliably on simulator and device
+  - Supabase session persisted with `detectSessionInUrl: false`
+  - Deep-link listener retained in `app/_layout.tsx` for future OAuth provider support
+  - `app/+native-intent.tsx` route redirect retained for `auth/callback` deep links
 
 ### 🔜 Next Up
 - [ ] ZIP bundle support in add.tsx (expo-document-picker + expo-file-system)

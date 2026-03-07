@@ -124,6 +124,7 @@ const { apps, loading, error, refresh, recordOpen } = useInstalledApps();
 | `/(tabs)/index` | Tab | Home screen |
 | `/(tabs)/discover` | Tab | Discover screen |
 | `/(tabs)/settings` | Tab | Settings screen |
+| `/auth` | Modal | Email OTP sign-in |
 | `/add` | Modal | Add new app |
 | `/app/[id]` | Full-screen modal | WebView runner |
 
@@ -132,3 +133,26 @@ const { apps, loading, error, refresh, recordOpen } = useInstalledApps();
 - Metro config must use `withNativeWind(config, { input: './global.css' })`
 - Babel preset: `['babel-preset-expo', { jsxImportSource: 'nativewind' }]` + `'nativewind/babel'`
 - `nativewind-env.d.ts` provides `className` prop types for RN components
+
+## Auth
+
+- Auth provider: Supabase (`@supabase/supabase-js`)
+- Sign-in screen: `app/auth.tsx` — two-step email OTP flow
+- Supabase client config (`services/supabase.ts`) sets:
+  - `persistSession: true`
+  - `autoRefreshToken: true`
+  - `detectSessionInUrl: false`
+
+### OTP Flow
+1. User enters email → `supabase.auth.signInWithOtp({ email, options: { shouldCreateUser: true } })`
+   - Supabase emails a 6-digit code (no magic link / no deep link required)
+   - Requires the Supabase email template to include `{{ .Token }}`
+2. User enters code → `supabase.auth.verifyOtp({ email, token, type: 'email' })`
+3. On success → `router.replace('/(tabs)/settings')`
+
+> **Email template note:** In Supabase Dashboard → Authentication → Email Templates → Magic Link,
+> add `{{ .Token }}` to the body so the 6-digit code appears in the email.
+
+### Deep-link handling (retained for future use)
+`app/_layout.tsx` still listens for `perappos://auth/callback` via `Linking` in case deep-link
+auth is re-enabled (e.g., OAuth providers). Handles both hash-token and PKCE code-exchange flows.
