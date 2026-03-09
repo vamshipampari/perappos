@@ -29,14 +29,31 @@ export interface GroupDetails {
   myRole: 'owner' | 'member';
 }
 
-const INVITE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+function randomCode(): string {
+  // Keep generation explicitly uppercase to match join-side normalization.
+  return Math.random().toString(36).substring(2, 8).toUpperCase();
+}
 
-function randomCode(length = 6): string {
-  let out = '';
-  for (let i = 0; i < length; i += 1) {
-    out += INVITE_CHARS[Math.floor(Math.random() * INVITE_CHARS.length)];
+function safeErrorLogPayload(error: unknown): string {
+  if (error instanceof Error) {
+    return JSON.stringify({
+      ...error,
+      name: error.name,
+      message: error.message,
+      stack: error.stack,
+    });
   }
-  return out;
+  try {
+    return JSON.stringify(error);
+  } catch {
+    return String(error);
+  }
+}
+
+function throwWithStage(stage: string, error: unknown): never {
+  console.error('Create shared error:', safeErrorLogPayload(error));
+  const message = error instanceof Error ? error.message : String(error);
+  throw new Error(`${stage}: ${message}`);
 }
 
 async function getRequiredUserId(): Promise<string> {
@@ -51,20 +68,57 @@ async function getRequiredUserId(): Promise<string> {
   return session.user.id;
 }
 
+// Use lookup_shared_instance RPC to check uniqueness — avoids direct table select (RLS).
 async function generateUniqueInviteCode(): Promise<string> {
   for (let i = 0; i < 12; i += 1) {
-    const code = randomCode(6);
-    const { data, error } = await supabase
-      .from('shared_instances')
-      .select('instance_id')
-      .eq('invite_code', code)
-      .maybeSingle();
+    const code = randomCode();
+    const { data } = await supabase.rpc('lookup_shared_instance', { p_invite_code: code });
+    const taken = Array.isArray(data) && data.length > 0;
+    if (!taken) return code;
+  }
+  return randomCode();
+}
 
-    if (error) throw error;
-    if (!data) return code;
+// Use get_own_shared_instance RPC — bypasses RLS on shared_instances.
+export async function getOwnedSharedInstance(appId: string): Promise<SharedInstance | null> {
+  const userId = await getRequiredUserId();
+  const { data, error } = await supabase.rpc('get_own_shared_instance', {
+    p_app_id: appId,
+    p_user_id: userId,
+  });
+
+  if (error) {
+    console.error('getOwnedSharedInstance error:', safeErrorLogPayload(error));
+    throw new Error(`Failed checking existing shared instance: ${error.message}`);
   }
 
-  return randomCode(8);
+  return (data as SharedInstance[] | null)?.[0] ?? null;
+}
+
+async function deleteSharedInstanceInOrder(instanceId: string): Promise<void> {
+  const { error: memberDeleteError } = await supabase
+    .from('instance_members')
+    .delete()
+    .eq('instance_id', instanceId);
+  if (memberDeleteError) {
+    throwWithStage('Failed deleting instance members', memberDeleteError);
+  }
+
+  const { error: sharedDataDeleteError } = await supabase
+    .from('shared_app_data')
+    .delete()
+    .eq('instance_id', instanceId);
+  if (sharedDataDeleteError) {
+    throwWithStage('Failed deleting shared app data', sharedDataDeleteError);
+  }
+
+  const { error: instanceDeleteError } = await supabase
+    .from('shared_instances')
+    .delete()
+    .eq('instance_id', instanceId);
+  if (instanceDeleteError) {
+    throwWithStage('Failed deleting shared instance', instanceDeleteError);
+  }
 }
 
 export async function createSharedInstanceForApp(
@@ -74,6 +128,7 @@ export async function createSharedInstanceForApp(
 ): Promise<{ instanceId: string; inviteCode: string; created: boolean }> {
   const userId = await getRequiredUserId();
 
+  // 1. Check PowerSync local cache first (fastest, no network).
   const existingLocal = await syncDb.getOptional<{ instance_id: string; invite_code: string }>(
     `SELECT instance_id, invite_code
      FROM shared_instances
@@ -82,85 +137,110 @@ export async function createSharedInstanceForApp(
   );
 
   if (existingLocal?.instance_id && existingLocal?.invite_code) {
-    await db.runAsync('UPDATE apps SET instance_id = ? WHERE app_id = ?', [
-      existingLocal.instance_id,
-      app.app_id,
-    ]);
+    try {
+      await db.runAsync('UPDATE apps SET instance_id = ? WHERE app_id = ?', [
+        existingLocal.instance_id,
+        app.app_id,
+      ]);
+    } catch (error) {
+      throwWithStage('Failed linking local app to existing shared instance', error);
+    }
     return {
       instanceId: existingLocal.instance_id,
-      inviteCode: existingLocal.invite_code,
+      inviteCode: existingLocal.invite_code.toUpperCase(),
       created: false,
     };
   }
 
-  const { data: existingRemote, error: existingRemoteError } = await supabase
-    .from('shared_instances')
-    .select('instance_id, invite_code')
-    .eq('app_id', app.app_id)
-    .eq('owner_id', userId)
-    .maybeSingle();
+  // 2. Check Supabase via RPC — avoids direct table select hitting RLS.
+  const { data: existingRemoteData, error: existingRemoteError } = await supabase.rpc(
+    'get_own_shared_instance',
+    { p_app_id: app.app_id, p_user_id: userId }
+  );
 
-  if (existingRemoteError) throw existingRemoteError;
+  if (existingRemoteError) {
+    throwWithStage('Failed checking existing shared instance in Supabase', existingRemoteError);
+  }
+
+  const existingRemote = (existingRemoteData as SharedInstance[] | null)?.[0] ?? null;
 
   if (existingRemote?.instance_id && existingRemote?.invite_code) {
-    await db.runAsync('UPDATE apps SET instance_id = ? WHERE app_id = ?', [
-      existingRemote.instance_id,
-      app.app_id,
-    ]);
+    try {
+      await db.runAsync('UPDATE apps SET instance_id = ? WHERE app_id = ?', [
+        existingRemote.instance_id,
+        app.app_id,
+      ]);
+    } catch (error) {
+      throwWithStage('Failed linking local app to existing remote shared instance', error);
+    }
     return {
       instanceId: existingRemote.instance_id,
-      inviteCode: existingRemote.invite_code,
+      inviteCode: existingRemote.invite_code.toUpperCase(),
       created: false,
     };
   }
 
+  // 3. Create a new shared instance.
   const instanceId = `shared-${Crypto.randomUUID()}`;
   const inviteCode = await generateUniqueInviteCode();
 
-  const { error: createError } = await supabase.from('shared_instances').insert({
-    instance_id: instanceId,
-    app_id: app.app_id,
-    app_name: app.name,
-    app_source_url: app.source_url,
-    owner_id: userId,
-    invite_code: inviteCode,
-  });
-
-  if (createError) throw createError;
-
-  const { error: ownerMemberError } = await supabase.from('instance_members').upsert(
-    {
+  try {
+    const { error: createError } = await supabase.from('shared_instances').insert({
       instance_id: instanceId,
-      user_id: userId,
-      role: 'owner',
-    },
-    { onConflict: 'instance_id,user_id' }
-  );
+      app_id: app.app_id,
+      app_name: app.name,
+      app_source_url: app.source_url,
+      owner_id: userId,
+      invite_code: inviteCode,
+    });
+    if (createError) throw createError;
+  } catch (error) {
+    throwWithStage('Failed creating shared instance row', error);
+  }
 
-  if (ownerMemberError) throw ownerMemberError;
+  // 4. Add the owner as the first member via RPC — bypasses RLS on instance_members.
+  try {
+    const { error: ownerMemberError } = await supabase.rpc('add_instance_member', {
+      p_instance_id: instanceId,
+      p_user_id: userId,
+      p_role: 'owner',
+    });
+    if (ownerMemberError) throw ownerMemberError;
+  } catch (error) {
+    // Roll back the parent row if member creation fails.
+    try {
+      await deleteSharedInstanceInOrder(instanceId);
+    } catch (rollbackError) {
+      console.error('Create shared rollback error:', safeErrorLogPayload(rollbackError));
+    }
+    throwWithStage('Failed adding owner as member', error);
+  }
 
+  // 5. Migrate personal app_data → shared_app_data via RPC — bypasses RLS on shared_app_data.
   const personalRows = await syncDb.getAll<{ key: string; value: string; updated_at: string | null }>(
     'SELECT key, value, updated_at FROM app_data WHERE app_id = ?',
     [app.app_id]
   );
 
   for (const row of personalRows) {
-    const { error } = await supabase.from('shared_app_data').upsert(
-      {
-        id: `${instanceId}/${app.app_id}/${row.key}`,
-        instance_id: instanceId,
-        app_id: app.app_id,
-        key: row.key,
-        value: row.value,
-        updated_by: userId,
-        updated_at: row.updated_at ?? new Date().toISOString(),
-      },
-      { onConflict: 'instance_id,app_id,key' }
-    );
-    if (error) throw error;
+    const { error } = await supabase.rpc('migrate_to_shared', {
+      p_instance_id: instanceId,
+      p_app_id: app.app_id,
+      p_key: row.key,
+      p_value: row.value,
+      p_user_id: userId,
+    });
+    if (error) {
+      console.error('migrate_to_shared error for key', row.key, JSON.stringify(error));
+    }
   }
 
-  await db.runAsync('UPDATE apps SET instance_id = ? WHERE app_id = ?', [instanceId, app.app_id]);
+  // 6. Link local app row to the new instance.
+  try {
+    await db.runAsync('UPDATE apps SET instance_id = ? WHERE app_id = ?', [instanceId, app.app_id]);
+  } catch (error) {
+    throwWithStage('Failed updating local app instance_id', error);
+  }
 
   return { instanceId, inviteCode, created: true };
 }
@@ -195,45 +275,53 @@ export async function getSharedGroupDetails(
 
 export async function joinSharedAppByCode(
   db: SQLiteDatabase,
-  code: string
+  code: string,
+  onStateChange?: (state: string) => void
 ): Promise<{ appId: string; instance: SharedInstance; alreadyMember: boolean }> {
   const userId = await getRequiredUserId();
   const normalizedCode = code.trim().toUpperCase();
+  onStateChange?.('lookup_shared_instance');
 
   if (normalizedCode.length < 6) {
     throw new Error('Please enter a valid 6-character invite code.');
   }
 
-  const { data: instance, error: lookupError } = await supabase
-    .from('shared_instances')
-    .select('*')
-    .eq('invite_code', normalizedCode)
-    .single();
+  // lookup_shared_instance RPC already in use — no direct table access needed.
+  const { data, error: lookupError } = await supabase.rpc('lookup_shared_instance', {
+    p_invite_code: normalizedCode,
+  });
+  console.log('Lookup result:', JSON.stringify(data), 'Error:', JSON.stringify(lookupError));
+  const instance = (data as SharedInstance[] | null)?.[0] ?? null;
 
   if (lookupError || !instance) {
     throw new Error('Invalid invite code. Check and try again.');
   }
+  onStateChange?.('add_instance_member');
 
-  const { data: existingMember, error: existingMemberError } = await supabase
-    .from('instance_members')
-    .select('instance_id')
-    .eq('instance_id', instance.instance_id)
-    .eq('user_id', userId)
-    .maybeSingle();
+  // Use add_instance_member RPC — bypasses RLS on instance_members.
+  // The RPC is idempotent; if the user is already a member it either no-ops or
+  // returns a duplicate-key error, which we treat as "already a member".
+  const { data: memberAddData, error: addMemberError } = await supabase.rpc('add_instance_member', {
+    p_instance_id: instance.instance_id,
+    p_user_id: userId,
+    p_role: 'member',
+  });
+  console.log(
+    'Member add result:',
+    JSON.stringify(memberAddData),
+    'Error:',
+    JSON.stringify(addMemberError)
+  );
 
-  if (existingMemberError) throw existingMemberError;
+  const alreadyMember =
+    !!addMemberError &&
+    String(addMemberError.message).toLowerCase().includes('duplicate');
 
-  if (!existingMember) {
-    const { error: addMemberError } = await supabase.from('instance_members').insert({
-      instance_id: instance.instance_id,
-      user_id: userId,
-      role: 'member',
-    });
-
-    if (addMemberError && !String(addMemberError.message).toLowerCase().includes('duplicate')) {
-      throw addMemberError;
-    }
+  if (addMemberError && !alreadyMember) {
+    throw addMemberError;
   }
+
+  onStateChange?.('check_local_install');
 
   const installedApp = await db.getFirstAsync<Pick<InstalledApp, 'app_id'>>(
     'SELECT app_id FROM apps WHERE app_id = ?',
@@ -247,6 +335,7 @@ export async function joinSharedAppByCode(
       throw new Error('This shared app has no source URL and cannot be auto-installed.');
     }
 
+    onStateChange?.('install_app');
     appId = await installUrlApp(db, {
       appId: instance.app_id,
       name: instance.app_name,
@@ -254,17 +343,20 @@ export async function joinSharedAppByCode(
       iconBgColor: '#DBEAFE',
       url: instance.app_source_url,
     });
+    console.log('App install result:', JSON.stringify({ appId, appSourceUrl: instance.app_source_url }));
   }
 
+  onStateChange?.('link_local_instance');
   await db.runAsync('UPDATE apps SET instance_id = ? WHERE app_id = ?', [
     instance.instance_id,
     instance.app_id,
   ]);
+  onStateChange?.('complete');
 
   return {
     appId,
     instance: instance as SharedInstance,
-    alreadyMember: !!existingMember,
+    alreadyMember,
   };
 }
 
@@ -321,13 +413,7 @@ export async function stopSharingAsOwner(
 
   await snapshotSharedDataToPersonal(syncDb, appId, instanceId, userId);
 
-  const { error } = await supabase
-    .from('shared_instances')
-    .delete()
-    .eq('instance_id', instanceId)
-    .eq('owner_id', userId);
-
-  if (error) throw error;
+  await deleteSharedInstanceInOrder(instanceId);
 
   await db.runAsync('UPDATE apps SET instance_id = NULL WHERE app_id = ?', appId);
 }

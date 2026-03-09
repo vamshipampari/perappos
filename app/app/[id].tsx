@@ -272,19 +272,13 @@ export default function AppScreen() {
                 Alert.alert('Sign in required', 'You must sign in before creating a shared app.');
                 return;
               }
-              const { data: existing, error: existingError } = await supabase
-                .from('shared_instances')
-                .select('*')
-                .eq('owner_id', session.user.id)
-                .eq('app_id', app.app_id)
-                .single();
-
-              if (existingError) {
-                const notFound = existingError.code === 'PGRST116';
-                if (!notFound) {
-                  throw existingError;
-                }
-              }
+              // Use RPC — avoids direct select on shared_instances hitting RLS.
+              const { data: existingData, error: existingError } = await supabase.rpc(
+                'get_own_shared_instance',
+                { p_app_id: app.app_id, p_user_id: session.user.id }
+              );
+              if (existingError) throw existingError;
+              const existing = (existingData as { instance_id: string; invite_code: string }[] | null)?.[0] ?? null;
 
               if (existing) {
                 const inviteCode = String(existing.invite_code).toUpperCase();
