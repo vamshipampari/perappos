@@ -9,6 +9,7 @@
  *  - "db_*" / "device_*" / "auth_*" / "app_*" : VaultAPI calls with `id`, need response
  */
 
+import * as Crypto from 'expo-crypto';
 import * as Haptics from 'expo-haptics';
 import * as Notifications from 'expo-notifications';
 import * as Sharing from 'expo-sharing';
@@ -93,18 +94,17 @@ export async function handleVaultMessage(
       case 'ls_set': {
         const { data: { session: lsSession } } = await supabase.auth.getSession();
         if (isShared && instanceId) {
+          // Reuse existing UUID to avoid duplicate rows; generate a fresh one for new keys.
+          const existingLs = await syncDb.getOptional<{ id: string }>(
+            'SELECT id FROM shared_app_data WHERE instance_id = ? AND app_id = ? AND key = ?',
+            [instanceId, effectiveAppId, msg.key!]
+          );
+          const lsRowId = existingLs?.id ?? Crypto.randomUUID();
           await syncDb.execute(
             `INSERT OR REPLACE INTO shared_app_data
              (id, instance_id, app_id, key, value, updated_by, updated_at)
              VALUES (?, ?, ?, ?, ?, ?, datetime('now'))`,
-            [
-              `${instanceId}/${effectiveAppId}/${msg.key!}`,
-              instanceId,
-              effectiveAppId,
-              msg.key!,
-              msg.value!,
-              lsSession?.user?.id ?? null,
-            ]
+            [lsRowId, instanceId, effectiveAppId, msg.key!, msg.value!, lsSession?.user?.id ?? null]
           );
         } else {
           await syncDb.execute(
@@ -147,18 +147,17 @@ export async function handleVaultMessage(
       case 'db_set': {
         const { data: { session: dbSession } } = await supabase.auth.getSession();
         if (isShared && instanceId) {
+          // Reuse existing UUID to avoid duplicate rows; generate a fresh one for new keys.
+          const existingDb = await syncDb.getOptional<{ id: string }>(
+            'SELECT id FROM shared_app_data WHERE instance_id = ? AND app_id = ? AND key = ?',
+            [instanceId, effectiveAppId, msg.key!]
+          );
+          const dbRowId = existingDb?.id ?? Crypto.randomUUID();
           await syncDb.execute(
             `INSERT OR REPLACE INTO shared_app_data
              (id, instance_id, app_id, key, value, updated_by, updated_at)
              VALUES (?, ?, ?, ?, ?, ?, datetime('now'))`,
-            [
-              `${instanceId}/${effectiveAppId}/${msg.key!}`,
-              instanceId,
-              effectiveAppId,
-              msg.key!,
-              msg.value!,
-              dbSession?.user?.id ?? null,
-            ]
+            [dbRowId, instanceId, effectiveAppId, msg.key!, msg.value!, dbSession?.user?.id ?? null]
           );
         } else {
           await syncDb.execute(
