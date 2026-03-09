@@ -1,0 +1,18 @@
+THIS IS FOR LATER. PLEASE IGNORE THIS FILE
+
+One thing to note: the shared_apps Supabase table needs RLS policies set — anyone can SELECT active rows (for the preview screen, no auth required),
+   only owners can INSERT/UPDATE/DELETE.
+
+ Instead of letting the Vibe Code talk directly to the camera, you build a Native UI Bridge.
+
+The Technical Flow:
+
+The Vibe App (in the WebView) calls window.PerappOS.takePicture().
+
+Your React Native Shell intercepts this.
+
+The Shell (not the mini-app) triggers the native iOS camera UI.
+
+The user takes the photo.
+
+The Shell saves the photo to its own secure storage and sends only a "Local URI" or a Base64 string back to the mini-app.  

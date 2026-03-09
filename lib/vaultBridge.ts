@@ -29,6 +29,7 @@ export interface AppManifest {
   source_url: string | null;
   installed_at: string;
   open_count: number;
+  instance_id: string | null;
 }
 
 interface RawMessage {
@@ -64,6 +65,9 @@ export async function handleVaultMessage(
   }
 
   const { type, id, appId } = msg;
+  const effectiveAppId = manifest.app_id || appId;
+  const isShared = !!manifest.instance_id;
+  const instanceId = manifest.instance_id;
 
   /**
    * Sends a response back into the WebView, resolving or rejecting the
@@ -88,23 +92,53 @@ export async function handleVaultMessage(
 
       case 'ls_set': {
         const { data: { session: lsSession } } = await supabase.auth.getSession();
-        await syncDb.execute(
-          `INSERT OR REPLACE INTO app_data (id, user_id, app_id, key, value, updated_at)
-           VALUES (?, ?, ?, ?, ?, datetime('now'))`,
-          [`${appId}/${msg.key!}`, lsSession?.user?.id ?? null, appId, msg.key!, msg.value!]
-        );
+        if (isShared && instanceId) {
+          await syncDb.execute(
+            `INSERT OR REPLACE INTO shared_app_data
+             (id, instance_id, app_id, key, value, updated_by, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, datetime('now'))`,
+            [
+              `${instanceId}/${effectiveAppId}/${msg.key!}`,
+              instanceId,
+              effectiveAppId,
+              msg.key!,
+              msg.value!,
+              lsSession?.user?.id ?? null,
+            ]
+          );
+        } else {
+          await syncDb.execute(
+            `INSERT OR REPLACE INTO app_data (id, user_id, app_id, key, value, updated_at)
+             VALUES (?, ?, ?, ?, ?, datetime('now'))`,
+            [`${effectiveAppId}/${msg.key!}`, lsSession?.user?.id ?? null, effectiveAppId, msg.key!, msg.value!]
+          );
+        }
         break;
       }
 
       case 'ls_delete':
-        await syncDb.execute(
-          `DELETE FROM app_data WHERE app_id = ? AND key = ?`,
-          [appId, msg.key!]
-        );
+        if (isShared && instanceId) {
+          await syncDb.execute(
+            `DELETE FROM shared_app_data WHERE instance_id = ? AND app_id = ? AND key = ?`,
+            [instanceId, effectiveAppId, msg.key!]
+          );
+        } else {
+          await syncDb.execute(
+            `DELETE FROM app_data WHERE app_id = ? AND key = ?`,
+            [effectiveAppId, msg.key!]
+          );
+        }
         break;
 
       case 'ls_clear':
-        await syncDb.execute(`DELETE FROM app_data WHERE app_id = ?`, [appId]);
+        if (isShared && instanceId) {
+          await syncDb.execute(
+            `DELETE FROM shared_app_data WHERE instance_id = ? AND app_id = ?`,
+            [instanceId, effectiveAppId]
+          );
+        } else {
+          await syncDb.execute(`DELETE FROM app_data WHERE app_id = ?`, [effectiveAppId]);
+        }
         break;
 
       // ── VaultAPI.db ───────────────────────────────────────────────────────
@@ -112,37 +146,70 @@ export async function handleVaultMessage(
 
       case 'db_set': {
         const { data: { session: dbSession } } = await supabase.auth.getSession();
-        await syncDb.execute(
-          `INSERT OR REPLACE INTO app_data (id, user_id, app_id, key, value, updated_at)
-           VALUES (?, ?, ?, ?, ?, datetime('now'))`,
-          [`${appId}/${msg.key!}`, dbSession?.user?.id ?? null, appId, msg.key!, msg.value!]
-        );
+        if (isShared && instanceId) {
+          await syncDb.execute(
+            `INSERT OR REPLACE INTO shared_app_data
+             (id, instance_id, app_id, key, value, updated_by, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, datetime('now'))`,
+            [
+              `${instanceId}/${effectiveAppId}/${msg.key!}`,
+              instanceId,
+              effectiveAppId,
+              msg.key!,
+              msg.value!,
+              dbSession?.user?.id ?? null,
+            ]
+          );
+        } else {
+          await syncDb.execute(
+            `INSERT OR REPLACE INTO app_data (id, user_id, app_id, key, value, updated_at)
+             VALUES (?, ?, ?, ?, ?, datetime('now'))`,
+            [`${effectiveAppId}/${msg.key!}`, dbSession?.user?.id ?? null, effectiveAppId, msg.key!, msg.value!]
+          );
+        }
         respond(true);
         break;
       }
 
       case 'db_get': {
-        const row = await syncDb.getOptional<{ value: string }>(
-          `SELECT value FROM app_data WHERE app_id = ? AND key = ?`,
-          [appId, msg.key!]
-        );
+        const row = isShared && instanceId
+          ? await syncDb.getOptional<{ value: string }>(
+              `SELECT value FROM shared_app_data WHERE instance_id = ? AND app_id = ? AND key = ?`,
+              [instanceId, effectiveAppId, msg.key!]
+            )
+          : await syncDb.getOptional<{ value: string }>(
+              `SELECT value FROM app_data WHERE app_id = ? AND key = ?`,
+              [effectiveAppId, msg.key!]
+            );
         respond(row?.value ?? null);
         break;
       }
 
       case 'db_delete':
-        await syncDb.execute(
-          `DELETE FROM app_data WHERE app_id = ? AND key = ?`,
-          [appId, msg.key!]
-        );
+        if (isShared && instanceId) {
+          await syncDb.execute(
+            `DELETE FROM shared_app_data WHERE instance_id = ? AND app_id = ? AND key = ?`,
+            [instanceId, effectiveAppId, msg.key!]
+          );
+        } else {
+          await syncDb.execute(
+            `DELETE FROM app_data WHERE app_id = ? AND key = ?`,
+            [effectiveAppId, msg.key!]
+          );
+        }
         respond(true);
         break;
 
       case 'db_get_all': {
-        const rows = await syncDb.getAll<{ key: string; value: string }>(
-          `SELECT key, value FROM app_data WHERE app_id = ?`,
-          [appId]
-        );
+        const rows = isShared && instanceId
+          ? await syncDb.getAll<{ key: string; value: string }>(
+              `SELECT key, value FROM shared_app_data WHERE instance_id = ? AND app_id = ?`,
+              [instanceId, effectiveAppId]
+            )
+          : await syncDb.getAll<{ key: string; value: string }>(
+              `SELECT key, value FROM app_data WHERE app_id = ?`,
+              [effectiveAppId]
+            );
         respond(Object.fromEntries(rows.map((r) => [r.key, r.value])));
         break;
       }

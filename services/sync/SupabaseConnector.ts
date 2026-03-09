@@ -24,6 +24,16 @@ export class SupabaseConnector implements PowerSyncBackendConnector {
     // Fetch session once for the whole transaction
     const { data: { session } } = await supabase.auth.getSession();
     const userId = session?.user?.id ?? null;
+    const withWriteActor = (table: string, row: Record<string, unknown>) => {
+      if (!userId) return row;
+      if (table === 'shared_app_data') {
+        return { ...row, updated_by: userId };
+      }
+      if (table === 'app_data' || table === 'installed_apps' || table === 'session_data') {
+        return { ...row, user_id: userId };
+      }
+      return row;
+    };
 
     try {
       for (const op of transaction.crud) {
@@ -34,18 +44,15 @@ export class SupabaseConnector implements PowerSyncBackendConnector {
 
         switch (op.op) {
           case UpdateType.PUT: {
-            const { error } = await supabase.from(table).upsert({
-              ...record,
-              user_id: userId,
-            });
+            const { error } = await supabase.from(table).upsert(withWriteActor(table, record));
             if (error) throw error;
             break;
           }
           case UpdateType.PATCH: {
-            const { error } = await supabase.from(table).update({
-              ...record,
-              user_id: userId,
-            }).eq('id', id);
+            const { error } = await supabase
+              .from(table)
+              .update(withWriteActor(table, record))
+              .eq('id', id);
             if (error) throw error;
             break;
           }

@@ -18,6 +18,7 @@ export interface InstalledApp {
   updated_at: string;
   last_opened: string | null;
   open_count: number;
+  instance_id: string | null;
 }
 
 export function useInstalledApps() {

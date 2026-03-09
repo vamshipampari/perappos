@@ -28,8 +28,37 @@ const sessionData = new Table({
   created_at: column.text,
 }, { indexes: { by_session: ['app_id', 'session_id'] } });
 
+const sharedInstances = new Table({
+  instance_id: column.text,
+  app_id: column.text,
+  app_name: column.text,
+  app_source_url: column.text,
+  owner_id: column.text,
+  invite_code: column.text,
+  created_at: column.text,
+}, { indexes: { by_app: ['app_id'] } });
+
+const instanceMembers = new Table({
+  instance_id: column.text,
+  user_id: column.text,
+  role: column.text,
+  joined_at: column.text,
+}, { indexes: { by_instance: ['instance_id'] } });
+
+const sharedAppData = new Table({
+  instance_id: column.text,
+  app_id: column.text,
+  key: column.text,
+  value: column.text,
+  updated_by: column.text,
+  updated_at: column.text,
+}, { indexes: { by_instance_app: ['instance_id', 'app_id'] } });
+
 export const PowerSyncSchema = new Schema({
   app_data: appData,
   installed_apps: installedApps,
   session_data: sessionData,
+  shared_instances: sharedInstances,
+  instance_members: instanceMembers,
+  shared_app_data: sharedAppData,
 });

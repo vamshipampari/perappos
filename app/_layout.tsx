@@ -37,7 +37,8 @@ const initializeDatabase = async (db: import('expo-sqlite').SQLiteDatabase) => {
       installed_at TEXT DEFAULT (datetime('now')),
       updated_at TEXT DEFAULT (datetime('now')),
       last_opened TEXT,
-      open_count INTEGER DEFAULT 0
+      open_count INTEGER DEFAULT 0,
+      instance_id TEXT
     );
 
     CREATE TABLE IF NOT EXISTS app_data (
@@ -72,6 +73,11 @@ const initializeDatabase = async (db: import('expo-sqlite').SQLiteDatabase) => {
   // Add bundle_html column if it doesn't exist yet (migration for existing DBs).
   try {
     await db.execAsync('ALTER TABLE apps ADD COLUMN bundle_html TEXT');
+  } catch {
+    // Column already exists — safe to ignore.
+  }
+  try {
+    await db.execAsync('ALTER TABLE apps ADD COLUMN instance_id TEXT');
   } catch {
     // Column already exists — safe to ignore.
   }
@@ -169,7 +175,7 @@ export default function RootLayout() {
         if (url.includes('/share/')) {
           const shareCode = url.split('/share/')[1]?.split('?')[0]?.split('#')[0];
           if (shareCode) {
-            router.push(`/share/${shareCode}`);
+            router.push(`/share/${shareCode}` as any);
             return;
           }
         }
@@ -292,6 +298,14 @@ export default function RootLayout() {
                 />
                 <Stack.Screen
                   name="shared-apps"
+                  options={{
+                    headerShown: false,
+                    presentation: 'card',
+                    animation: 'slide_from_right',
+                  }}
+                />
+                <Stack.Screen
+                  name="join-shared-app"
                   options={{
                     headerShown: false,
                     presentation: 'card',

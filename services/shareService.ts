@@ -1,10 +1,12 @@
 /**
- * Share flow: create a shared_apps record in Supabase and open the native share sheet.
+ * Share flow: create a shared_apps record in Supabase (for analytics) and
+ * open the native share sheet with a plain-text message containing the
+ * source URL and installation instructions.
  *
- * - Reuses an existing active share link if one exists for this app/user pair.
- * - Generates a unique 8-char alphanumeric code when creating a new link.
- * - Only URL-based apps can be shared (source_url must be non-null).
- * - User must be signed in (owner_id is required by Supabase RLS).
+ * Deep links are NOT used — custom URL schemes are stripped by WhatsApp/
+ * iMessage. We share the source URL directly instead.
+ *
+ * ZIP and demo apps cannot be shared yet (no source URL to give).
  */
 
 import { Share } from 'react-native';
@@ -75,9 +77,16 @@ export async function shareApp(app: InstalledApp): Promise<ShareResult> {
     }
   }
 
-  await Share.share({
-    message: `Check out "${app.name}" on Perappos!\n\nperappos://share/${shareCode}`,
-  });
+  const shareMessage =
+    `Hey! Check out this app I'm using on Perappos:\n\n` +
+    `${app.name}\n\n` +
+    `To install it:\n` +
+    `1. Open Perappos\n` +
+    `2. Tap + to add a new app\n` +
+    `3. Paste this URL: ${app.source_url}\n\n` +
+    `Get Perappos: [TestFlight link here]`;
+
+  await Share.share({ message: shareMessage });
 
   return { success: true, shareCode };
 }

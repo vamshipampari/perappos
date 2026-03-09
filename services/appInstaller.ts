@@ -12,6 +12,7 @@ export interface InstallUrlOptions {
   name: string;
   iconEmoji: string;
   iconBgColor: string;
+  appId?: string;
 }
 
 /**
@@ -24,7 +25,7 @@ export async function installUrlApp(
   db: SQLiteDatabase,
   options: InstallUrlOptions
 ): Promise<string> {
-  const appId = Crypto.randomUUID();
+  const appId = options.appId ?? Crypto.randomUUID();
 
   await db.runAsync(
     `INSERT INTO apps

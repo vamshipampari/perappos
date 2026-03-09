@@ -8,6 +8,7 @@ import {
   Modal,
   Platform,
   Pressable,
+  Share,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -21,11 +22,16 @@ import Animated, {
 } from 'react-native-reanimated';
 import WebView from 'react-native-webview';
 
-import { useToast } from '@/components/Toast';
 import { useDatabase } from '@/hooks/useDatabase';
 import type { InstalledApp } from '@/hooks/useInstalledApps';
 import { usePowerSync } from '../../services/sync/PowerSyncProvider';
 import { shareApp } from '../../services/shareService';
+import {
+  createSharedInstanceForApp,
+  getSharedGroupDetails,
+  leaveSharedGroup,
+  stopSharingAsOwner,
+} from '../../services/collaborationService';
 import {
   applyUrlAppUpdate,
   checkForUpdates,
@@ -35,6 +41,7 @@ import {
 import { handleVaultMessage } from '@/lib/vaultBridge';
 import { buildVaultShim } from '@/lib/vaultShim';
 import { DEMO_HTML_BY_NAME } from '@/utils/demoAppsHtml';
+import { supabase } from '@/services/supabase';
 
 // ── Android keyboard fix ──────────────────────────────────────────────────────
 // Sets interactive-widget=resizes-content so the WebView viewport shrinks
@@ -58,7 +65,6 @@ export default function AppScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const db = useDatabase();
   const { db: syncDb } = usePowerSync();
-  const { showToast } = useToast();
   const webViewRef = useRef<WebView>(null);
   const hasLoadedOnceRef = useRef(false);
 
@@ -71,6 +77,7 @@ export default function AppScreen() {
   const [menuVisible, setMenuVisible] = useState(false);
   const [webCanGoBack, setWebCanGoBack] = useState(false);
   const [checkingUpdate, setCheckingUpdate] = useState(false);
+  const [signedInUserId, setSignedInUserId] = useState<string | null>(null);
 
   // WebView fades in from 0 → 1 once the page finishes loading
   const webOpacity = useSharedValue(0);
@@ -84,18 +91,22 @@ export default function AppScreen() {
     if (!id) return;
     (async () => {
       try {
-        const [foundApp, kvRows] = await Promise.all([
-          db.getFirstAsync<InstalledApp>('SELECT * FROM apps WHERE app_id = ?', id),
-          syncDb.getAll<{ key: string; value: string }>(
-            'SELECT key, value FROM app_data WHERE app_id = ?',
-            [id]
-          ),
-        ]);
+        const foundApp = await db.getFirstAsync<InstalledApp>('SELECT * FROM apps WHERE app_id = ?', id);
 
         if (!foundApp) {
           setPhase('not_found');
           return;
         }
+
+        const kvRows = foundApp.instance_id
+          ? await syncDb.getAll<{ key: string; value: string }>(
+              'SELECT key, value FROM shared_app_data WHERE instance_id = ? AND app_id = ?',
+              [foundApp.instance_id, id]
+            )
+          : await syncDb.getAll<{ key: string; value: string }>(
+              'SELECT key, value FROM app_data WHERE app_id = ?',
+              [id]
+            );
 
         // Build preloaded KV map — embedded in shim so reads are synchronous
         const preloadedKV: Record<string, string> = {};
@@ -142,6 +153,35 @@ export default function AppScreen() {
     })();
   }, [id, db, syncDb]);
 
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSignedInUserId(session?.user?.id ?? null);
+    });
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSignedInUserId(session?.user?.id ?? null);
+    });
+    return () => subscription.unsubscribe();
+  }, []);
+
+  const rebuildShimForApp = useCallback(
+    async (target: InstalledApp) => {
+      const rows = target.instance_id
+        ? await syncDb.getAll<{ key: string; value: string }>(
+            'SELECT key, value FROM shared_app_data WHERE instance_id = ? AND app_id = ?',
+            [target.instance_id, target.app_id]
+          )
+        : await syncDb.getAll<{ key: string; value: string }>(
+            'SELECT key, value FROM app_data WHERE app_id = ?',
+            [target.app_id]
+          );
+
+      const preloadedKV: Record<string, string> = {};
+      for (const row of rows) preloadedKV[row.key] = row.value;
+      setShimJS(buildVaultShim(target.app_id, preloadedKV));
+    },
+    [syncDb]
+  );
+
   // ── Bridge: WebView → native ──────────────────────────────────────────────
   const handleMessage = useCallback(
     async (event: { nativeEvent: { data: string } }) => {
@@ -152,6 +192,7 @@ export default function AppScreen() {
         source_url: app.source_url,
         installed_at: app.installed_at,
         open_count: app.open_count,
+        instance_id: app.instance_id,
       });
     },
     [db, syncDb, app]
@@ -172,8 +213,24 @@ export default function AppScreen() {
 
   // ── Share ─────────────────────────────────────────────────────────────────
 
+  const refreshWebView = useCallback(() => {
+    setMenuVisible(false);
+    setWebError(null);
+    setWebLoading(true);
+    hasLoadedOnceRef.current = false;
+    webOpacity.value = 0;
+    webViewRef.current?.reload();
+  }, [webOpacity]);
+
   const handleShare = useCallback(async () => {
     if (!app) return;
+    if (!app.source_url) {
+      Alert.alert(
+        'Cannot Share',
+        "This app can only be shared if it was installed from a URL. ZIP and demo apps can't be shared yet."
+      );
+      return;
+    }
     try {
       const result = await shareApp(app);
       if (result.error === 'not_signed_in') {
@@ -182,25 +239,181 @@ export default function AppScreen() {
           { text: 'Sign In', onPress: () => router.back() },
         ]);
       } else if (!result.success) {
-        Alert.alert('Share failed', 'Could not create share link. Please try again.');
-      } else {
-        showToast('Share link created ✓', 'success');
+        Alert.alert('Share failed', 'Could not share app. Please try again.');
       }
     } catch {
-      Alert.alert('Share failed', 'Could not create share link. Please try again.');
+      Alert.alert('Share failed', 'Could not share app. Please try again.');
     }
-  }, [app, showToast]);
+  }, [app]);
+
+  const handleCollaborate = useCallback(() => {
+    if (!app) return;
+    if (!signedInUserId) {
+      setMenuVisible(false);
+      Alert.alert('Sign in required', 'You must sign in before creating a shared app.', [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Sign In', onPress: () => router.push('/auth') },
+      ]);
+      return;
+    }
+    if (app.instance_id) {
+      setMenuVisible(false);
+      Alert.alert('Already shared', 'This app is already in shared mode.');
+      return;
+    }
+
+    setMenuVisible(false);
+    Alert.alert(
+      'Create Shared App?',
+      `Create a shared version of "${app.name}"?\n\nOther people can join with an invite code and you'll all share the same data.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Create Shared App',
+          onPress: async () => {
+            try {
+              const result = await createSharedInstanceForApp(db, syncDb, app);
+              const updatedApp = { ...app, instance_id: result.instanceId };
+              setApp(updatedApp);
+              await rebuildShimForApp(updatedApp);
+              Alert.alert(
+                result.created ? 'Shared app created' : 'Shared app already exists',
+                `Share this code with your group:\n\n${result.inviteCode.split('').join(' ')}`,
+                [
+                  {
+                    text: 'Copy Code',
+                    onPress: async () => {
+                      await Share.share({ message: result.inviteCode });
+                    },
+                  },
+                  {
+                    text: 'Share via Message',
+                    onPress: async () => {
+                      await Share.share({
+                        message:
+                          `Join my "${app.name}" on Perappos!\n` +
+                          `Open Perappos -> Settings -> Join Shared App -> Enter code: ${result.inviteCode}`,
+                      });
+                    },
+                  },
+                  {
+                    text: 'Open App',
+                    onPress: () => {
+                      refreshWebView();
+                    },
+                  },
+                ]
+              );
+            } catch (e) {
+              Alert.alert(
+                'Could not create shared app',
+                e instanceof Error ? e.message : 'Please try again.'
+              );
+            }
+          },
+        },
+      ]
+    );
+  }, [app, db, rebuildShimForApp, refreshWebView, signedInUserId, syncDb]);
+
+  const handleManageGroup = useCallback(async () => {
+    if (!app?.instance_id) return;
+    setMenuVisible(false);
+
+    try {
+      const details = await getSharedGroupDetails(syncDb, app.instance_id);
+      if (!details) {
+        Alert.alert('Group not found', 'This shared group is not available on this device yet.');
+        return;
+      }
+
+      const isOwner = details.myRole === 'owner';
+      Alert.alert(
+        `Manage Group (${details.memberCount} members)`,
+        `Invite code: ${details.instance.invite_code}`,
+        [
+          {
+            text: 'Share Invite',
+            onPress: async () => {
+              await Share.share({
+                message:
+                  `Join "${app.name}" on Perappos.\n` +
+                  `Open Perappos -> Settings -> Join Shared App -> Enter code: ${details.instance.invite_code}`,
+              });
+            },
+          },
+          isOwner
+            ? {
+                text: 'Stop Sharing',
+                style: 'destructive',
+                onPress: () => {
+                  Alert.alert(
+                    'Stop sharing?',
+                    'This will stop collaboration for everyone. Your app keeps a personal snapshot of the latest shared data.',
+                    [
+                      { text: 'Cancel', style: 'cancel' },
+                      {
+                        text: 'Stop Sharing',
+                        style: 'destructive',
+                        onPress: async () => {
+                          try {
+                            await stopSharingAsOwner(db, syncDb, app.app_id, app.instance_id!);
+                            const updatedApp = { ...app, instance_id: null };
+                            setApp(updatedApp);
+                            await rebuildShimForApp(updatedApp);
+                            refreshWebView();
+                          } catch (e) {
+                            Alert.alert(
+                              'Could not stop sharing',
+                              e instanceof Error ? e.message : 'Please try again.'
+                            );
+                          }
+                        },
+                      },
+                    ]
+                  );
+                },
+              }
+            : {
+                text: 'Leave Group',
+                style: 'destructive',
+                onPress: () => {
+                  Alert.alert(
+                    'Leave group?',
+                    'You will keep a personal snapshot of the latest shared data.',
+                    [
+                      { text: 'Cancel', style: 'cancel' },
+                      {
+                        text: 'Leave',
+                        style: 'destructive',
+                        onPress: async () => {
+                          try {
+                            await leaveSharedGroup(db, syncDb, app.app_id, app.instance_id!);
+                            const updatedApp = { ...app, instance_id: null };
+                            setApp(updatedApp);
+                            await rebuildShimForApp(updatedApp);
+                            refreshWebView();
+                          } catch (e) {
+                            Alert.alert(
+                              'Could not leave group',
+                              e instanceof Error ? e.message : 'Please try again.'
+                            );
+                          }
+                        },
+                      },
+                    ]
+                  );
+                },
+              },
+          { text: 'Close', style: 'cancel' },
+        ]
+      );
+    } catch (e) {
+      Alert.alert('Could not load group details', e instanceof Error ? e.message : 'Please try again.');
+    }
+  }, [app, db, rebuildShimForApp, refreshWebView, syncDb]);
 
   // ── Menu actions ──────────────────────────────────────────────────────────
-
-  const handleRefresh = useCallback(() => {
-    setMenuVisible(false);
-    setWebError(null);
-    setWebLoading(true);
-    hasLoadedOnceRef.current = false;
-    webOpacity.value = 0;
-    webViewRef.current?.reload();
-  }, [webOpacity]);
 
   const handleCheckUpdate = useCallback(async () => {
     if (!app || checkingUpdate) return;
@@ -262,10 +475,15 @@ export default function AppScreen() {
     setMenuVisible(false);
     try {
       const [countRow, backup] = await Promise.all([
-        syncDb.getOptional<{ n: number }>(
-          'SELECT COUNT(*) AS n FROM app_data WHERE app_id = ?',
-          [app.app_id]
-        ),
+        app.instance_id
+          ? syncDb.getOptional<{ n: number }>(
+              'SELECT COUNT(*) AS n FROM shared_app_data WHERE instance_id = ? AND app_id = ?',
+              [app.instance_id, app.app_id]
+            )
+          : syncDb.getOptional<{ n: number }>(
+              'SELECT COUNT(*) AS n FROM app_data WHERE app_id = ?',
+              [app.app_id]
+            ),
         getLatestBackup(db, app.app_id),
       ]);
       const entries = countRow?.n ?? 0;
@@ -394,18 +612,21 @@ export default function AppScreen() {
           <Text style={styles.headerTitle} numberOfLines={1}>
             {app.name}
           </Text>
+          {app.instance_id ? (
+            <View style={styles.sharedPill}>
+              <Text style={styles.sharedPillText}>Shared</Text>
+            </View>
+          ) : null}
         </View>
 
         <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-          {app.source_url ? (
-            <TouchableOpacity
-              onPress={handleShare}
-              hitSlop={10}
-              style={styles.headerBtn}
-            >
-              <Text style={{ fontSize: 18, color: '#007AFF' }}>⬆</Text>
-            </TouchableOpacity>
-          ) : null}
+          <TouchableOpacity
+            onPress={handleShare}
+            hitSlop={10}
+            style={styles.headerBtn}
+          >
+            <Text style={{ fontSize: 18, color: '#007AFF' }}>⬆</Text>
+          </TouchableOpacity>
           <TouchableOpacity
             onPress={() => setMenuVisible(true)}
             hitSlop={10}
@@ -423,7 +644,7 @@ export default function AppScreen() {
             <Text style={{ fontSize: 36, marginBottom: 16 }}>⚠️</Text>
             <Text style={styles.errorTitle}>Couldn't load this app</Text>
             <Text style={styles.errorDetail}>{webError}</Text>
-            <TouchableOpacity onPress={handleRefresh} style={styles.retryBtn}>
+            <TouchableOpacity onPress={refreshWebView} style={styles.retryBtn}>
               <Text style={styles.retryBtnText}>Retry</Text>
             </TouchableOpacity>
           </View>
@@ -491,7 +712,13 @@ export default function AppScreen() {
         title={app.name}
         onDismiss={() => setMenuVisible(false)}
         actions={[
-          { label: 'Refresh', onPress: handleRefresh },
+          { label: 'Refresh', onPress: refreshWebView },
+          ...(signedInUserId && !app.instance_id
+            ? [{ label: 'Collaborate', onPress: handleCollaborate }]
+            : []),
+          ...(app.instance_id
+            ? [{ label: 'Manage Group', onPress: () => { void handleManageGroup(); } }]
+            : []),
           {
             label: checkingUpdate ? 'Checking for Update…' : 'Check for Update',
             onPress: handleCheckUpdate,
@@ -702,6 +929,20 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#1C1C1E',
     flexShrink: 1,
+  },
+  sharedPill: {
+    marginLeft: 6,
+    backgroundColor: '#E8F1FF',
+    borderWidth: 1,
+    borderColor: '#BBD7FF',
+    borderRadius: 8,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  sharedPillText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#007AFF',
   },
   menuDots: {
     fontSize: 16,

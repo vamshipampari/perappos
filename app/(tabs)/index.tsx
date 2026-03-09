@@ -113,6 +113,25 @@ function AppGridItem({
               }}
             />
           )}
+          {app.instance_id ? (
+            <View
+              style={{
+                position: 'absolute',
+                right: -4,
+                bottom: -4,
+                width: 20,
+                height: 20,
+                borderRadius: 10,
+                alignItems: 'center',
+                justifyContent: 'center',
+                backgroundColor: '#FFFFFF',
+                borderWidth: 1,
+                borderColor: '#D1D1D6',
+              }}
+            >
+              <Text style={{ fontSize: 11 }}>👥</Text>
+            </View>
+          ) : null}
         </View>
         <Text
           numberOfLines={2}
@@ -479,7 +498,10 @@ export default function HomeScreen() {
 
     if (!menuTargetApp.source_url) {
       setMenuVisible(false);
-      Alert.alert('Cannot Share', 'Only URL-based apps can be shared.');
+      Alert.alert(
+        'Cannot Share',
+        "This app can only be shared if it was installed from a URL. ZIP and demo apps can't be shared yet."
+      );
       return;
     }
 
@@ -492,17 +514,15 @@ export default function HomeScreen() {
           { text: 'Sign In', onPress: () => router.push('/auth') },
         ]);
       } else if (!result.success) {
-        Alert.alert('Share failed', 'Could not create share link. Please try again.');
-      } else {
-        showToast('Share link created ✓', 'success');
+        Alert.alert('Share failed', 'Could not share app. Please try again.');
       }
     } catch {
-      Alert.alert('Share failed', 'Could not create share link. Please try again.');
+      Alert.alert('Share failed', 'Could not share app. Please try again.');
     } finally {
       setMenuBusy(false);
       setMenuVisible(false);
     }
-  }, [menuTargetApp, menuBusy, showToast]);
+  }, [menuTargetApp, menuBusy]);
 
   const performMenuExportData = useCallback(async () => {
     if (!menuTargetApp || menuBusy) return;
@@ -699,15 +719,10 @@ export default function HomeScreen() {
               <View style={{ height: 0.5, backgroundColor: '#E5E5EA' }} />
               <TouchableOpacity
                 onPress={performMenuShare}
-                disabled={menuBusy || !menuTargetApp?.source_url}
+                disabled={menuBusy}
                 style={{ paddingVertical: 16, alignItems: 'center' }}
               >
-                <Text
-                  style={{
-                    fontSize: 17,
-                    color: menuTargetApp?.source_url ? '#007AFF' : '#C7C7CC',
-                  }}
-                >
+                <Text style={{ fontSize: 17, color: '#007AFF' }}>
                   Share App
                 </Text>
               </TouchableOpacity>

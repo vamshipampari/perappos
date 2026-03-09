@@ -436,6 +436,11 @@ export default function SettingsScreen() {
               />
               <Row
                 kind="chevron"
+                label="Join Shared App"
+                onPress={() => router.push('/join-shared-app' as any)}
+              />
+              <Row
+                kind="chevron"
                 label="Shared Apps"
                 onPress={() => router.push('/shared-apps')}
               />
