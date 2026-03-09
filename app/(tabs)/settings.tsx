@@ -1,7 +1,7 @@
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Haptics from 'expo-haptics';
 import * as LocalAuthentication from 'expo-local-authentication';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import * as Sharing from 'expo-sharing';
 import React, { useCallback, useEffect, useState } from 'react';
 import {
@@ -228,11 +228,17 @@ export default function SettingsScreen() {
   const [biometricAvailable, setBiometricAvailable] = useState(false);
   const [userEmail, setUserEmail] = useState<string | null>(null);
 
-  // Track auth state
+  // Refresh auth state whenever this screen comes into focus (e.g. after closing auth modal).
+  useFocusEffect(
+    useCallback(() => {
+      supabase.auth.getSession().then(({ data: { session } }) => {
+        setUserEmail(session?.user?.email ?? null);
+      });
+    }, [])
+  );
+
+  // Also keep a live subscription so sign-out updates instantly.
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setUserEmail(session?.user?.email ?? null);
-    });
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setUserEmail(session?.user?.email ?? null);
     });

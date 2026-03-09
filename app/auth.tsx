@@ -25,6 +25,11 @@ export default function AuthScreen() {
   const cooldownRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
+    // If already signed in, skip the auth flow entirely.
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session) router.replace('/(tabs)/settings');
+    });
+
     return () => {
       if (cooldownRef.current) clearInterval(cooldownRef.current);
     };
@@ -88,7 +93,15 @@ export default function AuthScreen() {
       if (verifyError) {
         setError(verifyError.message);
       } else {
-        router.replace('/(tabs)/settings');
+        // OTP succeeded and session is now active.
+        // Dismiss this modal first; if there's no back stack, fall back to settings.
+        setLoading(false);
+        try {
+          router.back();
+        } catch {
+          router.replace('/(tabs)/settings');
+        }
+        return;
       }
     } catch {
       setError('Something went wrong. Please try again.');
