@@ -681,6 +681,20 @@ export default function HomeScreen() {
               >
                 <Text style={{ fontSize: 17, color: '#007AFF' }}>Open</Text>
               </TouchableOpacity>
+              {menuTargetApp?.instance_id ? (
+                <>
+                  <View style={{ height: 0.5, backgroundColor: '#E5E5EA' }} />
+                  <TouchableOpacity
+                    onPress={() => {
+                      setMenuVisible(false);
+                      router.push(`/shared-instance/${menuTargetApp.instance_id}`);
+                    }}
+                    style={{ paddingVertical: 16, alignItems: 'center' }}
+                  >
+                    <Text style={{ fontSize: 17, color: '#007AFF' }}>👥 Manage Group</Text>
+                  </TouchableOpacity>
+                </>
+              ) : null}
               <View style={{ height: 0.5, backgroundColor: '#E5E5EA' }} />
               <TouchableOpacity
                 onPress={performMenuCheckUpdate}

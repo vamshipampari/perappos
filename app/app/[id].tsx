@@ -26,12 +26,7 @@ import { useDatabase } from '@/hooks/useDatabase';
 import type { InstalledApp } from '@/hooks/useInstalledApps';
 import { usePowerSync } from '../../services/sync/PowerSyncProvider';
 import { shareApp } from '../../services/shareService';
-import {
-  createSharedInstanceForApp,
-  getSharedGroupDetails,
-  leaveSharedGroup,
-  stopSharingAsOwner,
-} from '../../services/collaborationService';
+import { createSharedInstanceForApp } from '../../services/collaborationService';
 import {
   applyUrlAppUpdate,
   checkForUpdates,
@@ -272,18 +267,73 @@ export default function AppScreen() {
           text: 'Create Shared App',
           onPress: async () => {
             try {
+              const { data: { session } } = await supabase.auth.getSession();
+              if (!session?.user?.id) {
+                Alert.alert('Sign in required', 'You must sign in before creating a shared app.');
+                return;
+              }
+              const { data: existing, error: existingError } = await supabase
+                .from('shared_instances')
+                .select('*')
+                .eq('owner_id', session.user.id)
+                .eq('app_id', app.app_id)
+                .single();
+
+              if (existingError) {
+                const notFound = existingError.code === 'PGRST116';
+                if (!notFound) {
+                  throw existingError;
+                }
+              }
+
+              if (existing) {
+                const inviteCode = String(existing.invite_code).toUpperCase();
+                await db.runAsync('UPDATE apps SET instance_id = ? WHERE app_id = ?', [
+                  existing.instance_id,
+                  app.app_id,
+                ]);
+                const updatedApp = { ...app, instance_id: String(existing.instance_id) };
+                setApp(updatedApp);
+                await rebuildShimForApp(updatedApp);
+                Alert.alert(
+                  'Existing shared instance found',
+                  `Invite code: ${inviteCode}\n\nSpaced: ${inviteCode.split('').join(' ')}`,
+                  [
+                    {
+                      text: 'Copy Code',
+                      onPress: () => {
+                        void Share.share({ message: inviteCode });
+                      },
+                    },
+                    {
+                      text: 'Share via Message',
+                      onPress: () => {
+                        void Share.share({
+                          message:
+                            `Join my "${app.name}" on Perappos!\n` +
+                            `Open Perappos -> Settings -> Join Shared App -> Enter code: ${inviteCode}`,
+                        });
+                      },
+                    },
+                    { text: 'Open App', onPress: () => refreshWebView() },
+                  ]
+                );
+                return;
+              }
+
               const result = await createSharedInstanceForApp(db, syncDb, app);
+              const inviteCode = result.inviteCode.toUpperCase();
               const updatedApp = { ...app, instance_id: result.instanceId };
               setApp(updatedApp);
               await rebuildShimForApp(updatedApp);
               Alert.alert(
-                result.created ? 'Shared app created' : 'Shared app already exists',
-                `Share this code with your group:\n\n${result.inviteCode.split('').join(' ')}`,
+                'Shared app created',
+                `Invite code: ${inviteCode}\n\nSpaced: ${inviteCode.split('').join(' ')}`,
                 [
                   {
                     text: 'Copy Code',
                     onPress: async () => {
-                      await Share.share({ message: result.inviteCode });
+                      await Share.share({ message: inviteCode });
                     },
                   },
                   {
@@ -292,7 +342,7 @@ export default function AppScreen() {
                       await Share.share({
                         message:
                           `Join my "${app.name}" on Perappos!\n` +
-                          `Open Perappos -> Settings -> Join Shared App -> Enter code: ${result.inviteCode}`,
+                          `Open Perappos -> Settings -> Join Shared App -> Enter code: ${inviteCode}`,
                       });
                     },
                   },
@@ -304,10 +354,15 @@ export default function AppScreen() {
                   },
                 ]
               );
-            } catch (e) {
+            } catch (error) {
+              try {
+                console.error('Create shared error:', JSON.stringify(error));
+              } catch {
+                console.error('Create shared error:', String(error));
+              }
               Alert.alert(
-                'Could not create shared app',
-                e instanceof Error ? e.message : 'Please try again.'
+                'Could not check existing shared instance',
+                error instanceof Error ? error.message : String(error)
               );
             }
           },
@@ -316,102 +371,11 @@ export default function AppScreen() {
     );
   }, [app, db, rebuildShimForApp, refreshWebView, signedInUserId, syncDb]);
 
-  const handleManageGroup = useCallback(async () => {
+  const handleManageGroup = useCallback(() => {
     if (!app?.instance_id) return;
     setMenuVisible(false);
-
-    try {
-      const details = await getSharedGroupDetails(syncDb, app.instance_id);
-      if (!details) {
-        Alert.alert('Group not found', 'This shared group is not available on this device yet.');
-        return;
-      }
-
-      const isOwner = details.myRole === 'owner';
-      Alert.alert(
-        `Manage Group (${details.memberCount} members)`,
-        `Invite code: ${details.instance.invite_code}`,
-        [
-          {
-            text: 'Share Invite',
-            onPress: async () => {
-              await Share.share({
-                message:
-                  `Join "${app.name}" on Perappos.\n` +
-                  `Open Perappos -> Settings -> Join Shared App -> Enter code: ${details.instance.invite_code}`,
-              });
-            },
-          },
-          isOwner
-            ? {
-                text: 'Stop Sharing',
-                style: 'destructive',
-                onPress: () => {
-                  Alert.alert(
-                    'Stop sharing?',
-                    'This will stop collaboration for everyone. Your app keeps a personal snapshot of the latest shared data.',
-                    [
-                      { text: 'Cancel', style: 'cancel' },
-                      {
-                        text: 'Stop Sharing',
-                        style: 'destructive',
-                        onPress: async () => {
-                          try {
-                            await stopSharingAsOwner(db, syncDb, app.app_id, app.instance_id!);
-                            const updatedApp = { ...app, instance_id: null };
-                            setApp(updatedApp);
-                            await rebuildShimForApp(updatedApp);
-                            refreshWebView();
-                          } catch (e) {
-                            Alert.alert(
-                              'Could not stop sharing',
-                              e instanceof Error ? e.message : 'Please try again.'
-                            );
-                          }
-                        },
-                      },
-                    ]
-                  );
-                },
-              }
-            : {
-                text: 'Leave Group',
-                style: 'destructive',
-                onPress: () => {
-                  Alert.alert(
-                    'Leave group?',
-                    'You will keep a personal snapshot of the latest shared data.',
-                    [
-                      { text: 'Cancel', style: 'cancel' },
-                      {
-                        text: 'Leave',
-                        style: 'destructive',
-                        onPress: async () => {
-                          try {
-                            await leaveSharedGroup(db, syncDb, app.app_id, app.instance_id!);
-                            const updatedApp = { ...app, instance_id: null };
-                            setApp(updatedApp);
-                            await rebuildShimForApp(updatedApp);
-                            refreshWebView();
-                          } catch (e) {
-                            Alert.alert(
-                              'Could not leave group',
-                              e instanceof Error ? e.message : 'Please try again.'
-                            );
-                          }
-                        },
-                      },
-                    ]
-                  );
-                },
-              },
-          { text: 'Close', style: 'cancel' },
-        ]
-      );
-    } catch (e) {
-      Alert.alert('Could not load group details', e instanceof Error ? e.message : 'Please try again.');
-    }
-  }, [app, db, rebuildShimForApp, refreshWebView, syncDb]);
+    router.push(`/shared-instance/${app.instance_id}`);
+  }, [app]);
 
   // ── Menu actions ──────────────────────────────────────────────────────────
 
@@ -613,9 +577,15 @@ export default function AppScreen() {
             {app.name}
           </Text>
           {app.instance_id ? (
-            <View style={styles.sharedPill}>
-              <Text style={styles.sharedPillText}>Shared</Text>
-            </View>
+            <TouchableOpacity
+              onPress={() => router.push(`/shared-instance/${app.instance_id}`)}
+              hitSlop={8}
+              activeOpacity={0.7}
+            >
+              <View style={styles.sharedPill}>
+                <Text style={styles.sharedPillText}>👥 Shared</Text>
+              </View>
+            </TouchableOpacity>
           ) : null}
         </View>
 
