@@ -1,12 +1,18 @@
-import { PowerSyncBackendConnector, AbstractPowerSyncDatabase, UpdateType } from '@powersync/react-native';
-import { supabase } from '../supabase';
+import {
+  AbstractPowerSyncDatabase,
+  PowerSyncBackendConnector,
+  UpdateType,
+} from "@powersync/react-native";
+import { supabase } from "../supabase";
 
 export class SupabaseConnector implements PowerSyncBackendConnector {
   async fetchCredentials() {
-    const { data: { session } } = await supabase.auth.getSession();
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
 
     if (!session) {
-      throw new Error('Not authenticated');
+      throw new Error("Not authenticated");
     }
 
     return {
@@ -19,17 +25,23 @@ export class SupabaseConnector implements PowerSyncBackendConnector {
     const transaction = await database.getNextCrudTransaction();
     if (!transaction) return;
 
-    console.log('[PowerSync] uploading...', transaction.crud.length, 'op(s)');
+    console.log("[PowerSync] uploading...", transaction.crud.length, "op(s)");
 
-    // Fetch session once for the whole transaction
-    const { data: { session } } = await supabase.auth.getSession();
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
     const userId = session?.user?.id ?? null;
+
     const withWriteActor = (table: string, row: Record<string, unknown>) => {
       if (!userId) return row;
-      if (table === 'shared_app_data') {
+      if (table === "shared_app_data") {
         return { ...row, updated_by: userId };
       }
-      if (table === 'app_data' || table === 'installed_apps' || table === 'session_data') {
+      if (
+        table === "app_data" ||
+        table === "installed_apps" ||
+        table === "session_data"
+      ) {
         return { ...row, user_id: userId };
       }
       return row;
@@ -40,59 +52,77 @@ export class SupabaseConnector implements PowerSyncBackendConnector {
         const { table, opData, id } = op;
         const record = { ...opData, id };
 
-        console.log('[PowerSync] upload op:', op.op, 'table:', table, 'record:', record);
+        console.log(
+          "[PowerSync] upload op:",
+          op.op,
+          "table:",
+          table,
+          "record:",
+          record,
+        );
 
         switch (op.op) {
           case UpdateType.PUT: {
-            if (table === 'shared_app_data') {
-              // Direct upsert would fail because the local id is a compound string,
-              // not a uuid, and RLS blocks direct writes. Use migrate_to_shared RPC instead.
-              const { error } = await supabase.rpc('migrate_to_shared', {
-                p_instance_id: record.instance_id as string,
-                p_app_id: record.app_id as string,
-                p_key: record.key as string,
-                p_value: (record.value as string) ?? '',
-                p_user_id: record.updated_by as string ?? userId,
-              });
+            if (table === "shared_app_data") {
+              // Direct upsert using the unique constraint on (instance_id, app_id, key).
+              // This passes ALL columns including merge metadata that the old
+              // migrate_to_shared RPC was silently dropping.
+              const row = withWriteActor(table, record) as Record<
+                string,
+                unknown
+              >;
+
+              // Strip the PowerSync compound id — Supabase uses its own uuid PK.
+              // eslint-disable-next-line @typescript-eslint/no-unused-vars
+              const { id: _psId, ...rowWithoutId } = row;
+
+              const { error } = await supabase
+                .from("shared_app_data")
+                .upsert(rowWithoutId, { onConflict: "instance_id,app_id,key" });
               if (error) throw error;
             } else {
-              const { error } = await supabase.from(table).upsert(withWriteActor(table, record));
+              const { error } = await supabase
+                .from(table)
+                .upsert(withWriteActor(table, record));
               if (error) throw error;
             }
             break;
           }
           case UpdateType.PATCH: {
-            if (table === 'shared_app_data') {
-              // id may be a compound string — use migrate_to_shared via natural key instead.
-              const { error } = await supabase.rpc('migrate_to_shared', {
-                p_instance_id: record.instance_id as string,
-                p_app_id: record.app_id as string,
-                p_key: record.key as string,
-                p_value: (record.value as string) ?? '',
-                p_user_id: (record.updated_by as string) ?? userId,
-              });
+            if (table === "shared_app_data") {
+              const row = withWriteActor(table, record) as Record<
+                string,
+                unknown
+              >;
+              const { id: _psId, ...rowWithoutId } = row;
+
+              const { error } = await supabase
+                .from("shared_app_data")
+                .upsert(rowWithoutId, { onConflict: "instance_id,app_id,key" });
               if (error) throw error;
             } else {
               const { error } = await supabase
                 .from(table)
                 .update(withWriteActor(table, record))
-                .eq('id', id);
+                .eq("id", id);
               if (error) throw error;
             }
             break;
           }
           case UpdateType.DELETE: {
-            if (table === 'shared_app_data') {
-              // id may be a compound string — delete by natural key instead.
+            if (table === "shared_app_data") {
               const { error } = await supabase
                 .from(table)
                 .delete()
-                .eq('instance_id', record.instance_id as string)
-                .eq('app_id', record.app_id as string)
-                .eq('key', record.key as string);
+                .eq("instance_id", record.instance_id as string)
+                .eq("app_id", record.app_id as string)
+                .eq("key", record.key as string);
               if (error) throw error;
             } else {
-              const { error } = await supabase.from(table).delete().eq('id', id);
+              const { error } = await supabase
+                .from(table)
+                .delete()
+                .eq("id", id);
               if (error) throw error;
             }
             break;
@@ -100,9 +130,9 @@ export class SupabaseConnector implements PowerSyncBackendConnector {
         }
       }
       await transaction.complete();
-      console.log('[PowerSync] upload complete');
+      console.log("[PowerSync] upload complete");
     } catch (error) {
-      console.error('[PowerSync] upload error:', error);
+      console.error("[PowerSync] upload error:", error);
       throw error;
     }
   }

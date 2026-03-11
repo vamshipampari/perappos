@@ -5,7 +5,7 @@
  *   WebView (shim)  →  onMessage  →  handleVaultMessage  →  injectJavaScript(response)
  *
  * Two categories of messages:
- *  - "ls_*"  : fire-and-forget from the localStorage shim (no `id`, no response)
+ *  - "ls_*"  : localStorage shim messages; `ls_set_sync` carries an `id` and expects a response
  *  - "db_*" / "device_*" / "auth_*" / "app_*" : VaultAPI calls with `id`, need response
  */
 
@@ -18,6 +18,8 @@ import type { RefObject } from 'react';
 import { Share } from 'react-native';
 import type WebView from 'react-native-webview';
 import type { AbstractPowerSyncDatabase } from '@powersync/react-native';
+import { handleSharedWrite } from '@/services/sync/bridge-merge-handler';
+import type { SharedWriteMessage } from '@/services/sync/bridge-merge-handler';
 import { supabase } from '../services/supabase';
 
 type WebViewRef = RefObject<WebView | null>;
@@ -35,10 +37,19 @@ export interface AppManifest {
 
 interface RawMessage {
   type: string;
-  id?: string;       // present for VaultAPI calls, absent for ls_* fire-and-forget
+  id?: string;       // present for VaultAPI calls and ls_set_sync, absent for ls_* fire-and-forget
   appId: string;
+  _callbackId?: number;
+  app_id?: string;
   key?: string;
   value?: string;
+  baseVersion?: number;
+  baseHash?: string | null;
+  baseValue?: string | null;
+  clientWriteId?: string;
+  pageAge?: number;
+  hadInteraction?: boolean;
+  timestamp?: number;
   style?: string;
   title?: string;
   body?: string;
@@ -64,9 +75,11 @@ export async function handleVaultMessage(
   } catch {
     return; // not a vault message — ignore silently
   }
+  const parsedMessage = msg;
+  console.log('[bridge] received message type:', parsedMessage.type);
 
   const { type, id, appId } = msg;
-  const effectiveAppId = manifest.app_id || appId;
+  const effectiveAppId = manifest.app_id || msg.app_id || appId;
   const isShared = !!manifest.instance_id;
   const instanceId = manifest.instance_id;
 
@@ -87,6 +100,57 @@ export async function handleVaultMessage(
 
   try {
     switch (type) {
+      case 'ls_set_sync': {
+        if (!isShared || !instanceId || !msg.key || typeof msg.value !== 'string') {
+          respond(
+            {
+              success: false,
+              newVersion: 0,
+              newValue: null,
+            },
+            !isShared || !instanceId ? 'Shared sync is not available for this app instance' : 'Invalid sync write payload'
+          );
+          return;
+        }
+
+        const { data: { session } } = await supabase.auth.getSession();
+        const userId = session?.user?.id ?? '';
+        const sharedMsg: SharedWriteMessage = {
+          key: msg.key,
+          value: msg.value,
+          baseVersion: msg.baseVersion ?? 0,
+          baseHash: msg.baseHash ?? null,
+          baseValue: msg.baseValue ?? null,
+          clientWriteId: msg.clientWriteId ?? '',
+          pageAge: msg.pageAge ?? 0,
+          hadInteraction: msg.hadInteraction ?? false,
+          timestamp: msg.timestamp ?? Date.now(),
+        };
+
+        const result = await handleSharedWrite(
+          syncDb as unknown as Parameters<typeof handleSharedWrite>[0],
+          sharedMsg,
+          instanceId,
+          effectiveAppId,
+          userId
+        );
+
+        console.log('[bridge] ls_set_sync result:', {
+          key: msg.key,
+          strategy: result.strategy,
+          newVersion: result.newVersion,
+          conflictCount: result.conflictCount,
+          hasNewValue: !!result.newValue,
+        });
+
+        respond({
+          success: result.success,
+          newVersion: result.newVersion,
+          newValue: result.newValue,
+        }, result.error ?? undefined);
+        return;
+      }
+
       // ── localStorage fire-and-forget ──────────────────────────────────────
       // These come from the localStorage shim and carry no `id`.
       // We write to SQLite but send no response.

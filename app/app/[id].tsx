@@ -35,6 +35,7 @@ import {
 } from '@/lib/appUpdates';
 import { handleVaultMessage } from '@/lib/vaultBridge';
 import { buildVaultShim } from '@/lib/vaultShim';
+import { buildSyncShim } from '@/lib/vaultShimSync';
 import { DEMO_HTML_BY_NAME } from '@/utils/demoAppsHtml';
 import { supabase } from '@/services/supabase';
 
@@ -81,6 +82,67 @@ export default function AppScreen() {
     opacity: webOpacity.value,
   }));
 
+  const loadShimPayload = useCallback(
+    async (target: InstalledApp): Promise<{
+      shim: string;
+      preloadSource: 'shared' | 'personal-fallback' | 'local';
+    }> => {
+      const preloadedData: Record<string, string> = {};
+      const preloadedVersions: Record<string, number> = {};
+
+      if (target.instance_id) {
+        const sharedRows = await syncDb.getAll<{ key: string; value: string; version: number | null }>(
+          `SELECT key, value, COALESCE(version, 0) as version
+           FROM shared_app_data
+           WHERE instance_id = ? AND app_id = ?`,
+          [target.instance_id, target.app_id]
+        );
+
+        for (const row of sharedRows) {
+          preloadedData[row.key] = row.value;
+          preloadedVersions[row.key] = row.version ?? 0;
+        }
+
+        if (Object.keys(preloadedData).length === 0) {
+          const personalRows = await syncDb.getAll<{ key: string; value: string }>(
+            `SELECT key, value FROM app_data WHERE app_id = ?`,
+            [target.app_id]
+          );
+
+          for (const row of personalRows) {
+            preloadedData[row.key] = row.value;
+            preloadedVersions[row.key] = 0;
+          }
+
+          return {
+            shim: buildSyncShim(target.app_id, preloadedData, preloadedVersions),
+            preloadSource: 'personal-fallback',
+          };
+        }
+
+        return {
+          shim: buildSyncShim(target.app_id, preloadedData, preloadedVersions),
+          preloadSource: 'shared',
+        };
+      }
+
+      const localRows = await syncDb.getAll<{ key: string; value: string }>(
+        'SELECT key, value FROM app_data WHERE app_id = ?',
+        [target.app_id]
+      );
+
+      for (const row of localRows) {
+        preloadedData[row.key] = row.value;
+      }
+
+      return {
+        shim: buildVaultShim(target.app_id, preloadedData),
+        preloadSource: 'local',
+      };
+    },
+    [syncDb]
+  );
+
   // ── Initial load: fetch app row + all KV data from SQLite ─────────────────
   useEffect(() => {
     if (!id) return;
@@ -93,19 +155,8 @@ export default function AppScreen() {
           return;
         }
 
-        const kvRows = foundApp.instance_id
-          ? await syncDb.getAll<{ key: string; value: string }>(
-              'SELECT key, value FROM shared_app_data WHERE instance_id = ? AND app_id = ?',
-              [foundApp.instance_id, id]
-            )
-          : await syncDb.getAll<{ key: string; value: string }>(
-              'SELECT key, value FROM app_data WHERE app_id = ?',
-              [id]
-            );
-
-        // Build preloaded KV map — embedded in shim so reads are synchronous
-        const preloadedKV: Record<string, string> = {};
-        for (const row of kvRows) preloadedKV[row.key] = row.value;
+        const isShared = !!foundApp.instance_id;
+        const { shim: generatedShimJS, preloadSource } = await loadShimPayload(foundApp);
 
         // Record open (non-blocking)
         db.runAsync(
@@ -139,14 +190,15 @@ export default function AppScreen() {
         }
 
         setApp(foundApp);
-        setShimJS(buildVaultShim(foundApp.app_id, preloadedKV));
+        setShimJS(generatedShimJS);
+        console.log('[webview] using shim:', isShared ? 'SYNC' : 'LOCAL', 'preload:', preloadSource);
         setPhase('ready');
       } catch (e) {
         console.error('[AppScreen] load error:', e);
         setPhase('not_found');
       }
     })();
-  }, [id, db, syncDb]);
+  }, [id, db, loadShimPayload]);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -160,28 +212,40 @@ export default function AppScreen() {
 
   const rebuildShimForApp = useCallback(
     async (target: InstalledApp) => {
-      const rows = target.instance_id
-        ? await syncDb.getAll<{ key: string; value: string }>(
-            'SELECT key, value FROM shared_app_data WHERE instance_id = ? AND app_id = ?',
-            [target.instance_id, target.app_id]
-          )
-        : await syncDb.getAll<{ key: string; value: string }>(
-            'SELECT key, value FROM app_data WHERE app_id = ?',
-            [target.app_id]
-          );
-
-      const preloadedKV: Record<string, string> = {};
-      for (const row of rows) preloadedKV[row.key] = row.value;
-      setShimJS(buildVaultShim(target.app_id, preloadedKV));
+      const { shim, preloadSource } = await loadShimPayload(target);
+      setShimJS(shim);
+      console.log('[webview] using shim:', target.instance_id ? 'SYNC' : 'LOCAL', 'preload:', preloadSource);
     },
-    [syncDb]
+    [loadShimPayload]
   );
 
   // ── Bridge: WebView → native ──────────────────────────────────────────────
   const handleMessage = useCallback(
     async (event: { nativeEvent: { data: string } }) => {
+      console.log('[webview] raw message received:', event.nativeEvent.data.substring(0, 100));
       if (!app) return;
-      await handleVaultMessage(event.nativeEvent.data, db, syncDb, webViewRef, {
+      const rawData = event.nativeEvent.data;
+      try {
+        const parsed = JSON.parse(rawData) as {
+          type?: string;
+          message?: string;
+          line?: number;
+          error?: string;
+          stack?: string;
+        };
+        if (parsed.type === 'js_error') {
+          console.error('[webview] js error:', parsed.message, 'line:', parsed.line);
+          return;
+        }
+        if (parsed.type === 'shim_error') {
+          console.error('[webview] shim error:', parsed.error, parsed.stack ?? '');
+          return;
+        }
+      } catch {
+        // non-JSON messages continue to bridge handler
+      }
+
+      await handleVaultMessage(rawData, db, syncDb, webViewRef, {
         app_id: app.app_id,
         name: app.name,
         source_url: app.source_url,
@@ -503,6 +567,7 @@ export default function AppScreen() {
           style: 'destructive',
           onPress: async () => {
             try {
+              await db.runAsync('UPDATE apps SET instance_id = NULL WHERE app_id = ?', app.app_id);
               await syncDb.execute('DELETE FROM app_data WHERE app_id = ?', [app.app_id]);
               await db.runAsync('DELETE FROM apps WHERE app_id = ?', app.app_id);
             } catch {
@@ -622,6 +687,22 @@ export default function AppScreen() {
               injectedJavaScriptBeforeContentLoaded={
                 Platform.OS === 'android' ? shimJS + ANDROID_KEYBOARD_FIX_JS : shimJS
               }
+              injectedJavaScript={`
+                window.onerror = function(msg, url, line, col, error) {
+                  window.ReactNativeWebView.postMessage(JSON.stringify({
+                    type: 'js_error',
+                    message: msg,
+                    line: line
+                  }));
+                };
+                if (window.__SHIM_ERROR) {
+                  window.ReactNativeWebView.postMessage(JSON.stringify({
+                    type: 'shim_error',
+                    error: window.__SHIM_ERROR
+                  }));
+                }
+                true;
+              `}
               onMessage={handleMessage}
               /* Permissions */
               javaScriptEnabled
@@ -645,6 +726,7 @@ export default function AppScreen() {
                 webOpacity.value = withTiming(1, { duration: 380 });
               }}
               onError={(e) => {
+                console.error('[webview] error:', e.nativeEvent.description);
                 hasLoadedOnceRef.current = true;
                 setWebLoading(false);
                 setWebError(e.nativeEvent.description ?? 'Failed to load');
@@ -677,7 +759,7 @@ export default function AppScreen() {
         onDismiss={() => setMenuVisible(false)}
         actions={[
           { label: 'Refresh', onPress: refreshWebView },
-          ...(signedInUserId && !app.instance_id
+          ...(!app.instance_id
             ? [{ label: 'Collaborate', onPress: handleCollaborate }]
             : []),
           ...(app.instance_id

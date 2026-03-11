@@ -386,15 +386,49 @@ export default function SettingsScreen() {
       const rows = await syncDb.getAll<{ app_id: string; key: string; value: string }>(
         'SELECT app_id, key, value FROM app_data LIMIT 10'
       );
+      const mergeRows = await syncDb.getAll<{
+        key: string;
+        version: number | null;
+        last_merge_strategy: string | null;
+        last_conflict_count: number | null;
+        updated_at: string | null;
+      }>(
+        `SELECT key, version, last_merge_strategy, last_conflict_count, updated_at
+         FROM shared_app_data
+         ORDER BY updated_at DESC
+         LIMIT 10`
+      );
       const total = await syncDb.getOptional<{ n: number }>('SELECT COUNT(*) AS n FROM app_data');
+      const appRows = await db.getAllAsync<{ app_id: string; name: string; instance_id: string | null }>(
+        'SELECT app_id, name, instance_id FROM apps'
+      );
       const count = total?.n ?? 0;
       console.log('[DebugSync] app_data row count:', count);
       console.log('[DebugSync] first rows:', rows);
+      console.log('[DebugSync] merge status rows:', mergeRows);
+      console.log('[DebugSync] apps rows:', appRows);
+
+      const mergeStatus = mergeRows.length === 0
+        ? 'none'
+        : mergeRows
+            .map(
+              (r) =>
+                `${r.key} | v${r.version ?? 0} | ${r.last_merge_strategy ?? 'unknown'} | conflicts ${r.last_conflict_count ?? 0}`
+            )
+            .join('\n');
+      const appsStatus = appRows.length === 0
+        ? 'none'
+        : appRows
+            .map((r) => `${r.name} | instance_id: ${r.instance_id ?? 'null'}`)
+            .join('\n');
+
       Alert.alert(
         `Sync DB: ${count} row${count === 1 ? '' : 's'}`,
-        count === 0
+        (count === 0
           ? 'No data in PowerSync app_data table.'
-          : rows.map((r) => `[${r.app_id.slice(0, 8)}] ${r.key} = ${r.value.slice(0, 40)}`).join('\n')
+          : rows.map((r) => `[${r.app_id.slice(0, 8)}] ${r.key} = ${r.value.slice(0, 40)}`).join('\n'))
+          + `\n\nMerge Status:\n${mergeStatus}`
+          + `\n\nApps:\n${appsStatus}`
       );
     } catch (e) {
       console.error('[DebugSync] error:', e);

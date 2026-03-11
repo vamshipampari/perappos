@@ -1,5 +1,5 @@
 import { router } from 'expo-router';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -25,6 +25,7 @@ export default function JoinSharedAppScreen() {
   const [preview, setPreview] = useState<SharedInstance | null>(null);
   const [checking, setChecking] = useState(false);
   const [joining, setJoining] = useState(false);
+  const joinStateRef = useRef('idle');
 
   const normalizedCode = code.trim().toUpperCase();
 
@@ -36,11 +37,11 @@ export default function JoinSharedAppScreen() {
 
     setChecking(true);
     try {
-      const { data: instance, error } = await supabase
-        .from('shared_instances')
-        .select('*')
-        .eq('invite_code', normalizedCode)
-        .single();
+      const { data, error } = await supabase.rpc('lookup_shared_instance', {
+        p_invite_code: normalizedCode,
+      });
+      console.log('Lookup result:', JSON.stringify(data), 'Error:', JSON.stringify(error));
+      const instance = (data as SharedInstance[] | null)?.[0] ?? null;
 
       if (error || !instance) {
         Alert.alert('Invalid invite code', 'Check the code and try again.');
@@ -48,7 +49,7 @@ export default function JoinSharedAppScreen() {
         return;
       }
 
-      setPreview(instance as SharedInstance);
+      setPreview(instance);
     } catch {
       Alert.alert('Lookup failed', 'Could not verify invite code right now.');
     } finally {
@@ -60,13 +61,31 @@ export default function JoinSharedAppScreen() {
     if (!preview || joining) return;
 
     setJoining(true);
+    joinStateRef.current = 'start';
+    const timeoutId = setTimeout(() => {
+      Alert.alert('Debug', `Join flow timed out at state: ${joinStateRef.current}. Check console logs.`);
+      setJoining(false);
+    }, 10000);
+
     try {
-      const result = await joinSharedAppByCode(db, normalizedCode);
+      const result = await joinSharedAppByCode(db, normalizedCode, (state) => {
+        joinStateRef.current = state;
+      });
+      console.log('App install result:', JSON.stringify(result));
       await refresh();
+      setJoining(false);
+      clearTimeout(timeoutId);
       router.replace(`/app/${result.appId}`);
-    } catch (e) {
-      Alert.alert('Could not join', e instanceof Error ? e.message : 'Please try again.');
+    } catch (err) {
+      try {
+        console.error('Join error:', JSON.stringify(err));
+      } catch {
+        console.error('Join error:', String(err));
+      }
+      Alert.alert('Error', String(err));
+      setJoining(false);
     } finally {
+      clearTimeout(timeoutId);
       setJoining(false);
     }
   };

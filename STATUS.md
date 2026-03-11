@@ -1,6 +1,6 @@
 # Perappos — Status
 
-## Current Sprint: Sync + WebView Bridge
+## Current Sprint: Shared Collaboration + Sync Reliability
 
 ### ✅ Completed
 - NativeWind v4 fully configured (tailwind.config.js, babel.config.js, metro.config.js, global.css)
@@ -44,15 +44,50 @@
   - `device_haptic`, `device_notify`, `device_share` — native device APIs
   - `auth_get_user`, `app_get_info` — session and manifest access
 - Bundle update system (`lib/appUpdates.ts`) — hash diffing, backup, revert
+- Shared instance collaboration:
+  - PowerSync schema expanded with `shared_instances`, `instance_members`, `shared_app_data`
+  - `shared_app_data` schema now includes merge metadata: `version`, `last_write_id`, `last_merge_strategy`, `last_conflict_count`
+  - Local `apps` table migration adds `instance_id` for per-app collaboration mode
+  - Create flow in app menu now supports `Collaborate` and shows invite code
+  - Join flow implemented via Settings → `Join Shared App` with invite-code screen
+  - Manage group flow implemented in app menu (`Manage Group`) for leave/stop sharing
+  - Home UI shows shared-app badge (👥); app header shows `Shared` pill
+  - Shared vs personal data routing implemented in WebView bridge (`app_data` vs `shared_app_data`)
+  - Shared apps use a dedicated sync shim (`lib/vaultShimSync.ts`) with base-version tracking, debounced writes, and write acknowledgements
+  - Shared `localStorage` writes now flow through `ls_set_sync` and `handleSharedWrite()` for merge-aware conflict handling
+  - Merge handler supports no-op suppression, idempotency, init-clobber protection, fast-path writes, object merge, array-by-id merge, and LWW fallback
+  - Merge telemetry buffer added for strategy/conflict inspection during shared-write debugging
+  - Join lookup now uses Supabase RPC `lookup_shared_instance`
+  - Member add now uses Supabase RPC `add_instance_member` (owner + joiner)
+- Join flow diagnostics:
+  - Step-by-step console logging for lookup/member-add/install
+  - 10-second timeout alert when join appears stuck
+  - Loading state reset in success/catch/finally paths
+- Auth reliability:
+  - OTP modal now auto-dismisses when session becomes active (auth state listener)
+  - Prevents stuck "Verifying…" UI when token is already issued
+- PowerSync upload reliability:
+  - `SupabaseConnector` PUT/PATCH for `shared_app_data` now uses direct natural-key upsert (`onConflict: "instance_id,app_id,key"`) — strips PowerSync compound id before sending, preserves all merge metadata columns
+  - DELETE for `shared_app_data` uses natural key (`instance_id`, `app_id`, `key`) instead of compound-string id
+  - One-time `getCrudBatch` queue flush in `PowerSyncProvider` on connect clears stuck entries with invalid compound-string IDs (remove after first successful run)
 
 ### 🔜 Next Up
-- [ ] Resolve Supabase `app_data.id` column type (must be TEXT not UUID) to unblock sync uploads
-- [ ] ZIP bundle support in add.tsx (expo-document-picker + expo-file-system)
-- [ ] Swipe-to-delete / long-press context menu on home grid
+- [ ] Remove one-time queue flush from `PowerSyncProvider` after first successful run
+- [ ] Show explicit PowerSync connection error reason in Settings (not only Offline/Connected)
+- [ ] Add clipboard copy button for invite codes (currently uses share sheet fallback)
+- [ ] Strengthen join/create retry UX for intermittent RPC/network failures
 - [ ] Discover screen: curated template list
 - [ ] Settings: per-app permissions panel
 
 ### Known Issues / Decisions Pending
 - `+html.tsx` and `+not-found.tsx` from default template remain (harmless)
 - Tab icons use Unicode characters; may swap for SF Symbols via `@expo/vector-icons` later
-- Supabase `app_data.id` must be `TEXT` (not `UUID`) — run `ALTER TABLE app_data ALTER COLUMN id TYPE TEXT;`
+- Ensure Supabase RPCs exist and are deployed:
+  - `lookup_shared_instance(p_invite_code text)`
+  - `add_instance_member(p_instance_id text, p_user_id uuid, p_role text)`
+- Ensure Supabase `shared_app_data` has the merge columns expected by the PowerSync schema and bridge:
+  - `version INTEGER NOT NULL DEFAULT 0`
+  - `last_write_id TEXT`
+  - `last_merge_strategy TEXT`
+  - `last_conflict_count INTEGER NOT NULL DEFAULT 0`
+- Supabase RLS for `shared_app_data` must allow INSERT/UPDATE for users who are members of the target instance (required for direct natural-key upserts in `SupabaseConnector`)

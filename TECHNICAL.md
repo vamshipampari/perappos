@@ -24,9 +24,13 @@ perappos/
 │   ├── _layout.tsx          Root layout — SQLiteProvider + PowerSyncProvider + Stack navigator
 │   ├── auth.tsx             Modal — email OTP sign-in
 │   ├── add.tsx              Modal — add new app (URL or ZIP)
+│   ├── join-shared-app.tsx  Screen — join collaborative app via invite code
+│   ├── shared-apps.tsx      Screen — legacy shared link management
 │   ├── +native-intent.tsx   Deep-link redirect for auth/callback
 │   ├── app/
 │   │   └── [id].tsx         Full-screen WebView runner (BFS asset crawler, update support)
+│   ├── share/
+│   │   └── [code].tsx       Legacy deep-link route fallback for shared links
 │   └── (tabs)/
 │       ├── _layout.tsx      Tab bar (Home, Discover, Settings)
 │       ├── index.tsx        Home screen — app grid
@@ -34,13 +38,17 @@ perappos/
 │       └── settings.tsx     Settings screen (sync status, debug button)
 ├── services/
 │   ├── supabase.ts          Supabase client (persistSession, autoRefreshToken)
+│   ├── collaborationService.ts  Shared instance create/join/leave/stop logic
+│   ├── appInstaller.ts       Reusable URL app installer helper
 │   └── sync/
 │       ├── PowerSyncProvider.tsx  PowerSync DB init, auth-gated connect/disconnect
 │       ├── SupabaseConnector.ts   PowerSync backend connector (fetchCredentials, uploadData)
-│       └── schema.ts              PowerSync table schema (app_data, installed_apps, session_data)
+│       ├── bridge-merge-handler.ts Merge-aware shared write path for `shared_app_data`
+│       └── schema.ts              PowerSync table schema (personal + shared tables)
 ├── lib/
 │   ├── vaultBridge.ts       WebView → native message handler (db/ls/device/auth/app ops)
 │   ├── vaultShim.ts         JS shim injected into WebView before page load
+│   ├── vaultShimSync.ts     Shared-app shim with base tracking, debounced writes, write acks
 │   └── appUpdates.ts        Bundle hash diffing + backup/revert logic
 ├── hooks/
 │   ├── useDatabase.ts       useSQLiteContext() wrapper
@@ -76,6 +84,7 @@ Primary store for installed mini-apps.
 | updated_at | TEXT | datetime('now') | ISO8601 |
 | last_opened | TEXT | NULL | ISO8601 |
 | open_count | INTEGER | 0 | Lifetime open count |
+| instance_id | TEXT | NULL | Shared namespace ID when app is collaborative |
 
 ### `app_data` (expo-sqlite — app metadata / non-synced)
 Per-app persistent key-value store for local-only data.
@@ -102,6 +111,14 @@ Cross-app shared data (e.g., contacts, preferences).
 | updated_at | TEXT | ISO8601 |
 
 PK: `(category, key)`
+
+### PowerSync shared tables
+
+| Table | Key columns | Notes |
+|---|---|---|
+| `shared_instances` | `instance_id`, `app_id`, `owner_id`, `invite_code` | Collaborative group namespace per app |
+| `instance_members` | `instance_id`, `user_id`, `role` | Membership list (`owner` / `member`) |
+| `shared_app_data` | `instance_id`, `app_id`, `key`, `value`, `updated_by`, `updated_at`, `version`, `last_write_id`, `last_merge_strategy`, `last_conflict_count` | Shared KV rows synced across members with merge metadata |
 
 ## Key Hooks
 
@@ -143,6 +160,9 @@ const { apps, loading, error, refresh, recordOpen } = useInstalledApps();
 | `/auth` | Modal | Email OTP sign-in |
 | `/add` | Modal | Add new app |
 | `/app/[id]` | Full-screen modal | WebView runner |
+| `/join-shared-app` | Card | Join shared app via invite code |
+| `/shared-apps` | Card | Legacy shared link management |
+| `/share/[code]` | Modal | Legacy deep-link fallback, redirects user to join flow |
 
 ## PowerSync Sync Schema (`services/sync/schema.ts`)
 
@@ -154,6 +174,9 @@ All writes to these tables are tracked and uploaded to Supabase via `SupabaseCon
 | `app_data` | `id TEXT` (= `${appId}/${key}`), `user_id`, `app_id`, `key`, `value`, `updated_at` | Synced KV store for mini-app data |
 | `installed_apps` | `id TEXT`, `app_id`, `name`, `icon_emoji`, `source_type`, `bundle_hash`, etc. | Reserved for future cross-device app sync |
 | `session_data` | `id TEXT`, `app_id`, `session_id`, `key`, `value`, `created_at` | Reserved for ephemeral session state |
+| `shared_instances` | `id TEXT`, `instance_id`, `app_id`, `owner_id`, `invite_code` | Shared namespaces user belongs to |
+| `instance_members` | `id TEXT`, `instance_id`, `user_id`, `role`, `joined_at` | Members in user-visible shared namespaces |
+| `shared_app_data` | `id TEXT`, `instance_id`, `app_id`, `key`, `value`, `updated_by`, `updated_at`, `version`, `last_write_id`, `last_merge_strategy`, `last_conflict_count` | Shared KV rows for collaborative apps with merge/conflict state |
 
 > **Supabase schema note:** The `app_data.id` column in Supabase must be `TEXT` (not `UUID`),
 > because PowerSync uses `${appId}/${key}` as a stable composite row ID.
@@ -163,7 +186,11 @@ All writes to these tables are tracked and uploaded to Supabase via `SupabaseCon
 - `PowerSyncProvider` wraps the app and calls `powerSyncDb.connect(connector)` when a Supabase session exists
 - On sign-out, `powerSyncDb.disconnect()` is called
 - `SupabaseConnector.fetchCredentials()` provides the PowerSync endpoint URL + Supabase JWT
-- `SupabaseConnector.uploadData()` processes the CRUD queue and upserts to Supabase with `user_id`
+- `SupabaseConnector.uploadData()` processes the CRUD queue and:
+  - attaches `user_id` for personal tables (`app_data`, `installed_apps`, `session_data`)
+  - attaches `updated_by` for `shared_app_data`
+  - for `shared_app_data` PUT/PATCH: strips the PowerSync compound-string `id` field and upserts by natural key (`onConflict: "instance_id,app_id,key"`), preserving all merge metadata columns
+  - for `shared_app_data` DELETE: uses natural key (`instance_id`, `app_id`, `key`) instead of the PowerSync compound-string id
 
 ## WebView Bridge (`lib/vaultBridge.ts`)
 
@@ -172,18 +199,58 @@ The bridge handler (`handleVaultMessage`) routes by `type`:
 
 | Type | Direction | Description |
 |---|---|---|
-| `ls_set` / `ls_delete` / `ls_clear` | fire-and-forget | localStorage shim — writes to PowerSync `app_data` |
-| `db_set` / `db_get` / `db_get_all` / `db_delete` | request/response | VaultAPI.db — reads/writes PowerSync `app_data` |
+| `ls_set` / `ls_delete` / `ls_clear` | fire-and-forget | localStorage shim for local apps, or fallback shared writes/deletes routed by collaboration mode |
+| `ls_set_sync` | request/response | Shared-app write with base-version metadata; handled by merge-aware path before writing `shared_app_data` |
+| `db_set` / `db_get` / `db_get_all` / `db_delete` | request/response | VaultAPI.db — reads/writes personal or shared KV store based on collaboration mode |
 | `device_haptic` | request/response | Trigger haptic feedback |
 | `device_notify` | request/response | Schedule a local notification |
 | `device_share` | request/response | Native share sheet (URL or text) |
 | `auth_get_user` | request/response | Returns `{ id, email }` for signed-in user |
-| `app_get_info` | request/response | Returns app manifest (name, source_url, open_count, etc.) |
+| `app_get_info` | request/response | Returns app manifest (includes `instance_id` for shared-mode detection) |
 
 The shim (`lib/vaultShim.ts`) is injected via `injectedJavaScriptBeforeContentLoaded` and:
 - Intercepts `localStorage.setItem/getItem/removeItem/clear` and routes them to the bridge
 - Exposes `window.VaultAPI.db`, `window.VaultAPI.device`, `window.VaultAPI.auth`, `window.VaultAPI.app`
 - Pre-populates KV data read at load time so initial reads are synchronous
+
+For shared apps, `lib/vaultShimSync.ts` is used instead of the basic shim. It adds:
+- Per-key base version tracking
+- Debounced write queue (`150ms`)
+- Client write IDs for idempotency
+- Base hash / base value payloads for merge decisions
+- Native acknowledgements so the WebView cache can adopt merged values returned by the bridge
+
+## Shared Write Merge Path
+
+Shared app `localStorage` writes do not go directly to SQLite. The current flow is:
+
+1. Shared app loads `vaultShimSync`
+2. `localStorage.setItem()` enqueues `ls_set_sync`
+3. `lib/vaultBridge.ts` validates shared context and forwards the payload to `handleSharedWrite()`
+4. `services/sync/bridge-merge-handler.ts` reads the current `shared_app_data` row and chooses a strategy
+5. The resulting row is written back to the PowerSync DB with updated merge metadata
+6. The WebView receives `{ newVersion, newValue? }` and updates its local cache/base state
+
+### Merge strategies
+
+- `noop`: suppress write when the value is unchanged from the last known base
+- `idempotent_skip`: ignore duplicate client write IDs
+- `init_blocked`: reject suspicious startup writes that would clobber fresher shared state
+- `fast_path`: accept write when there is no newer remote version
+- `array_merge`: three-way merge for arrays with stable item IDs
+- `object_merge`: field-level three-way merge for plain objects
+- `lww`: last-write-wins fallback for incompatible or low-confidence payloads
+
+### Merge metadata columns
+
+`shared_app_data` carries extra columns used by the merge path:
+
+- `version`: monotonically increasing per natural key
+- `last_write_id`: last accepted client write ID
+- `last_merge_strategy`: strategy used for the latest write
+- `last_conflict_count`: number of conflicts observed during that write
+
+These columns must exist in both the PowerSync schema and the Supabase table, and PowerSync sync rules must include them in the `shared_app_data` projection.
 
 ## NativeWind Setup Notes
 - v4 requires `presets: [require('nativewind/preset')]` in tailwind.config.js
@@ -205,7 +272,9 @@ The shim (`lib/vaultShim.ts`) is injected via `injectedJavaScriptBeforeContentLo
    - Supabase emails a 6-digit code (no magic link / no deep link required)
    - Requires the Supabase email template to include `{{ .Token }}`
 2. User enters code → `supabase.auth.verifyOtp({ email, token, type: 'email' })`
-3. On success → `router.replace('/(tabs)/settings')`
+3. On success the modal auto-dismisses via auth state listener:
+   - `supabase.auth.getSession()` and `onAuthStateChange(...)` close auth modal if session exists
+   - avoids stuck "Verifying…" state when session is already active
 
 > **Email template note:** In Supabase Dashboard → Authentication → Email Templates → Magic Link,
 > add `{{ .Token }}` to the body so the 6-digit code appears in the email.
@@ -213,3 +282,38 @@ The shim (`lib/vaultShim.ts`) is injected via `injectedJavaScriptBeforeContentLo
 ### Deep-link handling (retained for future use)
 `app/_layout.tsx` still listens for `perappos://auth/callback` via `Linking` in case deep-link
 auth is re-enabled (e.g., OAuth providers). Handles both hash-token and PKCE code-exchange flows.
+
+## Collaboration Flow (Shared Data)
+
+### Create shared instance
+1. User taps `Collaborate` in app menu.
+2. App checks existing shared instance for `(owner_id, app_id)` in Supabase:
+   - If found: shows existing invite code and re-links local `apps.instance_id`.
+   - If not found: creates `shared_instances` row and adds owner via RPC:
+     - `add_instance_member(p_instance_id, p_user_id, p_role)`
+3. Existing personal `app_data` rows are migrated to `shared_app_data`.
+4. Invite code is shown prominently in uppercase.
+
+### Join shared instance
+1. User opens `Join Shared App` and enters invite code.
+2. Lookup uses RPC (not direct table query):
+   - `lookup_shared_instance(p_invite_code)`
+3. Membership is added via RPC:
+   - `add_instance_member(p_instance_id, p_user_id, p_role='member')`
+4. App installs shared app locally if needed, then sets `apps.instance_id`.
+
+### Join diagnostics
+- Join flow logs:
+  - lookup result + error
+  - member-add result + error
+  - install result
+- A 10-second timeout reports stuck state in an alert.
+
+## Supabase Requirements
+
+The shared-sync path depends on Supabase matching the client schema:
+
+- `shared_app_data` must include `version`, `last_write_id`, `last_merge_strategy`, and `last_conflict_count`
+- PowerSync sync rules must select those columns for `shared_app_data`
+- Supabase RLS on `shared_app_data` must allow `INSERT` and `UPDATE` for users who are members of the target `instance_id` (required for the natural-key upsert path in `SupabaseConnector`)
+- The unique constraint `(instance_id, app_id, key)` must exist on `shared_app_data` for the `onConflict` upsert to work correctly
