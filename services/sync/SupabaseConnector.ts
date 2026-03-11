@@ -62,16 +62,39 @@ export class SupabaseConnector implements PowerSyncBackendConnector {
             break;
           }
           case UpdateType.PATCH: {
-            const { error } = await supabase
-              .from(table)
-              .update(withWriteActor(table, record))
-              .eq('id', id);
-            if (error) throw error;
+            if (table === 'shared_app_data') {
+              // id may be a compound string — use migrate_to_shared via natural key instead.
+              const { error } = await supabase.rpc('migrate_to_shared', {
+                p_instance_id: record.instance_id as string,
+                p_app_id: record.app_id as string,
+                p_key: record.key as string,
+                p_value: (record.value as string) ?? '',
+                p_user_id: (record.updated_by as string) ?? userId,
+              });
+              if (error) throw error;
+            } else {
+              const { error } = await supabase
+                .from(table)
+                .update(withWriteActor(table, record))
+                .eq('id', id);
+              if (error) throw error;
+            }
             break;
           }
           case UpdateType.DELETE: {
-            const { error } = await supabase.from(table).delete().eq('id', id);
-            if (error) throw error;
+            if (table === 'shared_app_data') {
+              // id may be a compound string — delete by natural key instead.
+              const { error } = await supabase
+                .from(table)
+                .delete()
+                .eq('instance_id', record.instance_id as string)
+                .eq('app_id', record.app_id as string)
+                .eq('key', record.key as string);
+              if (error) throw error;
+            } else {
+              const { error } = await supabase.from(table).delete().eq('id', id);
+              if (error) throw error;
+            }
             break;
           }
         }
