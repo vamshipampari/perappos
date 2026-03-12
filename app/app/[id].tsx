@@ -91,12 +91,29 @@ export default function AppScreen() {
       const preloadedVersions: Record<string, number> = {};
 
       if (target.instance_id) {
-        const sharedRows = await syncDb.getAll<{ key: string; value: string; version: number | null }>(
+        let sharedRows = await syncDb.getAll<{ key: string; value: string; version: number | null }>(
           `SELECT key, value, COALESCE(version, 0) as version
            FROM shared_app_data
            WHERE instance_id = ? AND app_id = ?`,
           [target.instance_id, target.app_id]
         );
+
+        // Shared apps depend on synced data. If the local PowerSync DB has no
+        // rows yet (e.g. first query runs before sync completes after app
+        // restart), wait briefly and retry so the WebView doesn't load with
+        // empty state and clobber the server data.
+        if (sharedRows.length === 0) {
+          for (let attempt = 0; attempt < 3; attempt++) {
+            await new Promise(resolve => setTimeout(resolve, 500));
+            sharedRows = await syncDb.getAll<{ key: string; value: string; version: number | null }>(
+              `SELECT key, value, COALESCE(version, 0) as version
+               FROM shared_app_data
+               WHERE instance_id = ? AND app_id = ?`,
+              [target.instance_id, target.app_id]
+            );
+            if (sharedRows.length > 0) break;
+          }
+        }
 
         for (const row of sharedRows) {
           preloadedData[row.key] = row.value;

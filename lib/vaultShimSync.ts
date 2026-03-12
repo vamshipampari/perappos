@@ -47,6 +47,15 @@ export function buildSyncShim(
   var _pageLoadedAt = Date.now();
   var _firstInteractionAt = null;
 
+  /* ── Initialization clobber guard ────────────────────────────────────── */
+  /* When the shim loads with empty preloaded data (e.g. sync hasn't      */
+  /* completed yet after app restart), block writes until the user has     */
+  /* actually interacted. This prevents the app's default empty state      */
+  /* (e.g. "[]") from overwriting real data on the server.                 */
+  var _preloadWasEmpty = Object.keys(_cache).length === 0;
+  var _syncWritesEnabled = !_preloadWasEmpty;
+  var _deferredKeys = {};
+
   /* ── Write queue ─────────────────────────────────────────────────────── */
   var _writeQueue = [];
   var _queueProcessing = false;
@@ -104,12 +113,36 @@ export function buildSyncShim(
   var _interactionEvents = ["touchstart", "click", "keydown"];
   function _onInteraction() {
     if (!_firstInteractionAt) _firstInteractionAt = Date.now();
+    /* Release the clobber guard and flush any deferred writes */
+    if (!_syncWritesEnabled) {
+      _syncWritesEnabled = true;
+      var keys = Object.keys(_deferredKeys);
+      _deferredKeys = {};
+      for (var di = 0; di < keys.length; di++) {
+        _enqueueWrite(keys[di]);
+      }
+    }
     for (var i = 0; i < _interactionEvents.length; i++) {
       document.removeEventListener(_interactionEvents[i], _onInteraction, true);
     }
   }
   for (var _ie = 0; _ie < _interactionEvents.length; _ie++) {
     document.addEventListener(_interactionEvents[_ie], _onInteraction, true);
+  }
+
+  /* Safety valve: enable writes after 5s even without interaction,       */
+  /* in case the app legitimately writes without user gestures.            */
+  if (_preloadWasEmpty) {
+    setTimeout(function() {
+      if (!_syncWritesEnabled) {
+        _syncWritesEnabled = true;
+        var keys = Object.keys(_deferredKeys);
+        _deferredKeys = {};
+        for (var si = 0; si < keys.length; si++) {
+          _enqueueWrite(keys[si]);
+        }
+      }
+    }, 5000);
   }
 
   /* ── Quick hash (DJB2, for no-op detection) ──────────────────────────── */
@@ -128,6 +161,13 @@ export function buildSyncShim(
   /* ── Write queue + debouncing ────────────────────────────────────────── */
 
   function _enqueueWrite(key) {
+    /* Guard: defer writes when preloaded data was empty and user hasn't
+       interacted yet — prevents initialization clobber on reopen. */
+    if (!_syncWritesEnabled) {
+      _deferredKeys[key] = true;
+      return;
+    }
+
     if (_pendingDebounce[key]) clearTimeout(_pendingDebounce[key]);
 
     _pendingDebounce[key] = setTimeout(function() {
