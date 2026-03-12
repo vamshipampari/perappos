@@ -158,21 +158,17 @@ export async function handleVaultMessage(
       case 'ls_set': {
         const { data: { session: lsSession } } = await supabase.auth.getSession();
         if (isShared && instanceId) {
-          // Use deterministic row ID consistent with the merge handler
-          const lsRowId = `${instanceId}/${effectiveAppId}/${msg.key!}`;
-          // Read current version and increment
-          const existingLs = await syncDb.getOptional<{ version: number }>(
-            'SELECT COALESCE(version, 0) as version FROM shared_app_data WHERE instance_id = ? AND app_id = ? AND key = ?',
+          // Reuse existing UUID to avoid duplicate rows; generate a fresh one for new keys.
+          const existingLs = await syncDb.getOptional<{ id: string }>(
+            'SELECT id FROM shared_app_data WHERE instance_id = ? AND app_id = ? AND key = ?',
             [instanceId, effectiveAppId, msg.key!]
           );
-          const newVersion = (existingLs?.version ?? 0) + 1;
+          const lsRowId = existingLs?.id ?? Crypto.randomUUID();
           await syncDb.execute(
             `INSERT OR REPLACE INTO shared_app_data
-             (id, instance_id, app_id, key, value, updated_by, updated_at,
-              version, last_write_id, last_merge_strategy, last_conflict_count)
-             VALUES (?, ?, ?, ?, ?, ?, datetime('now'), ?, ?, ?, ?)`,
-            [lsRowId, instanceId, effectiveAppId, msg.key!, msg.value!, lsSession?.user?.id ?? null,
-             newVersion, Crypto.randomUUID(), 'fast_path', 0]
+             (id, instance_id, app_id, key, value, updated_by, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, datetime('now'))`,
+            [lsRowId, instanceId, effectiveAppId, msg.key!, msg.value!, lsSession?.user?.id ?? null]
           );
         } else {
           await syncDb.execute(
@@ -215,21 +211,17 @@ export async function handleVaultMessage(
       case 'db_set': {
         const { data: { session: dbSession } } = await supabase.auth.getSession();
         if (isShared && instanceId) {
-          // Use deterministic row ID consistent with the merge handler
-          const dbRowId = `${instanceId}/${effectiveAppId}/${msg.key!}`;
-          // Read current version and increment
-          const existingDb = await syncDb.getOptional<{ version: number }>(
-            'SELECT COALESCE(version, 0) as version FROM shared_app_data WHERE instance_id = ? AND app_id = ? AND key = ?',
+          // Reuse existing UUID to avoid duplicate rows; generate a fresh one for new keys.
+          const existingDb = await syncDb.getOptional<{ id: string }>(
+            'SELECT id FROM shared_app_data WHERE instance_id = ? AND app_id = ? AND key = ?',
             [instanceId, effectiveAppId, msg.key!]
           );
-          const newVersion = (existingDb?.version ?? 0) + 1;
+          const dbRowId = existingDb?.id ?? Crypto.randomUUID();
           await syncDb.execute(
             `INSERT OR REPLACE INTO shared_app_data
-             (id, instance_id, app_id, key, value, updated_by, updated_at,
-              version, last_write_id, last_merge_strategy, last_conflict_count)
-             VALUES (?, ?, ?, ?, ?, ?, datetime('now'), ?, ?, ?, ?)`,
-            [dbRowId, instanceId, effectiveAppId, msg.key!, msg.value!, dbSession?.user?.id ?? null,
-             newVersion, Crypto.randomUUID(), 'fast_path', 0]
+             (id, instance_id, app_id, key, value, updated_by, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, datetime('now'))`,
+            [dbRowId, instanceId, effectiveAppId, msg.key!, msg.value!, dbSession?.user?.id ?? null]
           );
         } else {
           await syncDb.execute(

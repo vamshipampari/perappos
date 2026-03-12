@@ -120,6 +120,31 @@ export default function AppScreen() {
           preloadedVersions[row.key] = row.version ?? 0;
         }
 
+        // If local PowerSync DB has no shared data, try Supabase directly.
+        // This handles the case where PowerSync sync rules haven't brought
+        // the data down yet (or are misconfigured).
+        if (Object.keys(preloadedData).length === 0) {
+          try {
+            console.log('[loadShim] no local shared data, querying Supabase directly...');
+            const { data: supaRows, error } = await supabase
+              .from('shared_app_data')
+              .select('key, value, version')
+              .eq('instance_id', target.instance_id)
+              .eq('app_id', target.app_id);
+
+            if (!error && supaRows && supaRows.length > 0) {
+              console.log('[loadShim] found', supaRows.length, 'rows from Supabase');
+              for (const row of supaRows) {
+                preloadedData[row.key] = row.value;
+                preloadedVersions[row.key] = row.version ?? 0;
+              }
+            }
+          } catch (e) {
+            console.warn('[loadShim] Supabase fallback failed:', e);
+          }
+        }
+
+        // Final fallback: personal data
         if (Object.keys(preloadedData).length === 0) {
           const personalRows = await syncDb.getAll<{ key: string; value: string }>(
             `SELECT key, value FROM app_data WHERE app_id = ?`,

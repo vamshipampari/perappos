@@ -130,20 +130,8 @@ export function buildSyncShim(
     document.addEventListener(_interactionEvents[_ie], _onInteraction, true);
   }
 
-  /* Safety valve: enable writes after 5s even without interaction,       */
-  /* in case the app legitimately writes without user gestures.            */
-  if (_preloadWasEmpty) {
-    setTimeout(function() {
-      if (!_syncWritesEnabled) {
-        _syncWritesEnabled = true;
-        var keys = Object.keys(_deferredKeys);
-        _deferredKeys = {};
-        for (var si = 0; si < keys.length; si++) {
-          _enqueueWrite(keys[si]);
-        }
-      }
-    }, 5000);
-  }
+  /* No safety-valve timeout — writes stay blocked until user interaction  */
+  /* to prevent empty initialization state from clobbering server data.   */
 
   /* ── Quick hash (DJB2, for no-op detection) ──────────────────────────── */
   function _quickHash(str) {
