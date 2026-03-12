@@ -481,11 +481,6 @@ export default function SettingsScreen() {
               />
               <Row
                 kind="chevron"
-                label="Shared Apps"
-                onPress={() => router.push('/shared-apps')}
-              />
-              <Row
-                kind="chevron"
                 label="Debug: Check Sync DB"
                 onPress={handleDebugSync}
               />

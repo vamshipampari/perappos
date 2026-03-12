@@ -171,15 +171,6 @@ export default function RootLayout() {
 
     const handleAuthCallback = async (url: string) => {
       try {
-        // Handle share links: perappos://share/{code}
-        if (url.includes('/share/')) {
-          const shareCode = url.split('/share/')[1]?.split('?')[0]?.split('#')[0];
-          if (shareCode) {
-            router.push(`/share/${shareCode}` as any);
-            return;
-          }
-        }
-
         if (!url.includes('auth/callback')) return;
         const [base, hash = ''] = url.split('#');
         const query = base.includes('?') ? base.split('?')[1] : '';
@@ -286,21 +277,6 @@ export default function RootLayout() {
                     headerShown: false,
                     presentation: 'card',
                     gestureEnabled: true,
-                    animation: 'slide_from_right',
-                  }}
-                />
-                <Stack.Screen
-                  name="share/[code]"
-                  options={{
-                    headerShown: false,
-                    presentation: 'modal',
-                  }}
-                />
-                <Stack.Screen
-                  name="shared-apps"
-                  options={{
-                    headerShown: false,
-                    presentation: 'card',
                     animation: 'slide_from_right',
                   }}
                 />
