@@ -25,7 +25,6 @@ import WebView from 'react-native-webview';
 import { useDatabase } from '@/hooks/useDatabase';
 import type { InstalledApp } from '@/hooks/useInstalledApps';
 import { usePowerSync } from '../../services/sync/PowerSyncProvider';
-import { shareApp } from '../../services/shareService';
 import { createSharedInstanceForApp } from '../../services/collaborationService';
 import {
   applyUrlAppUpdate,
@@ -222,7 +221,6 @@ export default function AppScreen() {
   // ── Bridge: WebView → native ──────────────────────────────────────────────
   const handleMessage = useCallback(
     async (event: { nativeEvent: { data: string } }) => {
-      console.log('[webview] raw message received:', event.nativeEvent.data.substring(0, 100));
       if (!app) return;
       const rawData = event.nativeEvent.data;
       try {
@@ -270,8 +268,6 @@ export default function AppScreen() {
     return () => sub.remove();
   }, [webCanGoBack]);
 
-  // ── Share ─────────────────────────────────────────────────────────────────
-
   const refreshWebView = useCallback(() => {
     setMenuVisible(false);
     setWebError(null);
@@ -280,30 +276,6 @@ export default function AppScreen() {
     webOpacity.value = 0;
     webViewRef.current?.reload();
   }, [webOpacity]);
-
-  const handleShare = useCallback(async () => {
-    if (!app) return;
-    if (!app.source_url) {
-      Alert.alert(
-        'Cannot Share',
-        "This app can only be shared if it was installed from a URL. ZIP and demo apps can't be shared yet."
-      );
-      return;
-    }
-    try {
-      const result = await shareApp(app);
-      if (result.error === 'not_signed_in') {
-        Alert.alert('Sign in to Share', 'You need to sign in to share apps.', [
-          { text: 'Cancel', style: 'cancel' },
-          { text: 'Sign In', onPress: () => router.back() },
-        ]);
-      } else if (!result.success) {
-        Alert.alert('Share failed', 'Could not share app. Please try again.');
-      }
-    } catch {
-      Alert.alert('Share failed', 'Could not share app. Please try again.');
-    }
-  }, [app]);
 
   const handleCollaborate = useCallback(() => {
     if (!app) return;
@@ -413,11 +385,7 @@ export default function AppScreen() {
                 ]
               );
             } catch (error) {
-              try {
-                console.error('Create shared error:', JSON.stringify(error));
-              } catch {
-                console.error('Create shared error:', String(error));
-              }
+              console.error('[collaborate] error:', error);
               Alert.alert(
                 'Could not check existing shared instance',
                 error instanceof Error ? error.message : String(error)
@@ -648,22 +616,13 @@ export default function AppScreen() {
           ) : null}
         </View>
 
-        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-          <TouchableOpacity
-            onPress={handleShare}
-            hitSlop={10}
-            style={styles.headerBtn}
-          >
-            <Text style={{ fontSize: 18, color: '#007AFF' }}>⬆</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            onPress={() => setMenuVisible(true)}
-            hitSlop={10}
-            style={[styles.headerBtn, styles.headerBtnRight]}
-          >
-            <Text style={styles.menuDots}>•••</Text>
-          </TouchableOpacity>
-        </View>
+        <TouchableOpacity
+          onPress={() => setMenuVisible(true)}
+          hitSlop={10}
+          style={[styles.headerBtn, styles.headerBtnRight]}
+        >
+          <Text style={styles.menuDots}>•••</Text>
+        </TouchableOpacity>
       </View>
 
       {/* ── WebView + overlays ──────────────────────────────────────────── */}

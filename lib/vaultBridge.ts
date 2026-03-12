@@ -9,7 +9,6 @@
  *  - "db_*" / "device_*" / "auth_*" / "app_*" : VaultAPI calls with `id`, need response
  */
 
-import * as Crypto from 'expo-crypto';
 import * as Haptics from 'expo-haptics';
 import * as Notifications from 'expo-notifications';
 import * as Sharing from 'expo-sharing';
@@ -75,9 +74,6 @@ export async function handleVaultMessage(
   } catch {
     return; // not a vault message — ignore silently
   }
-  const parsedMessage = msg;
-  console.log('[bridge] received message type:', parsedMessage.type);
-
   const { type, id, appId } = msg;
   const effectiveAppId = manifest.app_id || msg.app_id || appId;
   const isShared = !!manifest.instance_id;
@@ -135,14 +131,6 @@ export async function handleVaultMessage(
           userId
         );
 
-        console.log('[bridge] ls_set_sync result:', {
-          key: msg.key,
-          strategy: result.strategy,
-          newVersion: result.newVersion,
-          conflictCount: result.conflictCount,
-          hasNewValue: !!result.newValue,
-        });
-
         respond({
           success: result.success,
           newVersion: result.newVersion,
@@ -156,27 +144,19 @@ export async function handleVaultMessage(
       // We write to SQLite but send no response.
 
       case 'ls_set': {
-        const { data: { session: lsSession } } = await supabase.auth.getSession();
         if (isShared && instanceId) {
-          // Reuse existing UUID to avoid duplicate rows; generate a fresh one for new keys.
-          const existingLs = await syncDb.getOptional<{ id: string }>(
-            'SELECT id FROM shared_app_data WHERE instance_id = ? AND app_id = ? AND key = ?',
-            [instanceId, effectiveAppId, msg.key!]
-          );
-          const lsRowId = existingLs?.id ?? Crypto.randomUUID();
-          await syncDb.execute(
-            `INSERT OR REPLACE INTO shared_app_data
-             (id, instance_id, app_id, key, value, updated_by, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, datetime('now'))`,
-            [lsRowId, instanceId, effectiveAppId, msg.key!, msg.value!, lsSession?.user?.id ?? null]
-          );
-        } else {
-          await syncDb.execute(
-            `INSERT OR REPLACE INTO app_data (id, user_id, app_id, key, value, updated_at)
-             VALUES (?, ?, ?, ?, ?, datetime('now'))`,
-            [`${effectiveAppId}/${msg.key!}`, lsSession?.user?.id ?? null, effectiveAppId, msg.key!, msg.value!]
-          );
+          // Shared apps use vaultShimSync → ls_set_sync. If ls_set fires for a
+          // shared app it means the wrong shim was loaded — skip to avoid
+          // bypassing the merge engine.
+          console.warn('[bridge] ls_set received for shared app — expected ls_set_sync');
+          break;
         }
+        const { data: { session: lsSession } } = await supabase.auth.getSession();
+        await syncDb.execute(
+          `INSERT OR REPLACE INTO app_data (id, user_id, app_id, key, value, updated_at)
+           VALUES (?, ?, ?, ?, ?, datetime('now'))`,
+          [`${effectiveAppId}/${msg.key!}`, lsSession?.user?.id ?? null, effectiveAppId, msg.key!, msg.value!]
+        );
         break;
       }
 
@@ -211,26 +191,36 @@ export async function handleVaultMessage(
       case 'db_set': {
         const { data: { session: dbSession } } = await supabase.auth.getSession();
         if (isShared && instanceId) {
-          // Reuse existing UUID to avoid duplicate rows; generate a fresh one for new keys.
-          const existingDb = await syncDb.getOptional<{ id: string }>(
-            'SELECT id FROM shared_app_data WHERE instance_id = ? AND app_id = ? AND key = ?',
-            [instanceId, effectiveAppId, msg.key!]
+          // Route shared VaultAPI.db.set through the merge handler so writes
+          // get proper version tracking and merge metadata.
+          const dbUserId = dbSession?.user?.id ?? '';
+          const sharedDbMsg: SharedWriteMessage = {
+            key: msg.key!,
+            value: msg.value!,
+            baseVersion: 0,
+            baseHash: null,
+            baseValue: null,
+            clientWriteId: `db_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+            pageAge: 10000,
+            hadInteraction: true,
+            timestamp: Date.now(),
+          };
+          const dbResult = await handleSharedWrite(
+            syncDb as unknown as Parameters<typeof handleSharedWrite>[0],
+            sharedDbMsg,
+            instanceId,
+            effectiveAppId,
+            dbUserId
           );
-          const dbRowId = existingDb?.id ?? Crypto.randomUUID();
-          await syncDb.execute(
-            `INSERT OR REPLACE INTO shared_app_data
-             (id, instance_id, app_id, key, value, updated_by, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, datetime('now'))`,
-            [dbRowId, instanceId, effectiveAppId, msg.key!, msg.value!, dbSession?.user?.id ?? null]
-          );
+          respond(dbResult.success, dbResult.error ?? undefined);
         } else {
           await syncDb.execute(
             `INSERT OR REPLACE INTO app_data (id, user_id, app_id, key, value, updated_at)
              VALUES (?, ?, ?, ?, ?, datetime('now'))`,
             [`${effectiveAppId}/${msg.key!}`, dbSession?.user?.id ?? null, effectiveAppId, msg.key!, msg.value!]
           );
+          respond(true);
         }
-        respond(true);
         break;
       }
 

@@ -216,23 +216,30 @@ export async function createSharedInstanceForApp(
     throwWithStage('Failed adding owner as member', error);
   }
 
-  // 5. Migrate personal app_data → shared_app_data via RPC — bypasses RLS on shared_app_data.
-  const personalRows = await syncDb.getAll<{ key: string; value: string; updated_at: string | null }>(
-    'SELECT key, value, updated_at FROM app_data WHERE app_id = ?',
+  // 5. Migrate personal app_data → shared_app_data via PowerSync local.
+  // Writing to PowerSync local ensures data is immediately available for the
+  // WebView shim AND gets synced to Supabase via the normal CRUD upload pipeline.
+  const personalRows = await syncDb.getAll<{ key: string; value: string }>(
+    'SELECT key, value FROM app_data WHERE app_id = ?',
     [app.app_id]
   );
 
   for (const row of personalRows) {
-    const { error } = await supabase.rpc('migrate_to_shared', {
-      p_instance_id: instanceId,
-      p_app_id: app.app_id,
-      p_key: row.key,
-      p_value: row.value,
-      p_user_id: userId,
-    });
-    if (error) {
-      console.error('migrate_to_shared error for key', row.key, JSON.stringify(error));
-    }
+    await syncDb.execute(
+      `INSERT OR REPLACE INTO shared_app_data
+       (id, instance_id, app_id, key, value, version, updated_by, updated_at,
+        last_write_id, last_merge_strategy, last_conflict_count)
+       VALUES (?, ?, ?, ?, ?, 1, ?, datetime('now'), ?, 'migration', 0)`,
+      [
+        Crypto.randomUUID(),
+        instanceId,
+        app.app_id,
+        row.key,
+        row.value,
+        userId,
+        `migrate_${Date.now()}`,
+      ]
+    );
   }
 
   // 6. Link local app row to the new instance.

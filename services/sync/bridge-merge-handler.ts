@@ -221,27 +221,33 @@ export async function handleSharedWrite(
     // ── Run merge ──
     let mergedValue: string;
 
-    if (shape.type === 'array_with_ids') {
-      const baseParsed = JSON.parse(baseValue);
-      const incomingParsed = JSON.parse(message.value);
-      const currentParsed = JSON.parse(currentRow.value);
+    try {
+      if (shape.type === 'array_with_ids') {
+        const baseParsed = JSON.parse(baseValue);
+        const incomingParsed = JSON.parse(message.value);
+        const currentParsed = JSON.parse(currentRow.value);
 
-      const result = mergeArraysById(baseParsed, incomingParsed, currentParsed, shape.idField);
-      mergedValue = JSON.stringify(result.merged);
-      conflictCount = result.conflicts.length;
-      conflictTypes = result.conflicts.map((c) => c.type);
-      strategy = 'array_merge';
-    } else if (shape.type === 'plain_object') {
-      const baseParsed = JSON.parse(baseValue);
-      const incomingParsed = JSON.parse(message.value);
-      const currentParsed = JSON.parse(currentRow.value);
+        const result = mergeArraysById(baseParsed, incomingParsed, currentParsed, shape.idField);
+        mergedValue = JSON.stringify(result.merged);
+        conflictCount = result.conflicts.length;
+        conflictTypes = result.conflicts.map((c) => c.type);
+        strategy = 'array_merge';
+      } else if (shape.type === 'plain_object') {
+        const baseParsed = JSON.parse(baseValue);
+        const incomingParsed = JSON.parse(message.value);
+        const currentParsed = JSON.parse(currentRow.value);
 
-      const result = mergeObjectFields(baseParsed, incomingParsed, currentParsed);
-      mergedValue = JSON.stringify(result.value);
-      conflictCount = result.conflicts.length;
-      conflictTypes = result.conflicts.map((f) => `field:${f}`);
-      strategy = 'object_merge';
-    } else {
+        const result = mergeObjectFields(baseParsed, incomingParsed, currentParsed);
+        mergedValue = JSON.stringify(result.value);
+        conflictCount = result.conflicts.length;
+        conflictTypes = result.conflicts.map((f) => `field:${f}`);
+        strategy = 'object_merge';
+      } else {
+        mergedValue = message.value;
+        strategy = 'lww';
+      }
+    } catch {
+      // JSON parse or merge failed — fall back to LWW
       mergedValue = message.value;
       strategy = 'lww';
     }

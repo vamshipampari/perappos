@@ -40,21 +40,6 @@ export function PowerSyncProvider({ children }: { children: React.ReactNode }) {
             await powerSyncDb.connect(connector);
             setIsConnected(true);
             console.log('[PowerSync] connected');
-            // ── ONE-TIME QUEUE FLUSH ──────────────────────────────────────────
-            // Clears stuck CRUD entries with invalid compound-string IDs that
-            // were written before the UUID fix. Remove this block after the
-            // first successful run.
-            try {
-              const batch = await powerSyncDb.getCrudBatch(200);
-              if (batch && batch.crud.length > 0) {
-                console.log('[PowerSync] clearing', batch.crud.length, 'stuck queue entries');
-                await batch.complete();
-                console.log('[PowerSync] queue cleared');
-              }
-            } catch (flushErr) {
-              console.warn('[PowerSync] queue flush error:', flushErr);
-            }
-            // ── END ONE-TIME QUEUE FLUSH ──────────────────────────────────────
           } catch (error) {
             console.error('[PowerSync] error:', error);
           }
@@ -74,19 +59,6 @@ export function PowerSyncProvider({ children }: { children: React.ReactNode }) {
           .then(async () => {
             setIsConnected(true);
             console.log('[PowerSync] connected (existing session)');
-            // ── ONE-TIME QUEUE FLUSH ──────────────────────────────────────────
-            // Remove this block after the first successful run.
-            try {
-              const batch = await powerSyncDb.getCrudBatch(200);
-              if (batch && batch.crud.length > 0) {
-                console.log('[PowerSync] clearing', batch.crud.length, 'stuck queue entries');
-                await batch.complete();
-                console.log('[PowerSync] queue cleared');
-              }
-            } catch (flushErr) {
-              console.warn('[PowerSync] queue flush error:', flushErr);
-            }
-            // ── END ONE-TIME QUEUE FLUSH ──────────────────────────────────────
           })
           .catch((error) => {
             console.error('[PowerSync] error (existing session):', error);

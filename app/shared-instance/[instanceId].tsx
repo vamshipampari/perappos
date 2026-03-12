@@ -56,7 +56,8 @@ function truncateId(id: string): string {
 // ── Screen ────────────────────────────────────────────────────────────────────
 
 export default function SharedInstanceScreen() {
-  const { instanceId } = useLocalSearchParams<{ instanceId: string }>();
+  const params = useLocalSearchParams<{ instanceId: string | string[] }>();
+  const instanceId = Array.isArray(params.instanceId) ? params.instanceId[0] : params.instanceId;
   const db = useDatabase();
   const { db: syncDb } = usePowerSync();
   const { showToast } = useToast();
@@ -74,6 +75,9 @@ export default function SharedInstanceScreen() {
     if (!instanceId) return;
     setLoading(true);
     try {
+      console.log('[manage-group] instanceId from params:', instanceId);
+      console.log('[manage-group] typeof instanceId:', typeof instanceId);
+
       const [{ data: { session } }, instanceRow, memberRows] = await Promise.all([
         supabase.auth.getSession(),
         syncDb.getOptional<SharedInstanceRow>(
@@ -85,6 +89,8 @@ export default function SharedInstanceScreen() {
           [instanceId]
         ),
       ]);
+      const all = await syncDb.getAll<{ instance_id: string }>('SELECT instance_id FROM shared_instances');
+      console.log('[manage-group] all instance_ids in local DB:', all);
 
       const userId = session?.user?.id ?? null;
       setMyUserId(userId);
