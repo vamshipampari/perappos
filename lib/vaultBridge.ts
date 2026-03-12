@@ -10,7 +10,6 @@
  */
 
 import * as Crypto from 'expo-crypto';
-import * as Haptics from 'expo-haptics';
 import * as Notifications from 'expo-notifications';
 import * as Sharing from 'expo-sharing';
 import type { SQLiteDatabase } from 'expo-sqlite';
@@ -20,6 +19,7 @@ import type WebView from 'react-native-webview';
 import type { AbstractPowerSyncDatabase } from '@powersync/react-native';
 import { handleSharedWrite } from '@/services/sync/bridge-merge-handler';
 import type { SharedWriteMessage } from '@/services/sync/bridge-merge-handler';
+import { Haptics, safeImpactAsync, safeNotificationAsync } from '@/lib/haptics';
 import { supabase } from '../services/supabase';
 
 type WebViewRef = RefObject<WebView | null>;
@@ -287,14 +287,14 @@ export async function handleVaultMessage(
             warning: Haptics.NotificationFeedbackType.Warning,
             error: Haptics.NotificationFeedbackType.Error,
           };
-          await Haptics.notificationAsync(notifType[style]);
+          await safeNotificationAsync(notifType[style]);
         } else {
           const impactType: Record<string, Haptics.ImpactFeedbackStyle> = {
             light: Haptics.ImpactFeedbackStyle.Light,
             medium: Haptics.ImpactFeedbackStyle.Medium,
             heavy: Haptics.ImpactFeedbackStyle.Heavy,
           };
-          await Haptics.impactAsync(
+          await safeImpactAsync(
             impactType[style] ?? Haptics.ImpactFeedbackStyle.Medium
           );
         }

@@ -1,5 +1,4 @@
 import * as FileSystem from 'expo-file-system/legacy';
-import * as Haptics from 'expo-haptics';
 import * as LocalAuthentication from 'expo-local-authentication';
 import { router, useFocusEffect } from 'expo-router';
 import * as Sharing from 'expo-sharing';
@@ -15,8 +14,9 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useDatabase } from '@/hooks/useDatabase';
+import { Haptics, safeImpactAsync } from '@/lib/haptics';
 import { supabase } from '../../services/supabase';
-import { usePowerSync } from '../../services/sync/PowerSyncProvider';
+import { resyncPowerSync, syncDb, usePowerSync } from '../../services/sync/PowerSyncProvider';
 
 // ─── Primitives ──────────────────────────────────────────────────────────────
 
@@ -220,7 +220,7 @@ function Section({
 
 export default function SettingsScreen() {
   const db = useDatabase();
-  const { db: syncDb, isConnected } = usePowerSync();
+  const { isConnected } = usePowerSync();
 
   const [appLock, setAppLock] = useState(false);
   const [autoUpdate, setAutoUpdate] = useState(true);
@@ -300,7 +300,7 @@ export default function SettingsScreen() {
   };
 
   const handleAppLockToggle = async (next: boolean) => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    void safeImpactAsync(Haptics.ImpactFeedbackStyle.Light);
     if (next) {
       const enrolled = await LocalAuthentication.isEnrolledAsync();
       if (!enrolled) {
@@ -321,7 +321,7 @@ export default function SettingsScreen() {
   };
 
   const handleAutoUpdateToggle = async (next: boolean) => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    void safeImpactAsync(Haptics.ImpactFeedbackStyle.Light);
     setAutoUpdate(next);
     await savePref('auto_update', String(next));
   };
@@ -435,6 +435,21 @@ export default function SettingsScreen() {
       Alert.alert('Debug error', String(e));
     }
   };
+
+  const handleForceResync = useCallback(async () => {
+    Alert.alert('Resyncing...');
+    try {
+      await resyncPowerSync();
+      await new Promise((resolve) => setTimeout(resolve, 3000));
+      Alert.alert('Resync complete — reopen your apps');
+    } catch (error) {
+      console.error('[ForceResync] error:', error);
+      Alert.alert(
+        'Resync failed',
+        error instanceof Error ? error.message : 'Please try again.'
+      );
+    }
+  }, []);
 
   // ── Render ───────────────────────────────────────────────────────────────────
 
@@ -551,6 +566,17 @@ export default function SettingsScreen() {
           <Row kind="value" label="Version" value="0.1.0" />
           <Row kind="info" label="Built with ❤️ in Hyderabad" centered />
           <Row kind="info" label="Perappos — Personal App OS" centered isLast />
+        </Section>
+
+        <Section title="Debug">
+          <Row
+            kind="chevron"
+            label="Force Cloud Resync (Debug)"
+            onPress={() => {
+              void handleForceResync();
+            }}
+            isLast
+          />
         </Section>
       </ScrollView>
     </SafeAreaView>

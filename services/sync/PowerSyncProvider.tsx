@@ -5,23 +5,35 @@ import { SupabaseConnector } from './SupabaseConnector';
 import { supabase } from '../supabase';
 import '@azure/core-asynciterator-polyfill';
 
-const powerSyncDb = new PowerSyncDatabase({
+export const powerSyncDb = new PowerSyncDatabase({
   schema: PowerSyncSchema,
   database: { dbFilename: 'powersync.db' },
 });
+export const syncDb = powerSyncDb;
 
-const connector = new SupabaseConnector();
+export const connector = new SupabaseConnector();
+
+/** Disconnect, wipe the local PowerSync DB, and reconnect for a clean resync. */
+export async function resyncPowerSync(): Promise<void> {
+  console.log('[PowerSync] resync: disconnecting...');
+  await syncDb.disconnectAndClear();
+  console.log('[PowerSync] resync: reconnecting...');
+  await syncDb.connect(connector);
+  console.log('[PowerSync] resync: done');
+}
 
 interface SyncContextType {
   db: PowerSyncDatabase;
   isConnected: boolean;
   isSyncing: boolean;
+  resync: () => Promise<void>;
 }
 
 const SyncContext = createContext<SyncContextType>({
   db: powerSyncDb,
   isConnected: false,
   isSyncing: false,
+  resync: resyncPowerSync,
 });
 
 export const usePowerSync = () => useContext(SyncContext);
@@ -37,7 +49,7 @@ export function PowerSyncProvider({ children }: { children: React.ReactNode }) {
         if (session) {
           try {
             console.log('[PowerSync] connecting...');
-            await powerSyncDb.connect(connector);
+            await syncDb.connect(connector);
             setIsConnected(true);
             console.log('[PowerSync] connected');
             // ── ONE-TIME QUEUE FLUSH ──────────────────────────────────────────
@@ -45,7 +57,7 @@ export function PowerSyncProvider({ children }: { children: React.ReactNode }) {
             // were written before the UUID fix. Remove this block after the
             // first successful run.
             try {
-              const batch = await powerSyncDb.getCrudBatch(200);
+              const batch = await syncDb.getCrudBatch(200);
               if (batch && batch.crud.length > 0) {
                 console.log('[PowerSync] clearing', batch.crud.length, 'stuck queue entries');
                 await batch.complete();
@@ -59,7 +71,7 @@ export function PowerSyncProvider({ children }: { children: React.ReactNode }) {
             console.error('[PowerSync] error:', error);
           }
         } else {
-          await powerSyncDb.disconnect();
+          await syncDb.disconnect();
           setIsConnected(false);
           console.log('[PowerSync] disconnected');
         }
@@ -70,14 +82,14 @@ export function PowerSyncProvider({ children }: { children: React.ReactNode }) {
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session) {
         console.log('[PowerSync] connecting (existing session)...');
-        powerSyncDb.connect(connector)
+        syncDb.connect(connector)
           .then(async () => {
             setIsConnected(true);
             console.log('[PowerSync] connected (existing session)');
             // ── ONE-TIME QUEUE FLUSH ──────────────────────────────────────────
             // Remove this block after the first successful run.
             try {
-              const batch = await powerSyncDb.getCrudBatch(200);
+              const batch = await syncDb.getCrudBatch(200);
               if (batch && batch.crud.length > 0) {
                 console.log('[PowerSync] clearing', batch.crud.length, 'stuck queue entries');
                 await batch.complete();
@@ -100,7 +112,7 @@ export function PowerSyncProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   return (
-    <SyncContext.Provider value={{ db: powerSyncDb, isConnected, isSyncing }}>
+    <SyncContext.Provider value={{ db: syncDb, isConnected, isSyncing, resync: resyncPowerSync }}>
       {children}
     </SyncContext.Provider>
   );

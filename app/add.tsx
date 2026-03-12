@@ -1,7 +1,6 @@
 import * as Crypto from 'expo-crypto';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
-import * as Haptics from 'expo-haptics';
 import { Stack, router, useLocalSearchParams } from 'expo-router';
 import { Component, type ErrorInfo, type ReactNode, useEffect, useState } from 'react';
 import {
@@ -21,6 +20,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useToast } from '@/components/Toast';
 import { useDatabase } from '@/hooks/useDatabase';
 import { useInstalledApps } from '@/hooks/useInstalledApps';
+import { Haptics, safeNotificationAsync } from '@/lib/haptics';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -501,7 +501,7 @@ function AddScreenContent() {
       }
 
       await refresh();
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      void safeNotificationAsync(Haptics.NotificationFeedbackType.Success);
       showToast(replaceAppId ? 'App updated ✓' : 'App installed ✓', 'success');
       setTimeout(() => {
         try {
@@ -513,7 +513,7 @@ function AddScreenContent() {
       }, 300);
     } catch {
       setStep('details');
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      void safeNotificationAsync(Haptics.NotificationFeedbackType.Error);
       showToast('Could not install app', 'error');
     }
   };

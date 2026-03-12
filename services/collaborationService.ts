@@ -181,7 +181,7 @@ export async function createSharedInstanceForApp(
   }
 
   // 3. Create a new shared instance.
-  const instanceId = `shared-${Crypto.randomUUID()}`;
+  const instanceId = Crypto.randomUUID();
   const inviteCode = await generateUniqueInviteCode();
 
   try {

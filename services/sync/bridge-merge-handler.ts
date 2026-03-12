@@ -20,6 +20,7 @@
  *   // Send ack back to WebView with result
  */
 
+import * as Crypto from 'expo-crypto';
 import { classifyShape, shapesCompatible } from './shape-classifier';
 import { mergeArraysById, mergeObjectFields } from './three-way-merge';
 import { deepEqual, quickHash } from './merge-utils';
@@ -134,7 +135,10 @@ export async function handleSharedWrite(
   try {
     // ── Guard 1: No-op suppression ──
     if (message.baseHash && quickHash(message.value) === message.baseHash) {
-      if (!message.baseValue || message.value === message.baseValue) {
+      const localValue = message.baseValue;
+      const incomingValue = message.value;
+      console.log('[merge] noop check - localValue:', localValue, 'incomingValue:', incomingValue, 'are equal:', localValue === incomingValue);
+      if (!localValue || incomingValue === localValue) {
         const currentRow = await readCurrentRow(psDb, instanceId, appId, message.key);
         logTelemetry('noop', 0, [], message, appId, instanceId, startTime);
         return {
@@ -148,6 +152,7 @@ export async function handleSharedWrite(
     }
 
     // ── Read current DB state ──
+    console.log('[merge] lookup params:', { instanceId, appId, key: message.key });
     const currentRow = await readCurrentRow(psDb, instanceId, appId, message.key);
 
     // ── Guard: Idempotency ──
@@ -302,11 +307,23 @@ function isSuspiciousInit(message: SharedWriteMessage, dbRow: SharedRow): boolea
 // ─── PowerSync DB Helpers ────────────────────────────────────────────
 
 /**
- * PowerSync shared_app_data uses a composite ID: `${instanceId}/${appId}/${key}`
- * This matches your existing pattern where app_data uses `${appId}/${key}`.
+ * Resolves the UUID for a shared_app_data row.
+ * Reuses the existing server-synced UUID if the row already exists locally,
+ * otherwise generates a fresh one. This prevents checksum mismatches when
+ * PowerSync compares local vs server-synced ids.
  */
-function makeRowId(instanceId: string, appId: string, key: string): string {
-  return `${instanceId}/${appId}/${key}`;
+async function resolveRowId(
+  psDb: PowerSyncDB,
+  instanceId: string,
+  appId: string,
+  key: string
+): Promise<string> {
+  const rows = await psDb.getAll(
+    'SELECT id FROM shared_app_data WHERE instance_id = ? AND app_id = ? AND key = ?',
+    [instanceId, appId, key]
+  );
+  if (rows.length > 0 && rows[0].id) return rows[0].id as string;
+  return Crypto.randomUUID();
 }
 
 async function readCurrentRow(
@@ -344,7 +361,8 @@ async function writeRow(
   mergeStrategy: string,
   conflictCount: number
 ): Promise<void> {
-  const rowId = makeRowId(instanceId, appId, key);
+  const rowId = await resolveRowId(psDb, instanceId, appId, key);
+  console.log('[merge] writing row:', { rowId, instanceId, appId, key, version });
   const now = new Date().toISOString();
 
   // Use PowerSync's execute — this gets tracked in the CRUD queue
@@ -369,6 +387,12 @@ async function writeRow(
       conflictCount,
     ]
   );
+
+  const verify = await psDb.getAll(
+    'SELECT id, version FROM shared_app_data WHERE instance_id = ? AND app_id = ? AND key = ?',
+    [instanceId, appId, key]
+  );
+  console.log('[merge] verify after write:', verify);
 }
 
 // ─── Telemetry ───────────────────────────────────────────────────────

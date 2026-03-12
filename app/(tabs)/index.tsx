@@ -1,5 +1,4 @@
 import * as FileSystem from 'expo-file-system/legacy';
-import * as Haptics from 'expo-haptics';
 import { router, useFocusEffect } from 'expo-router';
 import * as Sharing from 'expo-sharing';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -28,6 +27,7 @@ import { useToast } from '@/components/Toast';
 import { useDatabase } from '@/hooks/useDatabase';
 import { type InstalledApp, useInstalledApps } from '@/hooks/useInstalledApps';
 import { applyUrlAppUpdate, checkForUpdates } from '@/lib/appUpdates';
+import { Haptics, safeImpactAsync } from '@/lib/haptics';
 import { shareApp } from '../../services/shareService';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -401,7 +401,7 @@ export default function HomeScreen() {
   // ── Context menu ───────────────────────────────────────────────────────────
 
   const openContextMenu = useCallback((app: InstalledApp) => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    void safeImpactAsync(Haptics.ImpactFeedbackStyle.Medium);
     setMenuTargetApp(app);
     setMenuVisible(true);
   }, []);
