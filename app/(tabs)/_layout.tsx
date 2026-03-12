@@ -1,6 +1,6 @@
-import * as Haptics from 'expo-haptics';
 import { Tabs } from 'expo-router';
 import { Text } from 'react-native';
+import { Haptics, safeImpactAsync } from '@/lib/haptics';
 
 function TabIcon({ symbol, focused }: { symbol: string; focused: boolean }) {
   return (
@@ -13,7 +13,7 @@ export default function TabLayout() {
     <Tabs
       screenListeners={{
         tabPress: () => {
-          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+          void safeImpactAsync(Haptics.ImpactFeedbackStyle.Light);
         },
       }}
       screenOptions={{

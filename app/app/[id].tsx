@@ -39,6 +39,8 @@ import { buildSyncShim } from '@/lib/vaultShimSync';
 import { DEMO_HTML_BY_NAME } from '@/utils/demoAppsHtml';
 import { supabase } from '@/services/supabase';
 
+console.log('[preload] app/[id].tsx module loaded');
+
 // ── Android keyboard fix ──────────────────────────────────────────────────────
 // Sets interactive-widget=resizes-content so the WebView viewport shrinks
 // (rather than panning or doing nothing) when the software keyboard appears.
@@ -82,6 +84,20 @@ export default function AppScreen() {
     opacity: webOpacity.value,
   }));
 
+  const resolveSharedInstanceId = useCallback(
+    async (target: Pick<InstalledApp, 'app_id' | 'instance_id'>) => {
+      if (target.instance_id) return target.instance_id;
+
+      const sharedInstance = await syncDb.getOptional<{ instance_id: string }>(
+        'SELECT instance_id FROM shared_instances WHERE app_id = ? LIMIT 1',
+        [target.app_id]
+      );
+
+      return sharedInstance?.instance_id ?? null;
+    },
+    [syncDb]
+  );
+
   const loadShimPayload = useCallback(
     async (target: InstalledApp): Promise<{
       shim: string;
@@ -89,30 +105,21 @@ export default function AppScreen() {
     }> => {
       const preloadedData: Record<string, string> = {};
       const preloadedVersions: Record<string, number> = {};
+      const effectiveInstanceId = await resolveSharedInstanceId(target);
 
-      if (target.instance_id) {
-        const sharedRows = await syncDb.getAll<{ key: string; value: string; version: number | null }>(
+      if (effectiveInstanceId) {
+        const rows = await syncDb.getAll<{ key: string; value: string; version: number }>(
           `SELECT key, value, COALESCE(version, 0) as version
            FROM shared_app_data
            WHERE instance_id = ? AND app_id = ?`,
-          [target.instance_id, target.app_id]
+          [effectiveInstanceId, target.app_id]
         );
 
-        for (const row of sharedRows) {
-          preloadedData[row.key] = row.value;
-          preloadedVersions[row.key] = row.version ?? 0;
-        }
+        const sharedPreloadedData = Object.fromEntries(rows.map((row) => [row.key, row.value]));
+        const sharedPreloadedVersions = Object.fromEntries(rows.map((row) => [row.key, row.version]));
 
-        if (Object.keys(preloadedData).length === 0) {
-          const personalRows = await syncDb.getAll<{ key: string; value: string }>(
-            `SELECT key, value FROM app_data WHERE app_id = ?`,
-            [target.app_id]
-          );
-
-          for (const row of personalRows) {
-            preloadedData[row.key] = row.value;
-            preloadedVersions[row.key] = 0;
-          }
+        if (Object.keys(sharedPreloadedData).length === 0) {
+          console.log('[webview] shared preload empty; initializing sync shim with empty cache');
 
           return {
             shim: buildSyncShim(target.app_id, preloadedData, preloadedVersions),
@@ -120,8 +127,10 @@ export default function AppScreen() {
           };
         }
 
+        console.log('[webview] shared preloadedData before shim injection:', sharedPreloadedData);
+
         return {
-          shim: buildSyncShim(target.app_id, preloadedData, preloadedVersions),
+          shim: buildSyncShim(target.app_id, sharedPreloadedData, sharedPreloadedVersions),
           preloadSource: 'shared',
         };
       }
@@ -140,23 +149,87 @@ export default function AppScreen() {
         preloadSource: 'local',
       };
     },
-    [syncDb]
+    [resolveSharedInstanceId, syncDb]
   );
 
   // ── Initial load: fetch app row + all KV data from SQLite ─────────────────
   useEffect(() => {
+    console.log('[preload] *** ENTERED PRELOAD BLOCK ***');
     if (!id) return;
     (async () => {
       try {
         const foundApp = await db.getFirstAsync<InstalledApp>('SELECT * FROM apps WHERE app_id = ?', id);
+        console.log('[preload] full app row from sqlite:', JSON.stringify(foundApp));
 
         if (!foundApp) {
           setPhase('not_found');
           return;
         }
 
-        const isShared = !!foundApp.instance_id;
-        const { shim: generatedShimJS, preloadSource } = await loadShimPayload(foundApp);
+        if (foundApp.instance_id) {
+          const instanceId = foundApp.instance_id;
+          console.log('[preload] instance_id found:', instanceId);
+
+          console.log('[preload] syncDb type:', (syncDb as any)?.constructor?.name);
+          console.log('[preload] syncDb tables:', JSON.stringify(
+            await syncDb.getAll("SELECT name FROM sqlite_master WHERE type='table'")
+          ));
+
+          const totalRows = await syncDb.getAll('SELECT COUNT(*) as c FROM shared_app_data');
+          console.log(
+            '[preload] total shared_app_data rows in PowerSync local DB:',
+            JSON.stringify(totalRows)
+          );
+
+          const instanceRows = await syncDb.getAll(
+            'SELECT instance_id, app_id, key FROM shared_app_data WHERE instance_id = ?',
+            [instanceId]
+          );
+          console.log('[preload] rows for this instance:', JSON.stringify(instanceRows));
+
+          const appRows = await syncDb.getAll(
+            'SELECT instance_id, app_id, key FROM shared_app_data WHERE app_id = ?',
+            [foundApp.app_id]
+          );
+          console.log('[preload] rows for this app_id:', JSON.stringify(appRows));
+
+          const tableInfo = await syncDb.getAll('PRAGMA table_info(shared_app_data)');
+          console.log('[preload] shared_app_data schema:', JSON.stringify(tableInfo));
+
+          // Query the internal PowerSync table directly
+          const internalRows = await syncDb.getAll(
+            'SELECT * FROM ps_data__shared_app_data LIMIT 5'
+          );
+          console.log('[preload] ps_data__shared_app_data rows:', JSON.stringify(internalRows));
+
+          // Check ps_oplog columns first, then look for shared_app_data entries
+          const oplogSchema = await syncDb.getAll('PRAGMA table_info(ps_oplog)');
+          console.log('[preload] ps_oplog schema:', JSON.stringify(oplogSchema));
+          const oplogRows = await syncDb.getAll('SELECT * FROM ps_oplog LIMIT 5');
+          console.log('[preload] ps_oplog entries:', JSON.stringify(oplogRows));
+
+          // Check ps_buckets schema + contents
+          const bucketsSchema = await syncDb.getAll('PRAGMA table_info(ps_buckets)');
+          console.log('[preload] ps_buckets schema:', JSON.stringify(bucketsSchema));
+          const buckets = await syncDb.getAll('SELECT * FROM ps_buckets');
+          console.log('[preload] ps_buckets:', JSON.stringify(buckets));
+        }
+
+        const resolvedInstanceId = await resolveSharedInstanceId(foundApp);
+        const resolvedApp =
+          resolvedInstanceId && resolvedInstanceId !== foundApp.instance_id
+            ? { ...foundApp, instance_id: resolvedInstanceId }
+            : foundApp;
+
+        if (resolvedInstanceId && resolvedInstanceId !== foundApp.instance_id) {
+          db.runAsync('UPDATE apps SET instance_id = ? WHERE app_id = ?', [
+            resolvedInstanceId,
+            foundApp.app_id,
+          ]).catch(() => {});
+        }
+
+        const isShared = !!resolvedApp.instance_id;
+        const { shim: generatedShimJS, preloadSource } = await loadShimPayload(resolvedApp);
 
         // Record open (non-blocking)
         db.runAsync(
@@ -165,8 +238,8 @@ export default function AppScreen() {
           id
         ).catch(() => {});
 
-        if (foundApp.source_type !== 'url') {
-          const normalized = foundApp.bundle_path.replace(/^file:\/\//, '').replace(/\/$/, '');
+        if (resolvedApp.source_type !== 'url') {
+          const normalized = resolvedApp.bundle_path.replace(/^file:\/\//, '').replace(/\/$/, '');
           const htmlPath = normalized.toLowerCase().endsWith('.html')
             ? normalized
             : `${normalized}/index.html`;
@@ -179,9 +252,9 @@ export default function AppScreen() {
           } catch {
             // Fallback for legacy demo rows or missing bundle files.
             html =
-              foundApp.bundle_html ??
-              (foundApp.source_type === 'demo'
-                ? DEMO_HTML_BY_NAME[foundApp.name] ?? null
+              resolvedApp.bundle_html ??
+              (resolvedApp.source_type === 'demo'
+                ? DEMO_HTML_BY_NAME[resolvedApp.name] ?? null
                 : null);
           }
           if (html) setBundleHtml(html);
@@ -189,7 +262,7 @@ export default function AppScreen() {
           setBundleHtml(null);
         }
 
-        setApp(foundApp);
+        setApp(resolvedApp);
         setShimJS(generatedShimJS);
         console.log('[webview] using shim:', isShared ? 'SYNC' : 'LOCAL', 'preload:', preloadSource);
         setPhase('ready');
@@ -198,7 +271,7 @@ export default function AppScreen() {
         setPhase('not_found');
       }
     })();
-  }, [id, db, loadShimPayload]);
+  }, [id, db, loadShimPayload, resolveSharedInstanceId]);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -212,11 +285,16 @@ export default function AppScreen() {
 
   const rebuildShimForApp = useCallback(
     async (target: InstalledApp) => {
-      const { shim, preloadSource } = await loadShimPayload(target);
+      const resolvedInstanceId = await resolveSharedInstanceId(target);
+      const resolvedTarget =
+        resolvedInstanceId && resolvedInstanceId !== target.instance_id
+          ? { ...target, instance_id: resolvedInstanceId }
+          : target;
+      const { shim, preloadSource } = await loadShimPayload(resolvedTarget);
       setShimJS(shim);
-      console.log('[webview] using shim:', target.instance_id ? 'SYNC' : 'LOCAL', 'preload:', preloadSource);
+      console.log('[webview] using shim:', resolvedTarget.instance_id ? 'SYNC' : 'LOCAL', 'preload:', preloadSource);
     },
-    [loadShimPayload]
+    [loadShimPayload, resolveSharedInstanceId]
   );
 
   // ── Bridge: WebView → native ──────────────────────────────────────────────

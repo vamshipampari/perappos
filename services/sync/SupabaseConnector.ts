@@ -64,21 +64,16 @@ export class SupabaseConnector implements PowerSyncBackendConnector {
         switch (op.op) {
           case UpdateType.PUT: {
             if (table === "shared_app_data") {
-              // Direct upsert using the unique constraint on (instance_id, app_id, key).
-              // This passes ALL columns including merge metadata that the old
-              // migrate_to_shared RPC was silently dropping.
+              // Preserve the client-generated id so the optimistic local row and
+              // the server-synced row materialize with the same primary key.
               const row = withWriteActor(table, record) as Record<
                 string,
                 unknown
               >;
 
-              // Strip the PowerSync compound id — Supabase uses its own uuid PK.
-              // eslint-disable-next-line @typescript-eslint/no-unused-vars
-              const { id: _psId, ...rowWithoutId } = row;
-
               const { error } = await supabase
                 .from("shared_app_data")
-                .upsert(rowWithoutId, { onConflict: "instance_id,app_id,key" });
+                .upsert(row, { onConflict: "instance_id,app_id,key" });
               if (error) throw error;
             } else {
               const { error } = await supabase
@@ -94,11 +89,10 @@ export class SupabaseConnector implements PowerSyncBackendConnector {
                 string,
                 unknown
               >;
-              const { id: _psId, ...rowWithoutId } = row;
 
               const { error } = await supabase
                 .from("shared_app_data")
-                .upsert(rowWithoutId, { onConflict: "instance_id,app_id,key" });
+                .upsert(row, { onConflict: "instance_id,app_id,key" });
               if (error) throw error;
             } else {
               const { error } = await supabase
@@ -111,12 +105,13 @@ export class SupabaseConnector implements PowerSyncBackendConnector {
           }
           case UpdateType.DELETE: {
             if (table === "shared_app_data") {
+              const sharedRecord = record as Record<string, unknown>;
               const { error } = await supabase
                 .from(table)
                 .delete()
-                .eq("instance_id", record.instance_id as string)
-                .eq("app_id", record.app_id as string)
-                .eq("key", record.key as string);
+                .eq("instance_id", sharedRecord.instance_id as string)
+                .eq("app_id", sharedRecord.app_id as string)
+                .eq("key", sharedRecord.key as string);
               if (error) throw error;
             } else {
               const { error } = await supabase
