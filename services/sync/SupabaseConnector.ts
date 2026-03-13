@@ -64,16 +64,25 @@ export class SupabaseConnector implements PowerSyncBackendConnector {
         switch (op.op) {
           case UpdateType.PUT: {
             if (table === "shared_app_data") {
-              // Preserve the client-generated id so the optimistic local row and
-              // the server-synced row materialize with the same primary key.
-              const row = withWriteActor(table, record) as Record<
-                string,
-                unknown
-              >;
-
-              const { error } = await supabase
-                .from("shared_app_data")
-                .upsert(row, { onConflict: "instance_id,app_id,key" });
+              // Use versioned upsert RPC so stale CRUD entries (lower version)
+              // never overwrite newer writes from other devices.
+              const row = withWriteActor(table, record) as Record<string, unknown>;
+              const { error } = await supabase.rpc(
+                "upsert_shared_app_data_versioned",
+                {
+                  p_id:                   row.id,
+                  p_instance_id:          row.instance_id,
+                  p_app_id:               row.app_id,
+                  p_key:                  row.key,
+                  p_value:                row.value,
+                  p_version:              row.version ?? 1,
+                  p_updated_by:           row.updated_by ?? null,
+                  p_updated_at:           row.updated_at ?? new Date().toISOString(),
+                  p_last_write_id:        row.last_write_id ?? null,
+                  p_last_merge_strategy:  row.last_merge_strategy ?? null,
+                  p_last_conflict_count:  row.last_conflict_count ?? 0,
+                }
+              );
               if (error) throw error;
             } else {
               const { error } = await supabase
@@ -85,14 +94,24 @@ export class SupabaseConnector implements PowerSyncBackendConnector {
           }
           case UpdateType.PATCH: {
             if (table === "shared_app_data") {
-              const row = withWriteActor(table, record) as Record<
-                string,
-                unknown
-              >;
-
-              const { error } = await supabase
-                .from("shared_app_data")
-                .upsert(row, { onConflict: "instance_id,app_id,key" });
+              // Same versioned guard for PATCH operations.
+              const row = withWriteActor(table, record) as Record<string, unknown>;
+              const { error } = await supabase.rpc(
+                "upsert_shared_app_data_versioned",
+                {
+                  p_id:                   row.id,
+                  p_instance_id:          row.instance_id,
+                  p_app_id:               row.app_id,
+                  p_key:                  row.key,
+                  p_value:                row.value,
+                  p_version:              row.version ?? 1,
+                  p_updated_by:           row.updated_by ?? null,
+                  p_updated_at:           row.updated_at ?? new Date().toISOString(),
+                  p_last_write_id:        row.last_write_id ?? null,
+                  p_last_merge_strategy:  row.last_merge_strategy ?? null,
+                  p_last_conflict_count:  row.last_conflict_count ?? 0,
+                }
+              );
               if (error) throw error;
             } else {
               const { error } = await supabase

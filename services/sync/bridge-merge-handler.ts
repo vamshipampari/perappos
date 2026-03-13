@@ -105,6 +105,12 @@ export function flushTelemetry(): MergeTelemetryEvent[] {
   return telemetryBuffer.splice(0);
 }
 
+// ─── In-memory version cache ─────────────────────────────────────────
+// Survives PowerSync's post-upload local clear (which empties shared_app_data
+// between transaction.complete() and the sync service re-delivering the row).
+// Key: `${instanceId}/${appId}/${key}` → last confirmed written version.
+const _versionCache = new Map<string, number>();
+
 // ─── Main Handler ────────────────────────────────────────────────────
 
 /**
@@ -149,6 +155,17 @@ export async function handleSharedWrite(
 
     // ── Read current DB state ──
     const currentRow = await readCurrentRow(psDb, instanceId, appId, message.key);
+    const cacheKey = `${instanceId}/${appId}/${message.key}`;
+    const cachedVersion = _versionCache.get(cacheKey) ?? 0;
+    console.log('[merge] readCurrentRow:', JSON.stringify({
+      key: message.key,
+      instanceId,
+      appId,
+      found: !!currentRow,
+      dbVersion: currentRow?.version ?? null,
+      cachedVersion,
+      baseVersion: message.baseVersion,
+    }));
 
     // ── Guard: Idempotency ──
     if (currentRow && currentRow.last_write_id === message.clientWriteId) {
@@ -176,8 +193,12 @@ export async function handleSharedWrite(
 
     // ── Fast path: no conflict ──
     if (!currentRow || message.baseVersion >= currentRow.version) {
-      const newVersion = (currentRow?.version ?? 0) + 1;
+      // Use the highest known version across DB, in-memory cache, and shim's baseVersion.
+      // This prevents reusing a version Supabase already has when the local row was
+      // cleared by PowerSync after upload.
+      const newVersion = Math.max(currentRow?.version ?? 0, cachedVersion, message.baseVersion) + 1;
       await writeRow(psDb, instanceId, appId, message.key, message.value, newVersion, userId, message.clientWriteId, 'fast_path', 0);
+      _versionCache.set(cacheKey, newVersion);
       logTelemetry('fast_path', 0, [], message, appId, instanceId, startTime);
       return {
         success: true,
@@ -192,8 +213,9 @@ export async function handleSharedWrite(
 
     // Shape compatibility check (guards against app-update schema changes)
     if (!shapesCompatible(message.value, currentRow.value)) {
-      const newVersion = currentRow.version + 1;
+      const newVersion = Math.max(currentRow.version, cachedVersion) + 1;
       await writeRow(psDb, instanceId, appId, message.key, message.value, newVersion, userId, message.clientWriteId, 'lww', 0);
+      _versionCache.set(cacheKey, newVersion);
       logTelemetry('lww', 0, ['schema_mismatch'], message, appId, instanceId, startTime);
       return { success: true, newVersion, newValue: null, strategy: 'lww', conflictCount: 0 };
     }
@@ -203,8 +225,9 @@ export async function handleSharedWrite(
 
     // Low confidence → LWW
     if (shape.confidence < 0.8) {
-      const newVersion = currentRow.version + 1;
+      const newVersion = Math.max(currentRow.version, cachedVersion) + 1;
       await writeRow(psDb, instanceId, appId, message.key, message.value, newVersion, userId, message.clientWriteId, 'lww', 0);
+      _versionCache.set(cacheKey, newVersion);
       logTelemetry('lww', 0, ['low_confidence'], message, appId, instanceId, startTime);
       return { success: true, newVersion, newValue: null, strategy: 'lww', conflictCount: 0 };
     }
@@ -212,8 +235,9 @@ export async function handleSharedWrite(
     // Need base value for 3-way merge
     const baseValue = message.baseValue;
     if (baseValue === null) {
-      const newVersion = currentRow.version + 1;
+      const newVersion = Math.max(currentRow.version, cachedVersion) + 1;
       await writeRow(psDb, instanceId, appId, message.key, message.value, newVersion, userId, message.clientWriteId, 'lww', 0);
+      _versionCache.set(cacheKey, newVersion);
       logTelemetry('lww', 0, ['no_base_value'], message, appId, instanceId, startTime);
       return { success: true, newVersion, newValue: null, strategy: 'lww', conflictCount: 0 };
     }
@@ -252,8 +276,9 @@ export async function handleSharedWrite(
       strategy = 'lww';
     }
 
-    const newVersion = currentRow.version + 1;
+    const newVersion = Math.max(currentRow.version, cachedVersion) + 1;
     await writeRow(psDb, instanceId, appId, message.key, mergedValue, newVersion, userId, message.clientWriteId, strategy, conflictCount);
+    _versionCache.set(cacheKey, newVersion);
     logTelemetry(strategy, conflictCount, conflictTypes, message, appId, instanceId, startTime);
 
     return {
@@ -323,14 +348,22 @@ async function readCurrentRow(
 ): Promise<SharedRow | null> {
   try {
     const rows = await psDb.getAll(
-      `SELECT id, instance_id, app_id, key, value, 
-              COALESCE(version, 0) as version, 
+      `SELECT id, instance_id, app_id, key, value,
+              COALESCE(version, 0) as version,
               updated_by, updated_at, last_write_id
-       FROM shared_app_data 
+       FROM shared_app_data
        WHERE instance_id = ? AND app_id = ? AND key = ?
+       ORDER BY version DESC
        LIMIT 1`,
       [instanceId, appId, key]
     );
+    // Debug: also check total rows for this instance to detect if table is empty
+    const allRows = await psDb.getAll(
+      `SELECT key, COALESCE(version, 0) as version FROM shared_app_data WHERE instance_id = ?`,
+      [instanceId]
+    );
+    console.log('[merge] readCurrentRow query params:', { instanceId, appId, key });
+    console.log('[merge] readCurrentRow result rows:', rows.length, 'all instance rows:', JSON.stringify(allRows));
     return rows.length > 0 ? (rows[0] as SharedRow) : null;
   } catch (error) {
     console.warn('[merge] readCurrentRow failed:', error);

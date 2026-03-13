@@ -1,6 +1,6 @@
 # Perappos — Architecture & Context
 
-**Last Updated**: 2026-03-12
+**Last Updated**: 2026-03-13
 
 ## System Overview
 
@@ -65,7 +65,9 @@ Perappos is a personal app OS that lets users install web apps from URLs or ZIPs
 4. `bridge-merge-handler.ts` reads current row, picks merge strategy (noop/fast_path/array_merge/object_merge/lww)
 5. Writes merged result to PowerSync `shared_app_data` with updated merge metadata
 6. PowerSync syncs to Supabase; other members receive the merged state
-7. WebView receives `{ newVersion, newValue? }` acknowledgement
+7. WebView receives `{ newVersion, newValue? }` acknowledgement; shim updates `_cache` and `_baseState`
+
+**⚠️ Known gap (as of 2026-03-13):** The WebView shim embeds all `shared_app_data` at page load into static JS constants. Data written to `shared_app_data` by OTHER devices (via PowerSync sync) never reaches the live WebView — there is no mechanism to push updated rows into the shim's `_cache`. Fix needed: watch PowerSync `shared_app_data` changes and inject JS (`window._VaultSyncUpdate(...)`) into the WebView to update the shim. See `learning.md` entry #8.
 
 ### App Installation (URL)
 1. Fetch HTML from URL

@@ -5,14 +5,69 @@ One thing to note: the shared_apps Supabase table needs RLS policies set — any
 
  Instead of letting the Vibe Code talk directly to the camera, you build a Native UI Bridge.
 
+============
+
 The Technical Flow:
-
 The Vibe App (in the WebView) calls window.PerappOS.takePicture().
-
 Your React Native Shell intercepts this.
-
 The Shell (not the mini-app) triggers the native iOS camera UI.
-
 The user takes the photo.
-
 The Shell saves the photo to its own secure storage and sends only a "Local URI" or a Base64 string back to the mini-app.  
+
+============
+
+After entering the otp,it just says verifying. 
+
+Even if logged out, the local data is visible in the app
+
+
+
+============
+Added this temop log:
+Quick diagnostic. Add this temporary log in loadShimPayload right after the shared query (around line 94 in [id].tsx):
+typescriptconst sharedRows = await syncDb.getAll<{ key: string; value: string; version: number | null }>(
+  `SELECT key, value, COALESCE(version, 0) as version
+   FROM shared_app_data
+   WHERE instance_id = ? AND app_id = ?`,
+  [target.instance_id, target.app_id]
+);
+
+// ADD THIS:
+console.log('[preload] shared query result:', {
+  instanceId: target.instance_id,
+  appId: target.app_id,
+  rowCount: sharedRows.length,
+  keys: sharedRows.map(r => r.key),
+});
+
+// Also check total shared_app_data rows in PowerSync:
+const allShared = await syncDb.getAll('SELECT instance_id, app_id, key FROM shared_app_data');
+console.log('[preload] total shared_app_data rows in PowerSync:', allShared.length, allShared);
+
+===============
+
+Not urgent (post-beta):
+
+Consider re-enabling RLS on instance_members with a simple non-circular policy if you want defense-in-depth — but since your app uses RPCs for all member operations, the risk is low.
+
+===============
+
+on opening the pap first, , it has to ask for login
+
+==============
+
+cant view share code after creating shared instance
+manage group button leading to dead end
+
+============
+
+remove the debug/force resync from settings pags
+
+
+
+* The pattern to remember with PowerSync: always use getAll + check length when the query might return zero rows. Reserve get only when you're certain a row exists.
+
+
+============
+
+after clicking on create shared instance, the popup does not go away. There is no option to click COALESCE

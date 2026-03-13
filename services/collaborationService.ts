@@ -231,7 +231,7 @@ export async function createSharedInstanceForApp(
         last_write_id, last_merge_strategy, last_conflict_count)
        VALUES (?, ?, ?, ?, ?, 1, ?, datetime('now'), ?, 'migration', 0)`,
       [
-        Crypto.randomUUID(),
+        `${instanceId}/${app.app_id}/${row.key}`,
         instanceId,
         app.app_id,
         row.key,

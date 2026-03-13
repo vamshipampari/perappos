@@ -60,6 +60,12 @@ export default function AppScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const db = useDatabase();
   const { db: syncDb } = usePowerSync();
+  // Stable ref so loadShimPayload's useCallback can have empty deps.
+  // Without this, every PowerSync sync event creates a new syncDb reference →
+  // loadShimPayload gets a new ref → the initial load useEffect re-fires →
+  // shared_app_data is empty → WebView reloads with wrong personal-fallback data.
+  const syncDbRef = useRef(syncDb);
+  syncDbRef.current = syncDb;
   const webViewRef = useRef<WebView>(null);
   const hasLoadedOnceRef = useRef(false);
 
@@ -86,24 +92,53 @@ export default function AppScreen() {
       shim: string;
       preloadSource: 'shared' | 'personal-fallback' | 'local';
     }> => {
+      const db = syncDbRef.current;
       const preloadedData: Record<string, string> = {};
       const preloadedVersions: Record<string, number> = {};
 
       if (target.instance_id) {
-        const sharedRows = await syncDb.getAll<{ key: string; value: string; version: number | null }>(
+        const sharedRows = await db.getAll<{ key: string; value: string; version: number | null }>(
           `SELECT key, value, COALESCE(version, 0) as version
            FROM shared_app_data
-           WHERE instance_id = ? AND app_id = ?`,
+           WHERE instance_id = ? AND app_id = ?
+           ORDER BY version DESC`,
           [target.instance_id, target.app_id]
         );
 
         for (const row of sharedRows) {
+          // Dedup: first row per key wins (highest version due to ORDER BY version DESC)
+          if (row.key in preloadedData) continue;
           preloadedData[row.key] = row.value;
           preloadedVersions[row.key] = row.version ?? 0;
         }
 
         if (Object.keys(preloadedData).length === 0) {
-          const personalRows = await syncDb.getAll<{ key: string; value: string }>(
+          // Local shared_app_data is empty — PowerSync cleared it after upload,
+          // before the sync service re-delivered the row. Query Supabase directly
+          // so the shim starts with correct data and versions.
+          try {
+            const { data: remoteRows } = await supabase
+              .from('shared_app_data')
+              .select('key, value, version')
+              .eq('instance_id', target.instance_id)
+              .eq('app_id', target.app_id);
+            for (const row of (remoteRows ?? [])) {
+              preloadedData[row.key] = row.value;
+              preloadedVersions[row.key] = (row.version as number | null) ?? 0;
+            }
+          } catch {
+            // Network unavailable — fall through to personal-fallback
+          }
+
+          if (Object.keys(preloadedData).length > 0) {
+            return {
+              shim: buildSyncShim(target.app_id, preloadedData, preloadedVersions),
+              preloadSource: 'shared',
+            };
+          }
+
+          // Supabase also has nothing (brand new instance) → seed from personal data
+          const personalRows = await db.getAll<{ key: string; value: string }>(
             `SELECT key, value FROM app_data WHERE app_id = ?`,
             [target.app_id]
           );
@@ -125,7 +160,7 @@ export default function AppScreen() {
         };
       }
 
-      const localRows = await syncDb.getAll<{ key: string; value: string }>(
+      const localRows = await db.getAll<{ key: string; value: string }>(
         'SELECT key, value FROM app_data WHERE app_id = ?',
         [target.app_id]
       );
@@ -139,7 +174,10 @@ export default function AppScreen() {
         preloadSource: 'local',
       };
     },
-    [syncDb]
+    // Empty deps: syncDbRef.current is always up-to-date; stable reference
+    // prevents the initial load useEffect from re-firing on every PowerSync sync.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    []
   );
 
   // ── Initial load: fetch app row + all KV data from SQLite ─────────────────
@@ -325,6 +363,7 @@ export default function AppScreen() {
                 const updatedApp = { ...app, instance_id: String(existing.instance_id) };
                 setApp(updatedApp);
                 await rebuildShimForApp(updatedApp);
+                setTimeout(() => refreshWebView(), 0);
                 Alert.alert(
                   'Existing shared instance found',
                   `Invite code: ${inviteCode}\n\nSpaced: ${inviteCode.split('').join(' ')}`,
@@ -345,7 +384,7 @@ export default function AppScreen() {
                         });
                       },
                     },
-                    { text: 'Open App', onPress: () => refreshWebView() },
+                    { text: 'Done' },
                   ]
                 );
                 return;
@@ -356,6 +395,10 @@ export default function AppScreen() {
               const updatedApp = { ...app, instance_id: result.instanceId };
               setApp(updatedApp);
               await rebuildShimForApp(updatedApp);
+              console.log('[share] shim rebuilt for shared instance, reloading WebView');
+              // Reload immediately so the WebView picks up the sync shim.
+              // Use setTimeout(0) to let React commit the new shimJS prop before reload.
+              setTimeout(() => refreshWebView(), 0);
               Alert.alert(
                 'Shared app created',
                 `Invite code: ${inviteCode}\n\nSpaced: ${inviteCode.split('').join(' ')}`,
@@ -376,12 +419,7 @@ export default function AppScreen() {
                       });
                     },
                   },
-                  {
-                    text: 'Open App',
-                    onPress: () => {
-                      refreshWebView();
-                    },
-                  },
+                  { text: 'Done' },
                 ]
               );
             } catch (error) {

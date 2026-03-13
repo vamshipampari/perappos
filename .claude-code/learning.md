@@ -1,7 +1,7 @@
 # Perappos — Learnings & Gotchas
 
-**Last Updated**: 2026-03-12
-**Session Count**: 1
+**Last Updated**: 2026-03-13
+**Session Count**: 3
 
 ## Architecture Insights
 
@@ -66,9 +66,162 @@ From code-reviewer agent on `bridge-merge-handler.ts`:
 - **Low**: Possibly unused `deepEqual` import from merge-utils
 - **Low**: Telemetry buffer eviction is not bounded safely
 
+5. **Mistake**: Using `(auth.uid())::text` in RLS policy on a table where `user_id` is `uuid`
+   - **Cause**: `auth.uid()` returns `uuid`; casting to `::text` makes `IN (SELECT user_id ...)` fail with `operator does not exist: text = uuid`
+   - **Fix**: Use `auth.uid()` directly without cast; both sides are `uuid`
+   - **Prevention**: Never add `::text` cast to `auth.uid()` in RLS unless the column is explicitly TEXT
+
+6. **Mistake**: Querying PowerSync local immediately after writing to Supabase (timing gap)
+   - **Cause**: `createSharedInstanceForApp` inserts `shared_instances` into Supabase but PowerSync hasn't synced the row back to local yet. Screen queries PowerSync local → null → "Group not found"
+   - **Fix**: After the Supabase insert succeeds, also write the same row to PowerSync local via `syncDb.execute(INSERT OR REPLACE INTO shared_instances ...)`. PowerSync will reconcile on the next sync cycle.
+   - **Prevention**: Whenever you create a row in Supabase and immediately navigate to a screen that reads from PowerSync local, pre-seed PowerSync local.
+
+7. **Mistake**: Supabase upsert fails silently when `onConflict` references a non-existent constraint
+   - **Cause**: `SupabaseConnector.uploadData` uses `onConflict: "instance_id,app_id,key"` but the UNIQUE constraint was never added to the table. PostgreSQL returns "there is no unique or exclusion constraint matching the ON CONFLICT specification"
+   - **Fix**: Add `ALTER TABLE public.shared_app_data ADD CONSTRAINT shared_app_data_natural_key UNIQUE (instance_id, app_id, key)` in Supabase SQL editor
+   - **Prevention**: Every `upsert({ onConflict: "col1,col2" })` requires a corresponding UNIQUE or EXCLUSION constraint to exist in Postgres. Create the constraint in Supabase migration SQL when defining the schema.
+
+8. **CRITICAL ARCHITECTURE ISSUE — WebView shared_app_data read-back gap** (discovered 2026-03-13)
+   - **Symptom**: Data written to `shared_app_data` after the shared instance is created is NOT shown in the WebView. Other devices' writes never appear.
+   - **Root cause**: `vaultShimSync.ts` embeds ALL data once at page load into JavaScript constants (`_cache`, `_baseState`, `_keyVersions`). This is static — the WebView never re-queries the database after initialization. Writes from THIS device update `_cache` via the bridge's `newValue` acknowledgement. But there is NO mechanism to push data from PowerSync sync (other devices' writes) into the WebView's live `_cache`.
+   - **Note**: Data loss (A2 missing from Supabase) turned out to be a separate bug — see entry #9.
+   - **Fix approach**: After PowerSync receives new `shared_app_data` rows, inject JavaScript into the WebView to update the shim's `_cache` (e.g., `webViewRef.current?.injectJavaScript(...)` with a `window._VaultSyncUpdate({key, value, version})` call).
+   - **Current status**: NOT FIXED — needs dedicated session to implement the sync push mechanism
+
+9. **Mistake**: Migration uses wrong row ID format → duplicate rows → non-deterministic reads + stale shim preload → data loss (discovered 2026-03-13, FIXED)
+   - **Cause**: `collaborationService.ts` migration loop used `Crypto.randomUUID()` as the PowerSync row ID for migrated `shared_app_data` rows. But `bridge-merge-handler.ts` `writeRow()` uses `makeRowId()` = `` `${instanceId}/${appId}/${key}` ``. This created TWO rows in PowerSync for the same `(instance_id, app_id, key)` natural key: one with a UUID id (from migration, version=1) and one with the compound id (from the first user write, version=2). `readCurrentRow()` used `LIMIT 1` without `ORDER BY`, so it non-deterministically picked either row. When A3 happened to read the UUID row (version=1) as base, it computed `newVersion=2` and wrote to the compound-id row, silently overwriting A2.
+   - **Fix in `collaborationService.ts`**: Changed `Crypto.randomUUID()` to `` `${instanceId}/${app.app_id}/${row.key}` `` so migrated rows use the same compound key format as `writeRow()`. `INSERT OR REPLACE` then correctly updates the same row on subsequent writes.
+   - **Fix in `bridge-merge-handler.ts`**: Added `ORDER BY version DESC` before `LIMIT 1` in `readCurrentRow()` as a defence-in-depth measure — even if duplicate rows exist (from previous bad migrations), we always pick the highest-version one.
+   - **Fix in `app/app/[id].tsx` `loadShimPayload`**: Added `ORDER BY version DESC` to the `shared_app_data` preload query AND a `if (row.key in preloadedData) continue` guard in the loop. Without this, the shim could be preloaded with the stale UUID row (version=1) instead of the latest compound-key row — causing every subsequent `baseVersion` sent by the shim to be wrong, and `readCurrentRow()` to then compute `newVersion = stale_version + 1` on each write (effectively resetting version to 1+1=2 every time instead of incrementing).
+   - **Prevention**: Any direct PowerSync `INSERT` into a table that is also written by a handler must use the SAME row ID format as that handler. For `shared_app_data`, that is `` `${instanceId}/${appId}/${key}` ``. Also, any preload query over a PowerSync table that may have duplicate rows for the same logical key MUST include `ORDER BY` + deduplication guard.
+
+## Dependencies & Their Quirks
+
+- **PowerSync**: CRUD queue can get stuck if upload fails repeatedly — monitor with debug button in Settings. The pending CRUD count is shown in the debug panel as of 2026-03-13.
+- **NativeWind v4**: Requires specific babel/metro/tailwind config (preset + wrapper), see `TECHNICAL.md` NativeWind section
+- **expo-sqlite**: WAL mode is default; `onInit` callback in `SQLiteProvider` is the right place for schema migrations
+- **Supabase OTP**: Email template must include `{{ .Token }}` for the 6-digit code to appear
+- **react-native-webview**: `allowUniversalAccessFromFileURLs` must be true for ES module imports to work across files loaded via `file://`
+
+## Merge Engine Learnings
+
+- The 3-way merge in `bridge-merge-handler.ts` uses these strategies in priority order: noop → idempotent_skip → init_blocked → fast_path → array_merge → object_merge → lww
+- Array merge requires stable `_id` fields on array items to work correctly
+- Object merge does field-level comparison; additions from both sides are kept
+- `init_blocked` prevents apps from overwriting fresh shared state during startup initialization — but may also block legitimate early user writes if `pageAge < 3000ms` and `hadInteraction = false`
+- The `hadInteraction` flag in the shim is set to `true` only on `touchstart` or `keydown` events — if the app writes via code (not user gesture), `hadInteraction` stays false even for legitimate writes
+- Merge telemetry buffer exists for debugging strategy/conflict counts
+
+## Deployment Gotchas
+
+- EAS builds require iOS/Android specific profiles in `eas.json`
+- Supabase schema must match PowerSync schema exactly — missing merge columns will break shared writes
+- Supabase `shared_app_data` needs `UNIQUE (instance_id, app_id, key)` constraint for `onConflict` upsert to work
+- PowerSync sync rules must include all merge metadata columns in `shared_app_data` projection
+- Supabase RLS must allow INSERT/UPDATE for instance members on `shared_app_data` — use `auth.uid()` (uuid), not `(auth.uid())::text`
+- Run Expo from the main project directory `/Users/vamshipampari/Documents/Workspace/Perappos/perappos` — worktrees have no `node_modules` and will crash Metro
+
+## Code Review Findings (2026-03-12)
+
+From code-reviewer agent on `bridge-merge-handler.ts`:
+- **High**: Noop guard hash comparison may be logically inverted (line ~137) — needs verification
+- **High**: `resolveRowId` has a race condition (SELECT + UUID gen not atomic)
+- **Medium**: `JSON.parse` in merge path has no targeted try/catch — malformed JSON falls through to generic error (FIXED 2026-03-12)
+- **Medium**: No size/depth limit on parsed JSON before merge
+- **Low**: Debug `console.log` statements in production paths (FIXED 2026-03-12)
+- **Low**: Possibly unused `deepEqual` import from merge-utils
+- **Low**: Telemetry buffer eviction is not bounded safely
+
+## Session 3 Work (2026-03-13) — What Was Fixed
+
+1. **Supabase unique constraint**: Added `UNIQUE (instance_id, app_id, key)` to fix stuck CRUD queue (user must run SQL in Supabase dashboard)
+2. **RLS policy**: Corrected `auth.uid()` usage without `::text` cast
+3. **"Group not found" bug**: `collaborationService.ts` now pre-seeds PowerSync local `shared_instances` and `instance_members` after create/join so Manage Group screen works immediately
+4. **Debug panel**: Now shows pending CRUD count so user can diagnose stuck queue
+5. **SupabaseConnector.ts**: Fixed TS type errors in DELETE path for `shared_app_data`
+6. **Data loss (A2 missing) + version always 1**: Fixed row ID mismatch in `collaborationService.ts` migration — changed `Crypto.randomUUID()` to `` `${instanceId}/${app.app_id}/${row.key}` `` so migrated rows share the same compound key as `writeRow()`. Added `ORDER BY version DESC` to `readCurrentRow()` in `bridge-merge-handler.ts` as defence-in-depth. Fixed `loadShimPayload` in `app/app/[id].tsx` to add `ORDER BY version DESC` + deduplication guard so the shim is always preloaded with the highest-version row per key (not a stale UUID migration row).
+
+10. **CRITICAL DEPLOYMENT ISSUE — all Session-3 worktree fixes were NOT in the main project** (discovered 2026-03-13, FIXED)
+    - **Cause**: All Session-3 code fixes were only in the worktree directory (`/.claude/worktrees/eloquent-hodgkin`), NOT in the main project that Expo/Metro actually runs from (`/Users/vamshipampari/.../perappos`). The iOS sim was running the OLD buggy code.
+    - **Fix**: Copied all 6 fixed files from worktree to main project: `services/collaborationService.ts`, `app/app/[id].tsx`, `app/join-shared-app.tsx`, `services/sync/SupabaseConnector.ts`, `services/sync/bridge-merge-handler.ts`, `app/(tabs)/settings.tsx`.
+    - **Prevention**: When fixes are made in a worktree, ALWAYS copy them to the main project immediately. The worktree has no `node_modules` and can't run Metro — it is only a code-editing environment. The sim always runs from the main project directory.
+
+11. **Manage Group "Group not found" — Supabase fallback added** (2026-03-13, FIXED)
+    - **Cause**: `app/shared-instance/[instanceId].tsx` only queried PowerSync local for `shared_instances`. If PowerSync hadn't synced yet (or RLS blocks sync), the row wasn't there.
+    - **Fix**: Added 3-step load strategy: (1) try PowerSync local, (2) retry up to 3 s, (3) Supabase direct query fallback + RPC owner fallback. Also synthesises a member row for the current user if instance found but no members in local DB. Pre-seeds PowerSync local when fallback succeeds.
+    - **Prevention**: Any screen that reads from PowerSync and is navigated to immediately after a Supabase write must have either pre-seeding OR a Supabase fallback.
+
+## REQUIRED Supabase SQL — MUST RUN IN SUPABASE DASHBOARD
+
+These changes cannot be made in code. Run them in Supabase → SQL Editor:
+
+```sql
+-- 1. UNIQUE constraint for natural-key upsert (required for SupabaseConnector onConflict)
+--    PostgreSQL doesn't support IF NOT EXISTS for ADD CONSTRAINT — use DO block.
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.table_constraints
+    WHERE constraint_name = 'shared_app_data_natural_key'
+      AND table_name = 'shared_app_data'
+  ) THEN
+    ALTER TABLE public.shared_app_data
+      ADD CONSTRAINT shared_app_data_natural_key UNIQUE (instance_id, app_id, key);
+  END IF;
+END $$;
+
+-- 2. Fix RLS on shared_app_data — allow members to INSERT/UPDATE
+-- (Remove any existing policy that uses ::text cast)
+DROP POLICY IF EXISTS "Members can write shared_app_data" ON public.shared_app_data;
+CREATE POLICY "Members can write shared_app_data"
+ON public.shared_app_data FOR ALL
+USING (
+  EXISTS (
+    SELECT 1 FROM instance_members
+    WHERE instance_members.instance_id = shared_app_data.instance_id
+      AND instance_members.user_id = auth.uid()   -- auth.uid() is uuid, no ::text cast
+  )
+)
+WITH CHECK (
+  EXISTS (
+    SELECT 1 FROM instance_members
+    WHERE instance_members.instance_id = shared_app_data.instance_id
+      AND instance_members.user_id = auth.uid()
+  )
+);
+
+-- 3. Fix RLS on shared_instances — allow members to SELECT their instances
+-- (needed for the Manage Group Supabase fallback + PowerSync sync)
+DROP POLICY IF EXISTS "Members can read shared_instances" ON public.shared_instances;
+CREATE POLICY "Members can read shared_instances"
+ON public.shared_instances FOR SELECT
+USING (
+  owner_id = auth.uid()
+  OR EXISTS (
+    SELECT 1 FROM instance_members
+    WHERE instance_members.instance_id = shared_instances.instance_id
+      AND instance_members.user_id = auth.uid()
+  )
+);
+```
+
+**If data keeps clearing on app reopen**: The UNIQUE constraint (#1) and RLS fix (#2) are the most critical. Without the UNIQUE constraint, `SupabaseConnector` uploads fail silently, PowerSync retries, then eventually overwrites local data with the empty Supabase state.
+
+12. **CRITICAL DB BUG — duplicate UNIQUE constraints on shared_app_data caused stuck CRUD queue** (discovered 2026-03-13, FIXED)
+    - **Symptom**: Version always stays at 1 in Supabase; writes after the first insert never propagate.
+    - **Root cause**: Three UNIQUE constraints existed on `(instance_id, app_id, key)`: `shared_app_data_instance_app_key_unique`, `shared_app_data_instance_id_app_id_key_key`, `shared_app_data_natural_key`. PostgreSQL throws "there is more than one unique constraint matching the ON CONFLICT specification" when an upsert hits a conflict (every write after initial insert). CRUD queue stuck permanently on version=2.
+    - **Fix**: Dropped the two duplicate constraints. Only `shared_app_data_natural_key` remains.
+    - **Prevention**: Never add multiple UNIQUE constraints on identical column sets. Verify with `SELECT conname FROM pg_constraint WHERE conrelid = 'table'::regclass AND contype = 'u'` before adding.
+
+13. **CRITICAL CODE BUG — WebView sends `ls_set` after instance creation, bridge drops writes** (discovered 2026-03-13, FIXED)
+    - **Symptom**: All writes made right after creating the shared instance (before "Open App" was tapped) were silently lost.
+    - **Root cause**: `setApp(updatedApp)` updates the manifest `instance_id` immediately. The WebView is still running the OLD local shim (sends `ls_set`). `vaultBridge.ts:147` drops `ls_set` for shared apps. Everything between create and manual reload was dropped.
+    - **Fix**: Added `setTimeout(() => refreshWebView(), 0)` right after `rebuildShimForApp` in `handleCollaborate`. `setTimeout(0)` lets React commit the new `shimJS` prop before the reload fires. Replaced "Open App" button with "Done".
+    - **Prevention**: Whenever `setApp` changes `instance_id`, reload the WebView immediately. Never rely on the user to manually trigger it.
+
 ## To-Do for Next Session
 
-- [ ] Remove one-time queue flush from PowerSyncProvider (after confirmed clean on all devices)
+- [ ] **CRITICAL**: Fix WebView shared data read-back — data written to `shared_app_data` (from other devices OR from after instance creation) does not appear in the WebView. Need to implement a `_VaultSyncUpdate` injection mechanism: watch PowerSync `shared_app_data` changes → inject JS to update shim `_cache`.
 - [ ] Show explicit PowerSync connection error in Settings
 - [ ] Add clipboard copy for invite codes
 - [ ] Strengthen join/create retry UX

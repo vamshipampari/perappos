@@ -97,6 +97,13 @@ export async function handleVaultMessage(
   try {
     switch (type) {
       case 'ls_set_sync': {
+        console.log('[bridge] ls_set_sync:', JSON.stringify({
+          key: msg.key,
+          isShared,
+          instanceId,
+          appId: effectiveAppId,
+          baseVersion: msg.baseVersion,
+        }));
         if (!isShared || !instanceId || !msg.key || typeof msg.value !== 'string') {
           respond(
             {
@@ -130,6 +137,13 @@ export async function handleVaultMessage(
           effectiveAppId,
           userId
         );
+        console.log('[bridge] ls_set_sync result:', JSON.stringify({
+          key: msg.key,
+          strategy: result.strategy,
+          newVersion: result.newVersion,
+          success: result.success,
+          error: result.error,
+        }));
 
         respond({
           success: result.success,
@@ -145,10 +159,29 @@ export async function handleVaultMessage(
 
       case 'ls_set': {
         if (isShared && instanceId) {
-          // Shared apps use vaultShimSync → ls_set_sync. If ls_set fires for a
-          // shared app it means the wrong shim was loaded — skip to avoid
-          // bypassing the merge engine.
-          console.warn('[bridge] ls_set received for shared app — expected ls_set_sync');
+          // Fallback: if the sync shim didn't load (race condition during
+          // WebView reload after creating a shared instance), route through
+          // the merge handler so the write is never silently lost.
+          const { data: { session: lsSharedSession } } = await supabase.auth.getSession();
+          const lsSharedUserId = lsSharedSession?.user?.id ?? '';
+          const lsSharedMsg: SharedWriteMessage = {
+            key: msg.key!,
+            value: msg.value!,
+            baseVersion: 0,
+            baseHash: null,
+            baseValue: null,
+            clientWriteId: `ls_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+            pageAge: 10000,
+            hadInteraction: true,
+            timestamp: Date.now(),
+          };
+          await handleSharedWrite(
+            syncDb as unknown as Parameters<typeof handleSharedWrite>[0],
+            lsSharedMsg,
+            instanceId,
+            effectiveAppId,
+            lsSharedUserId
+          );
           break;
         }
         const { data: { session: lsSession } } = await supabase.auth.getSession();

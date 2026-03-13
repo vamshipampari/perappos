@@ -75,25 +75,106 @@ export default function SharedInstanceScreen() {
     if (!instanceId) return;
     setLoading(true);
     try {
-      console.log('[manage-group] instanceId from params:', instanceId);
-      console.log('[manage-group] typeof instanceId:', typeof instanceId);
+      console.log('[manage-group] loading instanceId:', instanceId);
 
-      const [{ data: { session } }, instanceRow, memberRows] = await Promise.all([
-        supabase.auth.getSession(),
-        syncDb.getOptional<SharedInstanceRow>(
-          'SELECT * FROM shared_instances WHERE instance_id = ?',
-          [instanceId]
-        ),
-        syncDb.getAll<MemberRow>(
-          'SELECT user_id, role, joined_at FROM instance_members WHERE instance_id = ? ORDER BY role DESC, joined_at ASC',
-          [instanceId]
-        ),
-      ]);
-      const all = await syncDb.getAll<{ instance_id: string }>('SELECT instance_id FROM shared_instances');
-      console.log('[manage-group] all instance_ids in local DB:', all);
-
+      const { data: { session } } = await supabase.auth.getSession();
       const userId = session?.user?.id ?? null;
       setMyUserId(userId);
+
+      // 1. Try PowerSync local first — fast path.
+      let instanceRow = await syncDb.getOptional<SharedInstanceRow>(
+        'SELECT * FROM shared_instances WHERE instance_id = ?',
+        [instanceId]
+      );
+
+      // 2. Retry up to 3 s — PowerSync may still be syncing on first open.
+      if (!instanceRow) {
+        for (let attempt = 0; attempt < 15 && !instanceRow; attempt++) {
+          await new Promise<void>((r) => setTimeout(r, 200));
+          instanceRow = await syncDb.getOptional<SharedInstanceRow>(
+            'SELECT * FROM shared_instances WHERE instance_id = ?',
+            [instanceId]
+          );
+        }
+      }
+
+      // 3. Supabase fallback — covers the case where PowerSync sync is lagging
+      //    or the RLS SELECT policy allows direct reads (it should for members).
+      if (!instanceRow && userId) {
+        console.log('[manage-group] local miss — trying Supabase fallback');
+        try {
+          // Direct query: SELECT RLS on shared_instances should allow members to
+          // read instances they belong to. If this is blocked, the user needs to
+          // fix their RLS SELECT policy on shared_instances.
+          const { data: remoteRows } = await supabase
+            .from('shared_instances')
+            .select('instance_id, app_id, app_name, invite_code, owner_id')
+            .eq('instance_id', instanceId)
+            .limit(1);
+
+          const remote = (remoteRows as SharedInstanceRow[] | null)?.[0] ?? null;
+
+          if (!remote) {
+            // RLS blocked or row not found — try owner-only RPC as last resort.
+            const appRow = await db.getFirstAsync<{ app_id: string }>(
+              'SELECT app_id FROM apps WHERE instance_id = ?',
+              [instanceId]
+            );
+            if (appRow?.app_id) {
+              const { data: rpcData } = await supabase.rpc('get_own_shared_instance', {
+                p_app_id: appRow.app_id,
+                p_user_id: userId,
+              });
+              const rpcRow = (rpcData as SharedInstanceRow[] | null)?.[0] ?? null;
+              if (rpcRow) {
+                instanceRow = rpcRow;
+              }
+            }
+          } else {
+            instanceRow = remote;
+          }
+
+          // Pre-seed PowerSync local so subsequent opens don't need the fallback.
+          if (instanceRow) {
+            try {
+              await syncDb.execute(
+                `INSERT OR REPLACE INTO shared_instances
+                 (instance_id, app_id, app_name, app_source_url, owner_id, invite_code)
+                 VALUES (?, ?, ?, ?, ?, ?)`,
+                [
+                  instanceRow.instance_id,
+                  instanceRow.app_id,
+                  instanceRow.app_name,
+                  (instanceRow as { app_source_url?: string | null }).app_source_url ?? null,
+                  instanceRow.owner_id,
+                  instanceRow.invite_code,
+                ]
+              );
+            } catch (seedErr) {
+              console.warn('[manage-group] pre-seed failed:', seedErr);
+            }
+          }
+        } catch (fallbackErr) {
+          console.warn('[manage-group] Supabase fallback error:', fallbackErr);
+        }
+      }
+
+      // 4. Load members from PowerSync local.
+      let memberRows = await syncDb.getAll<MemberRow>(
+        'SELECT user_id, role, joined_at FROM instance_members WHERE instance_id = ? ORDER BY role DESC, joined_at ASC',
+        [instanceId]
+      );
+
+      // If we have the instance (possibly from fallback) but no members in local,
+      // synthesise a row for the current user so the Actions section is shown.
+      if (instanceRow && memberRows.length === 0 && userId) {
+        const myGuessedRole: 'owner' | 'member' =
+          instanceRow.owner_id === userId ? 'owner' : 'member';
+        memberRows = [{ user_id: userId, role: myGuessedRole, joined_at: '' }];
+      }
+
+      console.log('[manage-group] result — instance found:', !!instanceRow, 'members:', memberRows.length);
+
       setInstance(instanceRow ?? null);
       setMembers(memberRows);
 
@@ -106,7 +187,7 @@ export default function SharedInstanceScreen() {
     } finally {
       setLoading(false);
     }
-  }, [instanceId, syncDb]);
+  }, [instanceId, db, syncDb]);
 
   useEffect(() => {
     void load();
