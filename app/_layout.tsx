@@ -159,12 +159,39 @@ function AppLockGate({ children }: { children: React.ReactNode }) {
 export default function RootLayout() {
   const router = useRouter();
   const [isDeepLinkReady, setIsDeepLinkReady] = useState(false);
+  const [sessionChecked, setSessionChecked] = useState(false);
+  const [hasSession, setHasSession] = useState(false);
 
   useEffect(() => {
-    if (isDeepLinkReady) {
+    if (isDeepLinkReady && sessionChecked) {
       SplashScreen.hideAsync();
     }
-  }, [isDeepLinkReady]);
+  }, [isDeepLinkReady, sessionChecked]);
+
+  // Check auth session on mount and subscribe to changes.
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setHasSession(!!session);
+      setSessionChecked(true);
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      setHasSession(!!session);
+      if (event === 'SIGNED_OUT') {
+        router.replace('/login');
+      }
+    });
+
+    return () => subscription.unsubscribe();
+  }, [router]);
+
+  // Once both checks are done, redirect unauthenticated users to login.
+  useEffect(() => {
+    if (!isDeepLinkReady || !sessionChecked) return;
+    if (!hasSession) {
+      router.replace('/login');
+    }
+  }, [isDeepLinkReady, sessionChecked, hasSession, router]);
 
   useEffect(() => {
     let isMounted = true;
@@ -235,7 +262,7 @@ export default function RootLayout() {
     };
   }, [router]);
 
-  if (!isDeepLinkReady) {
+  if (!isDeepLinkReady || !sessionChecked) {
     return null;
   }
 
@@ -253,6 +280,14 @@ export default function RootLayout() {
             <AppLockGate>
               <Stack>
                 <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+                <Stack.Screen
+                  name="login"
+                  options={{
+                    headerShown: false,
+                    gestureEnabled: false,
+                    animation: 'fade',
+                  }}
+                />
                 <Stack.Screen
                   name="auth"
                   options={{
