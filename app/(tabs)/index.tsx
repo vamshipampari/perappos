@@ -32,10 +32,7 @@ import { shareApp } from '../../services/shareService';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const NUM_COLUMNS = 3;
-const ITEM_HORIZONTAL_PADDING = 16;
-const ITEM_GAP = 12;
-const ICON_SIZE = 60;
+const ICON_SIZE = 48;
 const UPDATE_SCAN_CONCURRENCY = 3;
 
 // Scroll offset at which the large title fully collapses into the nav bar title
@@ -47,9 +44,9 @@ const AnimatedFlatList = Animated.createAnimatedComponent(
   FlatList as React.ComponentType<React.ComponentProps<typeof FlatList<InstalledApp>>>
 );
 
-// ── App grid item ─────────────────────────────────────────────────────────────
+// ── App list card ─────────────────────────────────────────────────────────────
 
-function AppGridItem({
+function AppListCard({
   app,
   hasUpdate,
   onLongPress,
@@ -65,89 +62,122 @@ function AppGridItem({
   }));
 
   const handlePressIn = () => {
-    scale.value = withSpring(0.92, { damping: 15, stiffness: 300 });
+    scale.value = withSpring(0.98, { damping: 20, stiffness: 400 });
   };
 
   const handlePressOut = () => {
-    scale.value = withSpring(1, { damping: 15, stiffness: 300 });
+    scale.value = withSpring(1, { damping: 20, stiffness: 400 });
   };
 
+  const subtitle = app.source_url
+    ? app.source_url.replace(/^https?:\/\//, '').split('/')[0]
+    : app.source_type === 'bundle'
+    ? 'Local bundle'
+    : 'Installed app';
+
   return (
-    <Pressable
-      onPress={() => router.push(`/app/${app.app_id}`)}
-      onLongPress={() => onLongPress(app)}
-      delayLongPress={320}
-      onPressIn={handlePressIn}
-      onPressOut={handlePressOut}
-      style={{ flex: 1, alignItems: 'center', paddingVertical: 8 }}
-    >
-      <Animated.View style={animatedStyle}>
-        <View
-          style={{
-            width: ICON_SIZE,
-            height: ICON_SIZE,
-            borderRadius: 14,
-            backgroundColor: app.icon_bg_color,
-            alignItems: 'center',
-            justifyContent: 'center',
-            shadowColor: '#000',
-            shadowOffset: { width: 0, height: 2 },
-            shadowOpacity: 0.08,
-            shadowRadius: 4,
-            elevation: 2,
-          }}
+    <>
+      <Pressable
+        onPress={() => router.push(`/app/${app.app_id}`)}
+        onLongPress={() => onLongPress(app)}
+        delayLongPress={320}
+        onPressIn={handlePressIn}
+        onPressOut={handlePressOut}
+      >
+        <Animated.View
+          style={[
+            {
+              flexDirection: 'row',
+              alignItems: 'center',
+              paddingHorizontal: 16,
+              paddingVertical: 12,
+              backgroundColor: '#FFFFFF',
+              borderRadius: 12,
+              shadowColor: '#000',
+              shadowOffset: { width: 0, height: 2 },
+              shadowOpacity: 0.06,
+              shadowRadius: 4,
+              elevation: 2,
+            },
+            animatedStyle,
+          ]}
         >
-          <Text style={{ fontSize: 28 }}>{app.icon_emoji}</Text>
-          {hasUpdate && (
+          {/* Icon */}
+          <View style={{ position: 'relative', marginRight: 14 }}>
             <View
               style={{
-                position: 'absolute',
-                top: 4,
-                right: 4,
-                width: 10,
-                height: 10,
-                borderRadius: 5,
-                backgroundColor: '#FF3B30',
-                borderWidth: 1,
-                borderColor: '#FFFFFF',
-              }}
-            />
-          )}
-          {app.instance_id ? (
-            <View
-              style={{
-                position: 'absolute',
-                right: -4,
-                bottom: -4,
-                width: 20,
-                height: 20,
-                borderRadius: 10,
+                width: ICON_SIZE,
+                height: ICON_SIZE,
+                borderRadius: 12,
+                backgroundColor: app.icon_bg_color,
                 alignItems: 'center',
                 justifyContent: 'center',
-                backgroundColor: '#FFFFFF',
-                borderWidth: 1,
-                borderColor: '#D1D1D6',
+                shadowColor: '#000',
+                shadowOffset: { width: 0, height: 1 },
+                shadowOpacity: 0.08,
+                shadowRadius: 3,
+                elevation: 2,
               }}
             >
-              <Text style={{ fontSize: 11 }}>👥</Text>
+              <Text style={{ fontSize: 24 }}>{app.icon_emoji}</Text>
             </View>
-          ) : null}
-        </View>
-        <Text
-          numberOfLines={2}
-          style={{
-            marginTop: 6,
-            fontSize: 12,
-            color: '#1C1C1E',
-            textAlign: 'center',
-            lineHeight: 15,
-            width: ICON_SIZE + 8,
-          }}
-        >
-          {app.name}
-        </Text>
-      </Animated.View>
-    </Pressable>
+            {hasUpdate && (
+              <View
+                style={{
+                  position: 'absolute',
+                  top: -2,
+                  right: -2,
+                  width: 10,
+                  height: 10,
+                  borderRadius: 5,
+                  backgroundColor: '#FF3B30',
+                  borderWidth: 1.5,
+                  borderColor: '#FFFFFF',
+                }}
+              />
+            )}
+            {app.instance_id ? (
+              <View
+                style={{
+                  position: 'absolute',
+                  right: -4,
+                  bottom: -4,
+                  width: 18,
+                  height: 18,
+                  borderRadius: 9,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  backgroundColor: '#FFFFFF',
+                  borderWidth: 1,
+                  borderColor: '#D1D1D6',
+                }}
+              >
+                <Text style={{ fontSize: 10 }}>👥</Text>
+              </View>
+            ) : null}
+          </View>
+
+          {/* Text */}
+          <View style={{ flex: 1 }}>
+            <Text
+              numberOfLines={1}
+              style={{ fontSize: 16, fontWeight: '600', color: '#1C1C1E' }}
+            >
+              {app.name}
+            </Text>
+            <Text
+              numberOfLines={1}
+              style={{ fontSize: 13, color: '#8E8E93', marginTop: 2 }}
+            >
+              {subtitle}
+            </Text>
+          </View>
+
+          {/* Chevron */}
+          <Text style={{ fontSize: 18, color: '#C7C7CC', marginLeft: 8 }}>›</Text>
+        </Animated.View>
+      </Pressable>
+    </>
   );
 }
 
@@ -572,7 +602,7 @@ export default function HomeScreen() {
 
   const renderItem = useCallback(
     ({ item }: { item: InstalledApp }) => (
-      <AppGridItem
+      <AppListCard
         app={item}
         hasUpdate={!!updatesAvailable[item.app_id]}
         onLongPress={openContextMenu}
@@ -585,7 +615,7 @@ export default function HomeScreen() {
 
   // Large-title list header (scrolls with content)
   const listHeader = (
-    <View style={{ paddingHorizontal: 20, paddingTop: 4, paddingBottom: apps.length > 0 ? 4 : 0 }}>
+    <View style={{ paddingTop: 4, paddingBottom: apps.length > 0 ? 12 : 0 }}>
       <Animated.Text
         style={[
           { fontSize: 34, fontWeight: '700', color: '#1C1C1E', letterSpacing: 0.3 },
@@ -607,7 +637,7 @@ export default function HomeScreen() {
   // ── Render ─────────────────────────────────────────────────────────────────
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: '#FFFFFF' }}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: '#F2F2F7' }}>
       {/* ── Fixed nav bar: small title fades in on scroll ──────────────── */}
       <View
         style={{
@@ -615,7 +645,7 @@ export default function HomeScreen() {
           flexDirection: 'row',
           alignItems: 'center',
           justifyContent: 'center',
-          backgroundColor: '#FFFFFF',
+          backgroundColor: '#F2F2F7',
           paddingHorizontal: 16,
         }}
       >
@@ -642,15 +672,15 @@ export default function HomeScreen() {
           data={apps}
           renderItem={renderItem}
           keyExtractor={keyExtractor}
-          numColumns={NUM_COLUMNS}
           ListHeaderComponent={listHeader}
           ListEmptyComponent={!loading ? <EmptyState /> : null}
           contentContainerStyle={{
-            paddingHorizontal: ITEM_HORIZONTAL_PADDING,
+            paddingHorizontal: 16,
             paddingTop: 8,
             paddingBottom: 100,
+            gap: 12,
           }}
-          columnWrapperStyle={{ gap: ITEM_GAP }}
+          style={{ backgroundColor: '#F2F2F7' }}
           showsVerticalScrollIndicator={false}
           refreshControl={
             <RefreshControl
