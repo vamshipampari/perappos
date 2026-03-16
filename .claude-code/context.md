@@ -1,6 +1,6 @@
 # Perappos — Architecture & Context
 
-**Last Updated**: 2026-03-13
+**Last Updated**: 2026-03-16 (Session 5)
 
 ## System Overview
 
@@ -67,7 +67,9 @@ Perappos is a personal app OS that lets users install web apps from URLs or ZIPs
 6. PowerSync syncs to Supabase; other members receive the merged state
 7. WebView receives `{ newVersion, newValue? }` acknowledgement; shim updates `_cache` and `_baseState`
 
-**⚠️ Known gap (as of 2026-03-13):** The WebView shim embeds all `shared_app_data` at page load into static JS constants. Data written to `shared_app_data` by OTHER devices (via PowerSync sync) never reaches the live WebView — there is no mechanism to push updated rows into the shim's `_cache`. Fix needed: watch PowerSync `shared_app_data` changes and inject JS (`window._VaultSyncUpdate(...)`) into the WebView to update the shim. See `learning.md` entry #8.
+**✅ Fixed (Session 4):** Writes from the current device now reliably reach Supabase and persist correctly. Four bugs were fixed: (1) `ls_set` was silently dropped for shared apps, (2) PowerSync post-upload local clear caused `readCurrentRow` to return null → version=1 → versioned RPC rejected all writes (fixed with `_versionCache`), (3) `loadShimPayload`'s `useCallback` dep on `syncDb` caused the initial load `useEffect` to re-fire on every sync → WebView reloaded with wrong data (fixed with `syncDbRef` pattern), (4) personal-fallback loaded version=0 for all keys → all writes rejected (fixed with Supabase direct-query fallback).
+
+**⚠️ Remaining gap:** The WebView shim embeds all `shared_app_data` once at page load. Data written by OTHER devices (arriving via PowerSync sync) does NOT appear in the live running WebView — only after close+reopen. Fix needed: watch PowerSync `shared_app_data` changes (e.g. `usePowerSyncWatchedQuery`) → inject JS `window._VaultSyncUpdate({key, value, version})` via `webViewRef.current?.injectJavaScript(...)`. This is the #1 priority. See `learning.md` entry #8.
 
 ### App Installation (URL)
 1. Fetch HTML from URL
@@ -81,7 +83,7 @@ Perappos is a personal app OS that lets users install web apps from URLs or ZIPs
 ## External Integrations
 
 ### Supabase
-- **Auth**: Email OTP sign-in (no magic links)
+- **Auth**: Email OTP sign-in (no magic links); login is mandatory at startup (`app/login.tsx`) — unauthenticated users are gated at the root layout before seeing any app content
 - **Database**: Shared instance tables, app data sync
 - **RPCs**: `lookup_shared_instance`, `add_instance_member`
 - **RLS**: Enforced on all tables; shared writes need member-of-instance check
@@ -105,6 +107,21 @@ Perappos is a personal app OS that lets users install web apps from URLs or ZIPs
 - **iOS**: Xcode required
 - **Android**: Android Studio required
 - **Required env vars**: `EXPO_PUBLIC_SUPABASE_URL`, `EXPO_PUBLIC_SUPABASE_ANON_KEY`, `EXPO_PUBLIC_POWERSYNC_URL`
+
+## Auth & Navigation Gate
+
+The root layout (`app/_layout.tsx`) enforces authentication before any content is shown:
+
+1. `SplashScreen.preventAutoHideAsync()` — native splash locked on app start
+2. Parallel: deep-link init (`isDeepLinkReady`) + `supabase.auth.getSession()` (`sessionChecked`)
+3. Splash hidden only once **both** flags are true
+4. If no session → `router.replace('/login')` (full-screen, `gestureEnabled: false`)
+5. If session exists → user lands directly on `/(tabs)`
+6. `onAuthStateChange` listener in root layout handles sign-out → auto-redirects to `/login`
+
+Two auth screens exist:
+- `app/login.tsx` — mandatory full-screen login (no close button); replaces to `/(tabs)` on success
+- `app/auth.tsx` — dismissable modal used from Settings → "Sign In" (post-login account mgmt)
 
 ## Key Directories
 

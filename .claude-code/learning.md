@@ -1,7 +1,7 @@
 # Perappos — Learnings & Gotchas
 
-**Last Updated**: 2026-03-13
-**Session Count**: 3
+**Last Updated**: 2026-03-16
+**Session Count**: 5
 
 ## Architecture Insights
 
@@ -219,9 +219,102 @@ USING (
     - **Fix**: Added `setTimeout(() => refreshWebView(), 0)` right after `rebuildShimForApp` in `handleCollaborate`. `setTimeout(0)` lets React commit the new `shimJS` prop before the reload fires. Replaced "Open App" button with "Done".
     - **Prevention**: Whenever `setApp` changes `instance_id`, reload the WebView immediately. Never rely on the user to manually trigger it.
 
+## Session 4 Work (2026-03-13) — What Was Fixed (Shared Sync Reliability)
+
+Context: User confirmed "it worked day before yesterday before commit `7cf2d8c`". Four compounding root causes were identified and fixed via first-principles analysis + console logs.
+
+### Root Causes Identified
+
+**Bug A — `ls_set` silently dropped for shared apps (regression in `7cf2d8c`)**
+- `vaultBridge.ts` was dropping `ls_set` messages for shared apps instead of routing through `handleSharedWrite`. Any write made before the WebView was reloaded with the sync shim was silently lost.
+- Fixed: `ls_set` now routes through `handleSharedWrite` (same as `ls_set_sync`).
+
+**Bug B — PowerSync post-upload local clear → `readCurrentRow` returns null → version=1 → versioned RPC rejects**
+- After `SupabaseConnector.uploadData()` calls `transaction.complete()`, PowerSync removes the local write entry from `shared_app_data`. There is a window (until the sync service re-delivers the confirmed row) where the table is empty.
+- `readCurrentRow` returned null → `Math.max(0, baseVersion=0) + 1 = 1` → Supabase already had version=3 → `3 < 1 = false` → REJECTED silently.
+- Fixed: Added `_versionCache = new Map<string, number>()` module-level in `bridge-merge-handler.ts`. After every successful `writeRow()`, cache is updated with `newVersion`. When `readCurrentRow` returns null, `Math.max(dbVersion ?? 0, cachedVersion, baseVersion) + 1` uses the cache to compute a version higher than anything Supabase has.
+
+**Bug C — `loadShimPayload` useCallback re-creates on every PowerSync sync → initial load `useEffect` re-fires → WebView reloads**
+- `loadShimPayload` had `[syncDb]` in its `useCallback` deps. PowerSync internally creates a new `syncDb` reference on each sync cycle → new `loadShimPayload` ref → the initial load `useEffect` (which had `loadShimPayload` in its deps) re-fired after every successful upload → `setShimJS` called with new value → `injectedJavaScriptBeforeContentLoaded` prop changed → WebView reloaded.
+- Fixed: `syncDbRef = useRef(syncDb)` + `syncDbRef.current = syncDb` (updated inline in render). `loadShimPayload` uses `syncDbRef.current` with empty deps `[]` → stable reference → useEffect never re-fires again.
+
+**Bug D — `personal-fallback` after reload → shim initializes with version=0 for all keys → all subsequent writes rejected**
+- When the WebView reloaded (from Bug C) and `shared_app_data` was locally empty (from Bug B), `loadShimPayload` fell back to querying `app_data` (single-user data, version=0). Shim initialised with `_keyVersions = { all: 0 }`. All `ls_set_sync` messages sent `baseVersion=0` → `newVersion = max(0, 0, 0)+1 = 1` → Supabase had version=4+ → REJECTED.
+- Fixed: When `shared_app_data` is locally empty for a shared app, query Supabase directly (`supabase.from('shared_app_data').select(...)`) before falling back to `app_data`. This gives the shim correct data AND correct `_keyVersions`. Only falls through to `personal-fallback` if Supabase also returns nothing (brand new instance).
+
+### Key Insight: The Cascade
+These four bugs compounded into a single symptom: "only the first write after sharing ever worked". Once the first write succeeded (BB at version=3), PowerSync cleared local rows (Bug B) → useEffect re-fired (Bug C) → personal-fallback loaded (Bug D) → all subsequent writes rejected (Bug B again). The version cache (Fix B) and stable `loadShimPayload` (Fix C) break the cascade entirely.
+
+### What Remains After Session 4
+
+**Not yet fixed — WebView live sync push (other devices' data)**
+- Data from OTHER devices' writes (that arrive via PowerSync sync) never appears in the live WebView unless the user closes and reopens the app.
+- Root cause: `vaultShimSync.ts` embeds all `shared_app_data` once at page load into static JS constants (`_cache`, `_baseState`, `_keyVersions`). There is no mechanism to push PowerSync sync events into the running WebView.
+- Required fix: Watch PowerSync `shared_app_data` for changes (`usePowerSyncWatchedQuery` or equivalent), then inject JS into the live WebView: `webViewRef.current?.injectJavaScript("window._VaultSyncUpdate({key, value, version})")`.
+- This is the #1 priority for the next session.
+
+14. **ARCHITECTURE PATTERN — PowerSync post-upload local clear is expected, not a bug**
+    - **Behaviour**: After `SupabaseConnector.uploadData()` calls `transaction.complete()`, PowerSync removes the optimistic local write from the sync tables. The row returns once the sync service delivers the confirmed Supabase row. This gap can be 0ms–several seconds.
+    - **Impact on queries**: Any `SELECT` on a PowerSync table in this window returns 0 rows for recently-written data, even though the data is safely in Supabase.
+    - **Impact on code**: Any logic that reads-then-writes (like `readCurrentRow` in `bridge-merge-handler.ts`) must account for this gap. Never assume a row you just wrote is still locally present.
+    - **Fix pattern**: Use an in-memory cache (see `_versionCache` in `bridge-merge-handler.ts`) for any write metadata that must survive this gap. Also add a Supabase direct-query fallback in preload paths (`loadShimPayload`) for when local is empty but remote has data.
+
+15. **ARCHITECTURE PATTERN — `useCallback` deps leak PowerSync reference changes into UI effects**
+    - **Behaviour**: `usePowerSync()` returns a `db` object that may get a new JavaScript reference on each sync cycle/state change, even if the underlying connection is the same.
+    - **Impact**: Any `useCallback` or `useMemo` that captures this `db` in its deps array will get a new function reference on every sync. If that function is itself in a `useEffect` deps array, the effect re-fires on every sync.
+    - **Pattern**: `const syncDbRef = useRef(syncDb); syncDbRef.current = syncDb;` — update the ref inline in render (no `useEffect` needed). Pass the ref to any `useCallback` with empty `[]` deps. The callback always reads the latest `syncDb` through `syncDbRef.current` without the callback itself needing to be recreated.
+    - **When to apply**: Any hook or callback that (a) is called in response to user actions (not in a render cycle) and (b) would cause visual side-effects if its deps change. Specifically: `loadShimPayload`, `rebuildShimForApp`, any database-reading callback that triggers `setState`.
+
+## Session 5 Work (2026-03-16) — Mandatory Auth Gate / Onboarding
+
+**Goal**: Enforce splash → login → home flow. Users could previously bypass auth entirely.
+
+### What Was Done
+- **`app/_layout.tsx`**: Added `sessionChecked` + `hasSession` states. `supabase.auth.getSession()` runs on mount; `onAuthStateChange` subscription handles sign-in/sign-out reactively. Splash now gated on `isDeepLinkReady && sessionChecked`. Post-ready effect redirects to `/login` if no session. `SIGNED_OUT` event triggers `router.replace('/login')` automatically.
+- **`app/login.tsx`**: New full-screen OTP login screen (no close button, `gestureEnabled: false`). On OTP success: `router.replace('/(tabs)')`. Root layout handles the "already logged in" case — login screen is never shown to returning users.
+- **`app/auth.tsx`**: Untouched. Still the dismissable modal for Settings → Sign In.
+
+### Pattern Learned — Auth Gate in expo-router root layout
+
+**Don't** gate navigation inside each screen. **Do** gate it in the root layout:
+```typescript
+// 1. Check session on mount
+supabase.auth.getSession().then(({ data: { session } }) => {
+  setHasSession(!!session);
+  setSessionChecked(true);
+});
+
+// 2. Subscribe for reactive changes
+supabase.auth.onAuthStateChange((event, session) => {
+  setHasSession(!!session);
+  if (event === 'SIGNED_OUT') router.replace('/login');
+});
+
+// 3. Gate early return (keeps native splash visible)
+if (!isDeepLinkReady || !sessionChecked) return null;
+
+// 4. Post-ready redirect effect
+useEffect(() => {
+  if (!isDeepLinkReady || !sessionChecked) return;
+  if (!hasSession) router.replace('/login');
+}, [isDeepLinkReady, sessionChecked, hasSession, router]);
+```
+
+### Key Design Decisions
+- **Two auth screens** are intentional: `login.tsx` (gate, mandatory) vs `auth.tsx` (modal, optional re-auth from Settings). Do not merge them — they serve different flows.
+- **`getSession()` is called outside `SQLiteProvider`** — it uses the Supabase client's own SQLite storage (separate from the app's main `perappos.db`), so it works before `SQLiteProvider` renders.
+- **`gestureEnabled: false` + `animation: 'fade'`** on the login Stack.Screen prevents swipe-back from exposing the home screen before auth.
+- **Sign-out redirect** is handled centrally in root layout via `onAuthStateChange`, not in each individual screen's sign-out handler.
+
+16. **PATTERN — Two auth screens for different auth contexts**
+    - `app/login.tsx`: Mandatory entry-point gate. Full-screen. No back gesture. Routes to `/(tabs)` on success.
+    - `app/auth.tsx`: Optional re-auth modal (e.g. account section in Settings). Has a Close button. Uses `router.back()` on success.
+    - **Prevention**: Never reuse the same auth screen component for both contexts. Conflating them leads to either (a) the gate being dismissable or (b) the modal having no escape.
+
 ## To-Do for Next Session
 
-- [ ] **CRITICAL**: Fix WebView shared data read-back — data written to `shared_app_data` (from other devices OR from after instance creation) does not appear in the WebView. Need to implement a `_VaultSyncUpdate` injection mechanism: watch PowerSync `shared_app_data` changes → inject JS to update shim `_cache`.
+- [ ] **CRITICAL #1**: Implement WebView live sync push — watch PowerSync `shared_app_data` changes → inject JS `window._VaultSyncUpdate({key, value, version})` into the live WebView. This is the only remaining shared-collaboration gap. Data is correct on open/reopen; it just doesn't appear live.
+- [ ] Remove debug `console.log` statements added during session 4 debugging (in `bridge-merge-handler.ts` readCurrentRow, and `vaultBridge.ts` ls_set_sync handler) once live sync push is working
 - [ ] Show explicit PowerSync connection error in Settings
 - [ ] Add clipboard copy for invite codes
 - [ ] Strengthen join/create retry UX

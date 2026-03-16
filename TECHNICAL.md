@@ -22,7 +22,8 @@
 perappos/
 ├── app/
 │   ├── _layout.tsx          Root layout — SQLiteProvider + PowerSyncProvider + Stack navigator
-│   ├── auth.tsx             Modal — email OTP sign-in
+│   ├── login.tsx            Full-screen gate — mandatory OTP sign-in (no close, gestureEnabled:false)
+│   ├── auth.tsx             Modal — dismissable OTP sign-in (Settings → Sign In)
 │   ├── add.tsx              Modal — add new app (URL or ZIP)
 │   ├── join-shared-app.tsx  Screen — join collaborative app via invite code
 │   ├── shared-apps.tsx      Screen — legacy shared link management

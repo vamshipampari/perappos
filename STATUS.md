@@ -1,6 +1,6 @@
 # Perappos — Status
 
-## Current Sprint: Shared Collaboration + Sync Reliability
+## Current Sprint: UX Polish + Sync Reliability
 
 ### ✅ Completed
 - NativeWind v4 fully configured (tailwind.config.js, babel.config.js, metro.config.js, global.css)
@@ -66,13 +66,27 @@
 - Auth reliability:
   - OTP modal now auto-dismisses when session becomes active (auth state listener)
   - Prevents stuck "Verifying…" UI when token is already issued
+- Mandatory onboarding / auth gate (2026-03-16):
+  - Native splash stays visible until BOTH deep-link init AND Supabase session check complete
+  - Unauthenticated users are redirected to `/login` (full-screen, non-dismissable) on cold start
+  - Sign-out automatically redirects back to `/login` via `onAuthStateChange` listener in root layout
+  - New `app/login.tsx` — full-screen OTP flow (no close button); on success navigates to `/(tabs)`
+  - `app/auth.tsx` kept intact as the dismissable Settings → Sign In modal
 - PowerSync upload reliability:
   - `SupabaseConnector` PUT/PATCH for `shared_app_data` now uses direct natural-key upsert (`onConflict: "instance_id,app_id,key"`) — strips PowerSync compound id before sending, preserves all merge metadata columns
   - DELETE for `shared_app_data` uses natural key (`instance_id`, `app_id`, `key`) instead of compound-string id
   - One-time `getCrudBatch` queue flush in `PowerSyncProvider` on connect clears stuck entries with invalid compound-string IDs (remove after first successful run)
+- Shared sync reliability (Session 4 — 2026-03-13):
+  - **`ls_set` drop regression fixed**: `vaultBridge.ts` now routes `ls_set` for shared apps through `handleSharedWrite` instead of silently dropping
+  - **In-memory version cache**: `bridge-merge-handler.ts` `_versionCache` Map survives PowerSync's post-upload local row clear — all write paths update cache, `readCurrentRow` returning null no longer resets version to 1
+  - **Stable `loadShimPayload`**: `syncDbRef` pattern in `app/app/[id].tsx` prevents `loadShimPayload` from being recreated on every PowerSync sync, stopping the initial load `useEffect` from re-firing and causing WebView reloads
+  - **Supabase fallback in shim preload**: When `shared_app_data` locally empty for a shared app, queries Supabase directly for correct data + versions before personal-fallback
+  - **Net result**: Writes from both phones sync correctly and persist. Close+reopen shows full merged state on both devices. ✅
 
 ### 🔜 Next Up
-- [ ] Remove one-time queue flush from `PowerSyncProvider` after first successful run
+- [ ] **CRITICAL**: WebView live sync push — data appears on close+reopen but NOT in the live running WebView. Need to watch PowerSync `shared_app_data` changes → inject `window._VaultSyncUpdate({key, value, version})` via `webViewRef.current?.injectJavaScript(...)`. This is the only remaining gap in the shared experience.
+- [ ] Remove debug `console.log` statements added in session 4 (`bridge-merge-handler.ts` readCurrentRow verbose log, `vaultBridge.ts` ls_set_sync entry log) once live push is working
+- [ ] Remove one-time queue flush from `PowerSyncProvider` after confirming clean CRUD queues on all devices
 - [ ] Show explicit PowerSync connection error reason in Settings (not only Offline/Connected)
 - [ ] Add clipboard copy button for invite codes (currently uses share sheet fallback)
 - [ ] Strengthen join/create retry UX for intermittent RPC/network failures
@@ -82,12 +96,12 @@
 ### Known Issues / Decisions Pending
 - `+html.tsx` and `+not-found.tsx` from default template remain (harmless)
 - Tab icons use Unicode characters; may swap for SF Symbols via `@expo/vector-icons` later
-- Ensure Supabase RPCs exist and are deployed:
+- Supabase RPCs required (should be deployed):
   - `lookup_shared_instance(p_invite_code text)`
   - `add_instance_member(p_instance_id text, p_user_id uuid, p_role text)`
-- Ensure Supabase `shared_app_data` has the merge columns expected by the PowerSync schema and bridge:
-  - `version INTEGER NOT NULL DEFAULT 0`
-  - `last_write_id TEXT`
-  - `last_merge_strategy TEXT`
-  - `last_conflict_count INTEGER NOT NULL DEFAULT 0`
-- Supabase RLS for `shared_app_data` must allow INSERT/UPDATE for users who are members of the target instance (required for direct natural-key upserts in `SupabaseConnector`)
+  - `get_own_shared_instance(p_app_id text, p_user_id uuid)`
+  - `upsert_shared_app_data_versioned(...)` — versioned upsert used by `SupabaseConnector`
+- `shared_app_data` Supabase constraints (must be in place):
+  - UNIQUE constraint `shared_app_data_natural_key` on `(instance_id, app_id, key)` — exactly ONE constraint, no duplicates (duplicate constraints cause "more than one unique constraint" error on every upsert after the first insert)
+  - Merge columns: `version`, `last_write_id`, `last_merge_strategy`, `last_conflict_count`
+- RLS on `shared_app_data`: INSERT/UPDATE for instance members using `auth.uid()` (uuid — no `::text` cast)
