@@ -8,6 +8,9 @@ import { SQLiteProvider, useSQLiteContext } from 'expo-sqlite';
 import { Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, AppState, Text, TouchableOpacity, View } from 'react-native';
 
+import { UserChangeWarningModal } from '@/components/UserChangeWarningModal';
+import { useUserChangeGuard } from '@/hooks/useUserChangeGuard';
+
 import { ToastProvider } from '@/components/Toast';
 import { cleanupExpiredUpdateBackups } from '@/lib/appUpdates';
 import { seedDemoApps } from '@/utils/createDemoApp';
@@ -156,6 +159,64 @@ function AppLockGate({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+// ── Auth Change Guard ──────────────────────────────────────────────────────────
+// Sits inside SQLiteProvider + PowerSyncProvider. On every sign-in it checks
+// whether the incoming user matches the last stored user ID. If they differ AND
+// local app data exists, it blocks navigation and shows a confirmation modal
+// before wiping. Must be a separate component so it can use SQLiteContext.
+
+function AuthChangeGuard({ children }: { children: React.ReactNode }) {
+  const router = useRouter();
+  const { needsWipe, pendingUserEmail, checkUserChange, persistUserId, confirmWipe, cancelWipe } =
+    useUserChangeGuard();
+
+  useEffect(() => {
+    // Check existing session on mount (covers app restart with active session).
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
+      if (!session) return;
+      const changed = await checkUserChange(session.user.id, session.user.email);
+      if (!changed) {
+        await persistUserId(session.user.id);
+      }
+      // Navigation is handled by the outer RootLayout effect — we only need to
+      // gate on user changes here, not drive the initial route.
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      async (event, session) => {
+        if ((event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') && session) {
+          const changed = await checkUserChange(session.user.id, session.user.email);
+          if (!changed) {
+            await persistUserId(session.user.id);
+          }
+          // If changed === true the modal is now visible; navigation is blocked.
+        }
+      }
+    );
+
+    return () => subscription.unsubscribe();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleConfirmWipe = async () => {
+    await confirmWipe();
+    // After wipe the session is still valid — navigate to home.
+    router.replace('/(tabs)');
+  };
+
+  return (
+    <>
+      {children}
+      <UserChangeWarningModal
+        visible={needsWipe}
+        newUserEmail={pendingUserEmail}
+        onConfirm={handleConfirmWipe}
+        onCancel={cancelWipe}
+      />
+    </>
+  );
+}
+
 export default function RootLayout() {
   const router = useRouter();
   const [isDeepLinkReady, setIsDeepLinkReady] = useState(false);
@@ -276,10 +337,11 @@ export default function RootLayout() {
     >
       <SQLiteProvider databaseName={DB_NAME} onInit={initializeDatabase} useSuspense>
         <PowerSyncProvider>
-          <ToastProvider>
-            <AppLockGate>
-              <Stack>
-                <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+          <AuthChangeGuard>
+            <ToastProvider>
+              <AppLockGate>
+                <Stack>
+                  <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
                 <Stack.Screen
                   name="login"
                   options={{
@@ -324,8 +386,9 @@ export default function RootLayout() {
                   }}
                 />
               </Stack>
-            </AppLockGate>
-          </ToastProvider>
+              </AppLockGate>
+            </ToastProvider>
+          </AuthChangeGuard>
         </PowerSyncProvider>
       </SQLiteProvider>
     </Suspense>

@@ -52,8 +52,9 @@ perappos/
 │   ├── vaultShimSync.ts     Shared-app shim with base tracking, debounced writes, write acks
 │   └── appUpdates.ts        Bundle hash diffing + backup/revert logic
 ├── hooks/
-│   ├── useDatabase.ts       useSQLiteContext() wrapper
-│   └── useInstalledApps.ts  Reads apps table; exposes refresh(), recordOpen()
+│   ├── useDatabase.ts         useSQLiteContext() wrapper
+│   ├── useInstalledApps.ts    Reads apps table; exposes refresh(), recordOpen()
+│   └── useUserChangeGuard.ts  Detects user switch, drives wipe confirmation flow
 ├── utils/
 │   └── createDemoApp.ts     Seeds demo apps on first launch
 ├── global.css               @tailwind directives
@@ -262,23 +263,34 @@ These columns must exist in both the PowerSync schema and the Supabase table, an
 ## Auth
 
 - Auth provider: Supabase (`@supabase/supabase-js`)
-- Sign-in screen: `app/auth.tsx` — two-step email OTP flow
+- Sign-in screens: `app/login.tsx` (mandatory gate) and `app/auth.tsx` (Settings modal)
 - Supabase client config (`services/supabase.ts`) sets:
   - `persistSession: true`
   - `autoRefreshToken: true`
   - `detectSessionInUrl: false`
 
-### OTP Flow
-1. User enters email → `supabase.auth.signInWithOtp({ email, options: { shouldCreateUser: true } })`
-   - Supabase emails a 6-digit code (no magic link / no deep link required)
-   - Requires the Supabase email template to include `{{ .Token }}`
-2. User enters code → `supabase.auth.verifyOtp({ email, token, type: 'email' })`
-3. On success the modal auto-dismisses via auth state listener:
-   - `supabase.auth.getSession()` and `onAuthStateChange(...)` close auth modal if session exists
-   - avoids stuck "Verifying…" state when session is already active
+### Auth Flow (email + password)
 
-> **Email template note:** In Supabase Dashboard → Authentication → Email Templates → Magic Link,
-> add `{{ .Token }}` to the body so the 6-digit code appears in the email.
+#### Sign Up
+1. User enters email + password → `supabase.auth.signUp({ email, password })`
+2. Supabase sends a 6-digit OTP confirmation code to the email
+3. User enters code → `supabase.auth.verifyOtp({ email, token, type: 'signup' })`
+4. On success the screen navigates to `/(tabs)`
+
+> **Email template note:** In Supabase Dashboard → Authentication → Email Templates → Confirm signup,
+> ensure `{{ .Token }}` is present in the body so the 6-digit code appears in the email.
+
+#### Sign In
+1. User enters email + password → `supabase.auth.signInWithPassword({ email, password })`
+2. On success: navigates directly to `/(tabs)` — no OTP step
+3. Edge case — "Email not confirmed": auto-resends OTP and shows the verification screen so the user can complete signup
+
+#### Resend confirmation code
+- `supabase.auth.resend({ type: 'signup', email })` — used by both the initial signup confirmation and the "Resend code" button on the OTP screen.
+- 60-second cooldown timer prevents spam.
+
+### User-change guard
+When a different Supabase user signs in while local app data exists, `AuthChangeGuard` (in `_layout.tsx`) detects the mismatch via `useUserChangeGuard` and shows `UserChangeWarningModal`. The modal is not dismissable — user must choose "Continue & Erase" (wipes everything, switches to new user) or "Cancel" (signs out, preserves old data). See `hooks/useUserChangeGuard.ts` for wipe sequence.
 
 ### Deep-link handling (retained for future use)
 `app/_layout.tsx` still listens for `perappos://auth/callback` via `Linking` in case deep-link

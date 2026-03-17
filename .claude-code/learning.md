@@ -1,7 +1,7 @@
 # Perappos — Learnings & Gotchas
 
 **Last Updated**: 2026-03-17
-**Session Count**: 6
+**Session Count**: 7
 
 ## Architecture Insights
 
@@ -348,6 +348,41 @@ useEffect(() => {
 
 ### Key Insight
 The fundamental limitation is that `useState(() => localStorage.getItem('key'))` — the most common pattern in vibe-coded apps — only reads on component mount. No external event can force React to re-run `useState` initializers. The only way to re-run them is to unmount+remount (reload or navigate away+back). This is not a bug to fix but a React architecture constraint to work around.
+
+## Session 7 Work (2026-03-17) — Auth Overhaul + User-Change Guard
+
+### What Was Done
+
+1. **Auth switched to email+password** (`app/login.tsx`, `app/auth.tsx`):
+   - Signup: `supabase.auth.signUp({ email, password })` → OTP email confirmation step (`type: 'signup'`)
+   - Login: `supabase.auth.signInWithPassword()` — no OTP step
+   - "Email not confirmed" error on login → auto-resend OTP and show verification screen
+   - Toggle between Sign In / Create Account modes on the same screen
+   - Resend uses `supabase.auth.resend({ type: 'signup', email })` — 60s cooldown
+
+2. **User-change guard** (`hooks/useUserChangeGuard.ts`, `components/UserChangeWarningModal.tsx`, `app/_layout.tsx`):
+   - `lastUserId` stored in `expo-sqlite/kv-store` (same storage as Supabase auth session)
+   - `checkUserChange()` skips modal when: first login (`lastUserId = null`), same user, or no local apps
+   - Wipe sequence: `disconnectAndClear()` → DELETE all SQLite tables → delete bundle cache dir → persist new `lastUserId` → reconnect PowerSync
+   - `powerSyncDb` and `connector` exported from `PowerSyncProvider.tsx` to allow direct access outside React context
+
+3. **`expo-file-system` legacy import** (gotcha — see entry #19 below)
+
+19. **Gotcha — `expo-file-system` `deleteAsync` deprecation warning**
+    - **Symptom**: `Error: Method deleteAsync imported from "expo-file-system" is deprecated.`
+    - **Cause**: Expo SDK 55+ moved the legacy filesystem API to a separate entry point
+    - **Fix**: `import * as FileSystem from 'expo-file-system/legacy'` instead of `'expo-file-system'`
+    - **Prevention**: In Expo SDK 55+, always import from `expo-file-system/legacy` for `deleteAsync`, `getInfoAsync`, `downloadAsync`, `copyAsync`, `moveAsync`, `readAsStringAsync`, `writeAsStringAsync`. The new API uses `File` and `Directory` class instances.
+
+20. **PATTERN — User-change guard: `AuthChangeGuard` must sit inside `<SQLiteProvider>` + `<PowerSyncProvider>`**
+    - **Reason**: The guard hook needs `useSQLiteContext()` (to query `apps` table) and direct access to `powerSyncDb` (to disconnect + reconnect). Both are unavailable outside their providers.
+    - **Pattern**: Create a child component (`AuthChangeGuard`) that renders inside the provider tree. Wire `supabase.auth.onAuthStateChange` inside this component — NOT in the outer `RootLayout`. The outer layout handles navigation redirects; the inner guard handles data wipe gating.
+    - **Key**: `SIGNED_IN` and `TOKEN_REFRESHED` events both need to be handled — `INITIAL_SESSION` fires on mount when a session already exists and is caught by the `getSession()` call on mount.
+
+21. **PATTERN — `expo-sqlite/kv-store` `Storage` is async and safe for cross-feature state**
+    - Supabase auth already uses `Storage` from `expo-sqlite/kv-store` as its session storage. This means we can use the same `Storage` for lightweight flags like `lastUserId` without any additional setup.
+    - `Storage.getItem(key)` / `Storage.setItem(key, value)` follow the `AsyncStorage` interface and persist across app restarts.
+    - Using the same storage engine as Supabase auth means the session and `lastUserId` are both in the same SQLite KV DB and can be cleared together if needed.
 
 ## To-Do for Next Session
 
