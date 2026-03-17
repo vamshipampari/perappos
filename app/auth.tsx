@@ -15,17 +15,22 @@ import { supabase } from '../services/supabase';
 
 const RESEND_COOLDOWN = 60;
 
+type Step = 'credentials' | 'otp';
+type Mode = 'login' | 'signup';
+
 export default function AuthScreen() {
   const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [otp, setOtp] = useState('');
-  const [step, setStep] = useState<'email' | 'otp'>('email');
+  const [step, setStep] = useState<Step>('credentials');
+  const [mode, setMode] = useState<Mode>('login');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [cooldown, setCooldown] = useState(0);
   const cooldownRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const passwordRef = useRef<TextInput>(null);
 
   useEffect(() => {
-    // If already signed in, skip the auth flow entirely.
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session) router.replace('/(tabs)/settings');
     });
@@ -48,19 +53,65 @@ export default function AuthScreen() {
     }, 1000);
   };
 
-  const handleSend = async () => {
+  const handleLogin = async () => {
     const trimmed = email.trim().toLowerCase();
     if (!trimmed.includes('@')) {
       setError('Please enter a valid email address.');
+      return;
+    }
+    if (password.length < 6) {
+      setError('Password must be at least 6 characters.');
       return;
     }
 
     setError(null);
     setLoading(true);
     try {
-      const { error: authError } = await supabase.auth.signInWithOtp({
+      const { error: authError } = await supabase.auth.signInWithPassword({
         email: trimmed,
-        options: { shouldCreateUser: true },
+        password,
+      });
+      if (authError) {
+        if (authError.message === 'Email not confirmed') {
+          await supabase.auth.resend({ type: 'signup', email: trimmed });
+          setStep('otp');
+          startCooldown();
+        } else {
+          setError(authError.message);
+        }
+      } else {
+        setLoading(false);
+        try {
+          router.back();
+        } catch {
+          router.replace('/(tabs)/settings');
+        }
+        return;
+      }
+    } catch {
+      setError('Something went wrong. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSignup = async () => {
+    const trimmed = email.trim().toLowerCase();
+    if (!trimmed.includes('@')) {
+      setError('Please enter a valid email address.');
+      return;
+    }
+    if (password.length < 6) {
+      setError('Password must be at least 6 characters.');
+      return;
+    }
+
+    setError(null);
+    setLoading(true);
+    try {
+      const { error: authError } = await supabase.auth.signUp({
+        email: trimmed,
+        password,
       });
       if (authError) {
         setError(authError.message);
@@ -75,7 +126,15 @@ export default function AuthScreen() {
     }
   };
 
-  const handleVerify = async () => {
+  const handleSubmit = () => {
+    if (mode === 'login') {
+      handleLogin();
+    } else {
+      handleSignup();
+    }
+  };
+
+  const handleVerifyOtp = async () => {
     const trimmedOtp = otp.trim();
     if (trimmedOtp.length !== 6) {
       setError('Please enter the 6-digit code from your email.');
@@ -88,13 +147,11 @@ export default function AuthScreen() {
       const { error: verifyError } = await supabase.auth.verifyOtp({
         email: email.trim().toLowerCase(),
         token: trimmedOtp,
-        type: 'email',
+        type: 'signup',
       });
       if (verifyError) {
         setError(verifyError.message);
       } else {
-        // OTP succeeded and session is now active.
-        // Dismiss this modal first; if there's no back stack, fall back to settings.
         setLoading(false);
         try {
           router.back();
@@ -114,7 +171,29 @@ export default function AuthScreen() {
     if (cooldown > 0) return;
     setOtp('');
     setError(null);
-    await handleSend();
+    setLoading(true);
+    try {
+      const { error: resendError } = await supabase.auth.resend({
+        type: 'signup',
+        email: email.trim().toLowerCase(),
+      });
+      if (resendError) {
+        setError(resendError.message);
+      } else {
+        startCooldown();
+      }
+    } catch {
+      setError('Something went wrong. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const toggleMode = () => {
+    setMode((m) => (m === 'login' ? 'signup' : 'login'));
+    setError(null);
+    setStep('credentials');
+    setOtp('');
   };
 
   return (
@@ -140,7 +219,6 @@ export default function AuthScreen() {
             alignItems: 'center',
             justifyContent: 'center',
             paddingHorizontal: 32,
-            gap: 0,
           }}
         >
           {/* Logo / name */}
@@ -165,11 +243,13 @@ export default function AuthScreen() {
             }}
           >
             {step === 'otp'
-              ? 'Check your email for a 6-digit code.'
-              : 'Sign in to sync your apps across devices.'}
+              ? 'Check your email for a 6-digit confirmation code.'
+              : mode === 'login'
+                ? 'Sign in to sync your apps across devices.'
+                : 'Create an account to get started.'}
           </Text>
 
-          {step === 'email' ? (
+          {step === 'credentials' ? (
             <>
               <TextInput
                 value={email}
@@ -177,13 +257,41 @@ export default function AuthScreen() {
                   setEmail(t);
                   if (error) setError(null);
                 }}
-                placeholder="Enter your email"
+                placeholder="Email"
                 placeholderTextColor="#C7C7CC"
                 keyboardType="email-address"
                 autoCapitalize="none"
                 autoCorrect={false}
-                returnKeyType="send"
-                onSubmitEditing={handleSend}
+                returnKeyType="next"
+                onSubmitEditing={() => passwordRef.current?.focus()}
+                style={{
+                  width: '100%',
+                  height: 50,
+                  borderWidth: 1.5,
+                  borderColor: error ? '#FF3B30' : '#E5E5EA',
+                  borderRadius: 12,
+                  paddingHorizontal: 16,
+                  fontSize: 16,
+                  color: '#1C1C1E',
+                  backgroundColor: '#FAFAFA',
+                  marginBottom: 12,
+                }}
+              />
+
+              <TextInput
+                ref={passwordRef}
+                value={password}
+                onChangeText={(t) => {
+                  setPassword(t);
+                  if (error) setError(null);
+                }}
+                placeholder="Password"
+                placeholderTextColor="#C7C7CC"
+                secureTextEntry
+                autoCapitalize="none"
+                autoCorrect={false}
+                returnKeyType="go"
+                onSubmitEditing={handleSubmit}
                 style={{
                   width: '100%',
                   height: 50,
@@ -212,7 +320,7 @@ export default function AuthScreen() {
               )}
 
               <TouchableOpacity
-                onPress={handleSend}
+                onPress={handleSubmit}
                 disabled={loading}
                 activeOpacity={0.8}
                 style={{
@@ -229,7 +337,21 @@ export default function AuthScreen() {
               >
                 {loading && <ActivityIndicator color="#FFFFFF" size="small" />}
                 <Text style={{ color: '#FFFFFF', fontSize: 16, fontWeight: '600' }}>
-                  {loading ? 'Sending…' : 'Send Code'}
+                  {loading
+                    ? mode === 'login'
+                      ? 'Signing in…'
+                      : 'Creating account…'
+                    : mode === 'login'
+                      ? 'Sign In'
+                      : 'Create Account'}
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity onPress={toggleMode} activeOpacity={0.7} style={{ marginTop: 20 }}>
+                <Text style={{ fontSize: 15, color: '#007AFF', fontWeight: '500' }}>
+                  {mode === 'login'
+                    ? "Don't have an account? Sign Up"
+                    : 'Already have an account? Sign In'}
                 </Text>
               </TouchableOpacity>
             </>
@@ -243,7 +365,7 @@ export default function AuthScreen() {
                   marginBottom: 8,
                 }}
               >
-                Code sent to{' '}
+                Confirmation code sent to{' '}
                 <Text style={{ color: '#1C1C1E', fontWeight: '500' }}>{email.trim()}</Text>
               </Text>
 
@@ -257,7 +379,7 @@ export default function AuthScreen() {
                 placeholderTextColor="#C7C7CC"
                 keyboardType="number-pad"
                 returnKeyType="done"
-                onSubmitEditing={handleVerify}
+                onSubmitEditing={handleVerifyOtp}
                 maxLength={6}
                 style={{
                   width: '100%',
@@ -290,7 +412,7 @@ export default function AuthScreen() {
               )}
 
               <TouchableOpacity
-                onPress={handleVerify}
+                onPress={handleVerifyOtp}
                 disabled={loading}
                 activeOpacity={0.8}
                 style={{
@@ -307,22 +429,20 @@ export default function AuthScreen() {
               >
                 {loading && <ActivityIndicator color="#FFFFFF" size="small" />}
                 <Text style={{ color: '#FFFFFF', fontSize: 16, fontWeight: '600' }}>
-                  {loading ? 'Verifying…' : 'Verify Code'}
+                  {loading ? 'Verifying…' : 'Verify & Continue'}
                 </Text>
               </TouchableOpacity>
 
               <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 20, gap: 12 }}>
                 <TouchableOpacity
                   onPress={() => {
-                    setStep('email');
+                    setStep('credentials');
                     setOtp('');
                     setError(null);
                   }}
                   activeOpacity={0.7}
                 >
-                  <Text style={{ fontSize: 15, color: '#007AFF', fontWeight: '500' }}>
-                    Change email
-                  </Text>
+                  <Text style={{ fontSize: 15, color: '#007AFF', fontWeight: '500' }}>Back</Text>
                 </TouchableOpacity>
 
                 <Text style={{ color: '#C7C7CC' }}>·</Text>
@@ -339,7 +459,7 @@ export default function AuthScreen() {
                       fontWeight: '500',
                     }}
                   >
-                    {cooldown > 0 ? `Resend in ${cooldown}s` : 'Resend'}
+                    {cooldown > 0 ? `Resend in ${cooldown}s` : 'Resend code'}
                   </Text>
                 </TouchableOpacity>
               </View>
