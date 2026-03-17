@@ -68,6 +68,9 @@ export default function AppScreen() {
   syncDbRef.current = syncDb;
   const webViewRef = useRef<WebView>(null);
   const hasLoadedOnceRef = useRef(false);
+  // Track clientWriteIds that originated from THIS device so the watcher
+  // can skip them (prevents feedback loops where our own write triggers a push).
+  const ownWriteIds = useRef<Set<string>>(new Set());
 
   const [phase, setPhase] = useState<Phase>('loading');
   const [app, setApp] = useState<InstalledApp | null>(null);
@@ -247,6 +250,135 @@ export default function AppScreen() {
     return () => subscription.unsubscribe();
   }, []);
 
+  // Prune ownWriteIds every 10 minutes — writes older than that will have
+  // long since synced and won't appear in the watcher again.
+  useEffect(() => {
+    const interval = setInterval(() => {
+      ownWriteIds.current.clear();
+    }, 10 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Buffer for remote updates that arrive before the WebView has finished
+  // loading. Flushed in the onLoadEnd handler below.
+  const pendingRemoteUpdates = useRef<Array<{ key: string; value: string; version: number }>>([]);
+
+  // ── Live sync push: watch PowerSync shared_app_data for remote changes ────
+  // When another device writes data, PowerSync delivers it locally. This effect
+  // watches the table and injects the changes into the running WebView via
+  // window._VaultSyncPush so the UI updates without a full reload.
+  //
+  // IMPORTANT: syncDbRef and webViewRef are refs — do NOT add them to deps.
+  // Adding syncDb to deps would recreate this effect on every PowerSync sync
+  // cycle (learning.md #15), tearing down and restarting the async iterable.
+  useEffect(() => {
+    const isShared = !!app?.instance_id;
+    const instanceId = app?.instance_id;
+    const appId = app?.app_id;
+
+    if (!isShared || !instanceId || !appId) return;
+
+    const abortController = new AbortController();
+
+    // Track last-pushed version per key to skip duplicate full-result-set emissions.
+    const lastPushedVersions = new Map<string, number>();
+
+    // Debounce: 50ms — batches rapid multi-key writes, keeps latency low.
+    let pendingUpdates: Array<{ key: string; value: string; version: number }> = [];
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+
+    function flushUpdates() {
+      debounceTimer = null;
+      if (pendingUpdates.length === 0) return;
+
+      if (!webViewRef.current) {
+        // WebView not ready yet — buffer for onLoadEnd
+        console.log('[live-push] WebView not ready — buffering', pendingUpdates.length, 'update(s)');
+        pendingRemoteUpdates.current.push(...pendingUpdates);
+        pendingUpdates = [];
+        return;
+      }
+
+      const payload = JSON.stringify(pendingUpdates);
+      webViewRef.current.injectJavaScript(
+        `window._VaultSyncPush && window._VaultSyncPush(${payload});true;`
+      );
+      pendingUpdates = [];
+    }
+
+    async function startWatching() {
+      const db = syncDbRef.current;
+      if (!db) {
+        console.warn('[live-push] syncDbRef.current is null — watcher not started');
+        return;
+      }
+
+      try {
+        const watchQuery = `
+          SELECT key, value, COALESCE(version, 0) as version, last_write_id
+          FROM shared_app_data
+          WHERE instance_id = ? AND app_id = ?
+        `;
+
+        // db.watch() returns AsyncIterable<QueryResult>.
+        // Each emission is the FULL result set (not a delta).
+        // throttleMs: 30ms is the PowerSync default — explicit here for clarity.
+        for await (const result of db.watch(
+          watchQuery,
+          [instanceId, appId],
+          { signal: abortController.signal, throttleMs: 30 }
+        )) {
+          if (abortController.signal.aborted) break;
+
+          const rows = result.rows?._array ?? [];
+
+          let skippedOwn = 0;
+          let skippedSameVersion = 0;
+
+          for (const row of rows) {
+            // Skip own writes (prevent feedback loop)
+            if (row.last_write_id && ownWriteIds.current.has(row.last_write_id)) {
+              skippedOwn++;
+              continue;
+            }
+
+            // Skip if we already pushed this version
+            const lastPushed = lastPushedVersions.get(row.key) ?? 0;
+            if (row.version <= lastPushed) {
+              skippedSameVersion++;
+              continue;
+            }
+
+            lastPushedVersions.set(row.key, row.version);
+            pendingUpdates.push({
+              key: row.key,
+              value: row.value,
+              version: row.version,
+            });
+          }
+
+          if (pendingUpdates.length > 0 && !debounceTimer) {
+            debounceTimer = setTimeout(flushUpdates, 50);
+          }
+        }
+      } catch (err: unknown) {
+        const errObj = err as { name?: string } | null;
+        if (errObj?.name !== 'AbortError') {
+          console.error('[live-push] watcher error:', err);
+        }
+      }
+    }
+
+    startWatching();
+
+    return () => {
+      console.log('[live-push] watcher teardown for instanceId:', instanceId);
+      abortController.abort();
+      if (debounceTimer) clearTimeout(debounceTimer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [app?.instance_id, app?.app_id]); // syncDbRef + webViewRef are refs — intentionally excluded
+
   const rebuildShimForApp = useCallback(
     async (target: InstalledApp) => {
       const { shim, preloadSource } = await loadShimPayload(target);
@@ -268,6 +400,7 @@ export default function AppScreen() {
           line?: number;
           error?: string;
           stack?: string;
+          clientWriteId?: string;
         };
         if (parsed.type === 'js_error') {
           console.error('[webview] js error:', parsed.message, 'line:', parsed.line);
@@ -276,6 +409,12 @@ export default function AppScreen() {
         if (parsed.type === 'shim_error') {
           console.error('[webview] shim error:', parsed.error, parsed.stack ?? '');
           return;
+        }
+        // Track own writes so the PowerSync watcher can skip them (no echo).
+        // We register before the async bridge call — the watcher can't fire
+        // until PowerSync processes the write, which is always after this.
+        if (parsed.type === 'ls_set_sync' && parsed.clientWriteId) {
+          ownWriteIds.current.add(parsed.clientWriteId);
         }
       } catch {
         // non-JSON messages continue to bridge handler
@@ -721,6 +860,15 @@ export default function AppScreen() {
                 hasLoadedOnceRef.current = true;
                 setWebLoading(false);
                 webOpacity.value = withTiming(1, { duration: 380 });
+                // Flush any remote updates that arrived before the WebView was ready
+                if (pendingRemoteUpdates.current.length > 0 && webViewRef.current) {
+                  console.log('[live-push] onLoadEnd flushing', pendingRemoteUpdates.current.length, 'buffered update(s)');
+                  const payload = JSON.stringify(pendingRemoteUpdates.current);
+                  webViewRef.current.injectJavaScript(
+                    `window._VaultSyncPush && window._VaultSyncPush(${payload});true;`
+                  );
+                  pendingRemoteUpdates.current = [];
+                }
               }}
               onError={(e) => {
                 console.error('[webview] error:', e.nativeEvent.description);

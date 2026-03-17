@@ -97,13 +97,6 @@ export async function handleVaultMessage(
   try {
     switch (type) {
       case 'ls_set_sync': {
-        console.log('[bridge] ls_set_sync:', JSON.stringify({
-          key: msg.key,
-          isShared,
-          instanceId,
-          appId: effectiveAppId,
-          baseVersion: msg.baseVersion,
-        }));
         if (!isShared || !instanceId || !msg.key || typeof msg.value !== 'string') {
           respond(
             {
@@ -137,13 +130,6 @@ export async function handleVaultMessage(
           effectiveAppId,
           userId
         );
-        console.log('[bridge] ls_set_sync result:', JSON.stringify({
-          key: msg.key,
-          strategy: result.strategy,
-          newVersion: result.newVersion,
-          success: result.success,
-          error: result.error,
-        }));
 
         respond({
           success: result.success,

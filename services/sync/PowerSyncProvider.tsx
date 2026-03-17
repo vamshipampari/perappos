@@ -26,6 +26,22 @@ const SyncContext = createContext<SyncContextType>({
 
 export const usePowerSync = () => useContext(SyncContext);
 
+/**
+ * Force PowerSync to reconnect and re-evaluate sync rules buckets.
+ * Call this after joining a shared instance so the new member
+ * immediately receives other members' shared_app_data rows.
+ */
+export async function reconnectPowerSync(): Promise<void> {
+  try {
+    console.log('[PowerSync] reconnecting to refresh sync buckets...');
+    await powerSyncDb.disconnect();
+    await powerSyncDb.connect(connector);
+    console.log('[PowerSync] reconnected');
+  } catch (err) {
+    console.error('[PowerSync] reconnect error:', err);
+  }
+}
+
 export function PowerSyncProvider({ children }: { children: React.ReactNode }) {
   const [isConnected, setIsConnected] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);

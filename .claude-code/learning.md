@@ -1,7 +1,7 @@
 # Perappos — Learnings & Gotchas
 
-**Last Updated**: 2026-03-16
-**Session Count**: 5
+**Last Updated**: 2026-03-17
+**Session Count**: 6
 
 ## Architecture Insights
 
@@ -81,12 +81,12 @@ From code-reviewer agent on `bridge-merge-handler.ts`:
    - **Fix**: Add `ALTER TABLE public.shared_app_data ADD CONSTRAINT shared_app_data_natural_key UNIQUE (instance_id, app_id, key)` in Supabase SQL editor
    - **Prevention**: Every `upsert({ onConflict: "col1,col2" })` requires a corresponding UNIQUE or EXCLUSION constraint to exist in Postgres. Create the constraint in Supabase migration SQL when defining the schema.
 
-8. **CRITICAL ARCHITECTURE ISSUE — WebView shared_app_data read-back gap** (discovered 2026-03-13)
+8. **CRITICAL ARCHITECTURE ISSUE — WebView shared_app_data read-back gap** (discovered 2026-03-13, FIXED 2026-03-16)
    - **Symptom**: Data written to `shared_app_data` after the shared instance is created is NOT shown in the WebView. Other devices' writes never appear.
    - **Root cause**: `vaultShimSync.ts` embeds ALL data once at page load into JavaScript constants (`_cache`, `_baseState`, `_keyVersions`). This is static — the WebView never re-queries the database after initialization. Writes from THIS device update `_cache` via the bridge's `newValue` acknowledgement. But there is NO mechanism to push data from PowerSync sync (other devices' writes) into the WebView's live `_cache`.
    - **Note**: Data loss (A2 missing from Supabase) turned out to be a separate bug — see entry #9.
-   - **Fix approach**: After PowerSync receives new `shared_app_data` rows, inject JavaScript into the WebView to update the shim's `_cache` (e.g., `webViewRef.current?.injectJavaScript(...)` with a `window._VaultSyncUpdate({key, value, version})` call).
-   - **Current status**: NOT FIXED — needs dedicated session to implement the sync push mechanism
+   - **Fix**: Added `window._VaultSyncPush(updates)` receiver in `vaultShimSync.ts` (updates `_cache`/`_baseState`/`_keyVersions` + fires `StorageEvent` + `vaultSyncUpdate` CustomEvent). In `app/app/[id].tsx`, a PowerSync `db.watch()` watcher feeds remote changes through a 300ms debounce → `injectJavaScript(_VaultSyncPush(...))`. Own-write echo prevention via `ownWriteIds` ref. Pre-load buffering via `pendingRemoteUpdates` ref flushed in `onLoadEnd`.
+   - **Current status**: FIXED — remote writes appear in the live WebView within ~1–3 seconds without page reload
 
 9. **Mistake**: Migration uses wrong row ID format → duplicate rows → non-deterministic reads + stale shim preload → data loss (discovered 2026-03-13, FIXED)
    - **Cause**: `collaborationService.ts` migration loop used `Crypto.randomUUID()` as the PowerSync row ID for migrated `shared_app_data` rows. But `bridge-merge-handler.ts` `writeRow()` uses `makeRowId()` = `` `${instanceId}/${appId}/${key}` ``. This created TWO rows in PowerSync for the same `(instance_id, app_id, key)` natural key: one with a UUID id (from migration, version=1) and one with the compound id (from the first user write, version=2). `readCurrentRow()` used `LIMIT 1` without `ORDER BY`, so it non-deterministically picked either row. When A3 happened to read the UUID row (version=1) as base, it computed `newVersion=2` and wrote to the compound-id row, silently overwriting A2.
@@ -311,12 +311,50 @@ useEffect(() => {
     - `app/auth.tsx`: Optional re-auth modal (e.g. account section in Settings). Has a Close button. Uses `router.back()` on success.
     - **Prevention**: Never reuse the same auth screen component for both contexts. Conflating them leads to either (a) the gate being dismissable or (b) the modal having no escape.
 
+16. **CRITICAL — PowerSync sync rules: never use table aliases**
+    - **Symptom**: `shared_app_data`, `instance_members`, `shared_instances` all empty in local PowerSync DB despite data existing in Supabase. Rows land in `ps_untyped` instead of proper tables.
+    - **Root cause (two compounding bugs)**:
+      1. **Column name prefix**: `SELECT im.id, im.instance_id FROM instance_members im` produces column names `im.id`, `im.instance_id` instead of `id`, `instance_id`. PowerSync schema expects bare column names → schema mismatch → `ps_untyped`.
+      2. **Table alias as row type**: `FROM instance_members im` causes PowerSync to use `im` as the row type instead of `instance_members`. Even after fixing column names with `AS` aliases, the row type `im` doesn't match any local schema table → still goes to `ps_untyped`.
+    - **Fix**: Remove ALL table aliases from PowerSync sync rules. Use bare table names everywhere. For JOINs, use the full table name: `shared_instances.instance_id = instance_members.instance_id`.
+    - **Diagnostic**: Query `SELECT id, type, data FROM ps_untyped LIMIT 10` in the PowerSync local DB. If rows appear with unexpected `type` values (like `im`, `sad`, `si`), the sync rules have alias problems.
+    - **Prevention**: Never use `FROM table_name alias` in PowerSync sync rules. Always use the full table name.
+
+17. **PATTERN — `window.name` reload for WebView live sync re-render (FINAL APPROACH)**
+    - **Problem**: Most AI-generated/vibe-coded React apps use `useState(() => localStorage.getItem('key'))` which only reads on mount. No event-based approach (StorageEvent, visibilitychange, focus/blur) can trigger a re-read. Users must navigate to a different page and back to see remote updates.
+    - **Solution**: After `_VaultSyncPush` updates `_cache`, save state to `window.name` (survives same-origin `location.reload()`) and call `location.reload()` with an 800ms debounce. The shim's IIFE checks `window.name` at init — if it finds a `__vault` marker, it uses the saved cache/versions instead of the stale preloaded data. The app mounts fresh and reads correct values from `localStorage.getItem()` → `_cache`.
+    - **Key detail**: `window.name` is a string property that persists across same-origin navigations and reloads within the same WebView context. We clear it immediately after reading to avoid stale reads on subsequent reloads.
+    - **Trade-off**: The app navigates to its landing/home screen on reload (in-app navigation state is lost). Route restoration was attempted (intercepting `history.pushState`/`replaceState`/`popstate`/`hashchange`) but doesn't work for local bundle apps loaded via `{ html: bundleHtml }` where the URL context is `about:blank` and many apps use `MemoryRouter`. The 800ms debounce batches rapid multi-key updates into a single reload.
+    - **Why this is the right trade-off**: `location.reload()` is the ONLY approach that works across ALL frameworks/architectures (React, Vue, Svelte, vanilla JS). Event-based approaches only work for specific frameworks (React Query, SWR) and fail for the common `useState` initializer pattern that most vibe-coded apps use.
+
+18. **FAILED APPROACHES — WebView live re-render without reload**
+    - **StorageEvent dispatch**: `window.dispatchEvent(new StorageEvent('storage', {...}))` — React apps don't re-render from StorageEvent because `useState` initializers don't re-read.
+    - **visibilitychange on document only**: React Query / TanStack Query / SWR listen on `window`, not `document`. The native `visibilitychange` event fires on `document` and does NOT bubble to `window`. Must dispatch on BOTH targets.
+    - **visibilitychange on both document + window**: Even when dispatched correctly (hidden→visible cycle with `Object.defineProperty` to fake `document.hidden`/`document.visibilityState`), this only works for apps using React Query's `refetchOnWindowFocus: true`. Most vibe-coded apps use raw `useState(() => localStorage.getItem(...))` with no refetch mechanism.
+    - **focus/blur cycle on window**: SWR refetches on `window` focus. Same limitation — only works for SWR apps, not raw `useState`.
+    - **Route restoration after reload** (intercepting `history.pushState`/`replaceState`/`popstate`/`hashchange`, saving to `window.name`, restoring via `history.replaceState` + `PopStateEvent`): Doesn't work for local bundle apps loaded via `{ html: bundleHtml }` — URL context is `about:blank`, apps may use `MemoryRouter`, and initialization logic often redirects to `/` regardless.
+    - **Conclusion**: No event-based approach can universally force React `useState` initializers to re-read. The only universal mechanism is full component remount via `location.reload()`.
+
+## Session 6 Work (2026-03-17) — Cross-Device Sync Fix + Live Re-render
+
+### What Was Done
+1. **PowerSync sync rules alias bug**: Discovered and documented that table aliases in sync rules cause rows to land in `ps_untyped` instead of proper tables (see entry #16).
+2. **WebView live re-render**: Tried 3 approaches for showing remote updates in-place:
+   - Attempt 1: `location.reload()` + `window.name` — data works instantly (~1s), but app goes to landing screen ✅ (kept)
+   - Attempt 2: Route restoration across reload — failed (local bundle `about:blank` context, `MemoryRouter`)
+   - Attempt 3: Event-based (visibilitychange + focus/blur on window) — doesn't trigger re-render for most apps
+   - **Final decision**: Reverted to attempt 1. `location.reload()` is the only universal approach that works across all frameworks. Landing screen trade-off is acceptable.
+3. **Diagnostic log cleanup**: Removed verbose PowerSync debugging logs from `app/app/[id].tsx`.
+
+### Key Insight
+The fundamental limitation is that `useState(() => localStorage.getItem('key'))` — the most common pattern in vibe-coded apps — only reads on component mount. No external event can force React to re-run `useState` initializers. The only way to re-run them is to unmount+remount (reload or navigate away+back). This is not a bug to fix but a React architecture constraint to work around.
+
 ## To-Do for Next Session
 
-- [ ] **CRITICAL #1**: Implement WebView live sync push — watch PowerSync `shared_app_data` changes → inject JS `window._VaultSyncUpdate({key, value, version})` into the live WebView. This is the only remaining shared-collaboration gap. Data is correct on open/reopen; it just doesn't appear live.
-- [ ] Remove debug `console.log` statements added during session 4 debugging (in `bridge-merge-handler.ts` readCurrentRow, and `vaultBridge.ts` ls_set_sync handler) once live sync push is working
+- [ ] Remove one-time CRUD queue flush from `PowerSyncProvider.tsx` after confirming clean CRUD queues on all devices
 - [ ] Show explicit PowerSync connection error in Settings
 - [ ] Add clipboard copy for invite codes
 - [ ] Strengthen join/create retry UX
 - [ ] Discover screen: curated template list
 - [ ] Settings: per-app permissions panel
+- [ ] Consider: For VaultAPI-aware apps, provide a `window.addEventListener('vaultSyncUpdate', ...)` pattern so apps that opt in can update without reload

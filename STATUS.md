@@ -82,10 +82,19 @@
   - **Stable `loadShimPayload`**: `syncDbRef` pattern in `app/app/[id].tsx` prevents `loadShimPayload` from being recreated on every PowerSync sync, stopping the initial load `useEffect` from re-firing and causing WebView reloads
   - **Supabase fallback in shim preload**: When `shared_app_data` locally empty for a shared app, queries Supabase directly for correct data + versions before personal-fallback
   - **Net result**: Writes from both phones sync correctly and persist. Close+reopen shows full merged state on both devices. ✅
+- WebView live sync push (2026-03-16):
+  - `lib/vaultShimSync.ts`: Added `window._VaultSyncPush(updates)` receiver inside the shim IIFE — updates `_cache`, `_baseState`, `_keyVersions` for each key only when the remote version is strictly newer; dispatches `StorageEvent` + `vaultSyncUpdate` CustomEvent so apps re-render without a page reload
+  - `app/app/[id].tsx`: Added `ownWriteIds` ref + tracking in `handleMessage` (registers `clientWriteId` before the bridge call so the watcher can skip own-write echoes)
+  - `app/app/[id].tsx`: Added `pendingRemoteUpdates` buffer ref for updates arriving before WebView ready; `onLoadEnd` now flushes the buffer via `_VaultSyncPush` injection
+  - `app/app/[id].tsx`: Added PowerSync watcher `useEffect` — `db.watch(shared_app_data WHERE instance_id+app_id)` with `AbortController` cleanup, `lastPushedVersions` dedup guard, 300ms debounce before inject; uses `syncDbRef.current` to avoid effect re-fires on every sync cycle
+  - `lib/vaultBridge.ts` + `services/sync/bridge-merge-handler.ts`: Removed verbose debug `console.log` statements from `ls_set_sync` handler and `readCurrentRow`
+  - **Net result**: Remote writes appear in the live WebView within ~1–3 seconds without reloading the page. ✅
+- Cross-device sync fix (2026-03-17):
+  - **PowerSync sync rules alias bug**: Discovered that table aliases in sync rules (`FROM instance_members im`) cause PowerSync to route rows to `ps_untyped` instead of proper tables. Fixed by removing all aliases from PowerSync dashboard sync rules. Column name prefixes (`im.id` → `id`) and row type mismatch (`im` → `instance_members`) were two compounding bugs.
+  - **WebView live re-render via `window.name` reload**: React apps that use `useState(() => localStorage.getItem(...))` don't re-read on cache updates — only on component remount. Tried 3 approaches: (1) `location.reload()` + `window.name` ✅, (2) route restoration across reload ✗, (3) event-based visibilitychange/focus ✗. Final: `_VaultSyncPush` saves state to `window.name` and calls `location.reload()` with 800ms debounce. Shim reads `window.name` at init for fresh data. Trade-off: app navigates to landing screen on reload, but data syncs within ~1s. This is the only universal approach across all frameworks.
+  - Cleaned up diagnostic logs from `app/app/[id].tsx`
 
 ### 🔜 Next Up
-- [ ] **CRITICAL**: WebView live sync push — data appears on close+reopen but NOT in the live running WebView. Need to watch PowerSync `shared_app_data` changes → inject `window._VaultSyncUpdate({key, value, version})` via `webViewRef.current?.injectJavaScript(...)`. This is the only remaining gap in the shared experience.
-- [ ] Remove debug `console.log` statements added in session 4 (`bridge-merge-handler.ts` readCurrentRow verbose log, `vaultBridge.ts` ls_set_sync entry log) once live push is working
 - [ ] Remove one-time queue flush from `PowerSyncProvider` after confirming clean CRUD queues on all devices
 - [ ] Show explicit PowerSync connection error reason in Settings (not only Offline/Connected)
 - [ ] Add clipboard copy button for invite codes (currently uses share sheet fallback)

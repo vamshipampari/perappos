@@ -157,15 +157,6 @@ export async function handleSharedWrite(
     const currentRow = await readCurrentRow(psDb, instanceId, appId, message.key);
     const cacheKey = `${instanceId}/${appId}/${message.key}`;
     const cachedVersion = _versionCache.get(cacheKey) ?? 0;
-    console.log('[merge] readCurrentRow:', JSON.stringify({
-      key: message.key,
-      instanceId,
-      appId,
-      found: !!currentRow,
-      dbVersion: currentRow?.version ?? null,
-      cachedVersion,
-      baseVersion: message.baseVersion,
-    }));
 
     // ── Guard: Idempotency ──
     if (currentRow && currentRow.last_write_id === message.clientWriteId) {
@@ -357,13 +348,6 @@ async function readCurrentRow(
        LIMIT 1`,
       [instanceId, appId, key]
     );
-    // Debug: also check total rows for this instance to detect if table is empty
-    const allRows = await psDb.getAll(
-      `SELECT key, COALESCE(version, 0) as version FROM shared_app_data WHERE instance_id = ?`,
-      [instanceId]
-    );
-    console.log('[merge] readCurrentRow query params:', { instanceId, appId, key });
-    console.log('[merge] readCurrentRow result rows:', rows.length, 'all instance rows:', JSON.stringify(allRows));
     return rows.length > 0 ? (rows[0] as SharedRow) : null;
   } catch (error) {
     console.warn('[merge] readCurrentRow failed:', error);

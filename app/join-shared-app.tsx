@@ -15,6 +15,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useDatabase } from '@/hooks/useDatabase';
 import { useInstalledApps } from '@/hooks/useInstalledApps';
 import { joinSharedAppByCode, type SharedInstance } from '@/services/collaborationService';
+import { reconnectPowerSync } from '@/services/sync/PowerSyncProvider';
 import { supabase } from '@/services/supabase';
 
 export default function JoinSharedAppScreen() {
@@ -72,6 +73,9 @@ export default function JoinSharedAppScreen() {
         joinStateRef.current = state;
       });
       console.log('App install result:', JSON.stringify(result));
+      // Force PowerSync reconnect so this device immediately receives
+      // other members' shared_app_data rows under the refreshed sync buckets.
+      await reconnectPowerSync();
       await refresh();
       setJoining(false);
       clearTimeout(timeoutId);

@@ -1,6 +1,6 @@
 # Perappos — Architecture & Context
 
-**Last Updated**: 2026-03-16 (Session 5)
+**Last Updated**: 2026-03-17 (Session 6)
 
 ## System Overview
 
@@ -69,7 +69,7 @@ Perappos is a personal app OS that lets users install web apps from URLs or ZIPs
 
 **✅ Fixed (Session 4):** Writes from the current device now reliably reach Supabase and persist correctly. Four bugs were fixed: (1) `ls_set` was silently dropped for shared apps, (2) PowerSync post-upload local clear caused `readCurrentRow` to return null → version=1 → versioned RPC rejected all writes (fixed with `_versionCache`), (3) `loadShimPayload`'s `useCallback` dep on `syncDb` caused the initial load `useEffect` to re-fire on every sync → WebView reloaded with wrong data (fixed with `syncDbRef` pattern), (4) personal-fallback loaded version=0 for all keys → all writes rejected (fixed with Supabase direct-query fallback).
 
-**⚠️ Remaining gap:** The WebView shim embeds all `shared_app_data` once at page load. Data written by OTHER devices (arriving via PowerSync sync) does NOT appear in the live running WebView — only after close+reopen. Fix needed: watch PowerSync `shared_app_data` changes (e.g. `usePowerSyncWatchedQuery`) → inject JS `window._VaultSyncUpdate({key, value, version})` via `webViewRef.current?.injectJavaScript(...)`. This is the #1 priority. See `learning.md` entry #8.
+**✅ Fixed (Session 6):** Remote updates from other devices now appear in the live WebView. A PowerSync `db.watch()` watcher in `app/app/[id].tsx` detects `shared_app_data` changes, filters own-write echoes via `ownWriteIds` ref, and injects `_VaultSyncPush(updates)` into the WebView. The shim saves state to `window.name` and calls `location.reload()` (800ms debounce) — this is the only universal approach that works across all frameworks since most vibe-coded apps use `useState(() => localStorage.getItem(...))` which only reads on mount. Trade-off: the app navigates to its landing screen on reload. See `learning.md` entries #17 and #18.
 
 ### App Installation (URL)
 1. Fetch HTML from URL

@@ -39,9 +39,24 @@ export function buildSyncShim(
   "use strict";
 
   /* ── State ───────────────────────────────────────────────────────────── */
-  var _cache = ${safeData};
-  var _baseState = ${safeData};
-  var _keyVersions = ${safeVersions};
+  // Check if we have saved state from a _VaultSyncPush reload.
+  // window.name survives location.reload() — we use it to carry updated
+  // cache/versions across the reload so the app re-mounts with fresh data.
+  var _savedState = null;
+  try {
+    if (window.name && window.name.charAt(0) === '{') {
+      _savedState = JSON.parse(window.name);
+      if (_savedState && _savedState.__vault) {
+        window.name = '';
+      } else {
+        _savedState = null;
+      }
+    }
+  } catch(e) { _savedState = null; }
+
+  var _cache = (_savedState && _savedState.cache) || ${safeData};
+  var _baseState = (_savedState && _savedState.base) || ${safeData};
+  var _keyVersions = (_savedState && _savedState.versions) || ${safeVersions};
   var _appId = ${safeId};
 
   var _pageLoadedAt = Date.now();
@@ -287,6 +302,66 @@ export function buildSyncShim(
     app: {
       getInfo: function() { return _bridge("app_get_info", {}); }
     }
+  };
+
+  /* ── Live sync push: receive remote updates from native ───────────── */
+
+  var _reloadTimer = null;
+  var RELOAD_DEBOUNCE_MS = 800;
+
+  window._VaultSyncPush = function(updates) {
+    // updates = [{ key: "...", value: "...", version: N }, ...]
+    if (!updates || !updates.length) return;
+    var changedKeys = [];
+    for (var i = 0; i < updates.length; i++) {
+      var u = updates[i];
+      var currentVersion = _keyVersions[u.key] || 0;
+      // Only apply if remote version is strictly newer
+      if (u.version > currentVersion) {
+        _cache[u.key] = u.value;
+        _baseState[u.key] = u.value;
+        _keyVersions[u.key] = u.version;
+        changedKeys.push(u.key);
+      }
+    }
+    if (changedKeys.length === 0) return;
+
+    // 1. Dispatch StorageEvent per key (apps with storage listeners / useLocalStorage hooks)
+    try {
+      for (var j = 0; j < changedKeys.length; j++) {
+        var se = new StorageEvent('storage', {
+          key: changedKeys[j],
+          newValue: _cache[changedKeys[j]],
+          storageArea: window.localStorage
+        });
+        window.dispatchEvent(se);
+      }
+    } catch(e) {}
+
+    // 2. Dispatch custom event for VaultAPI-aware apps
+    try {
+      window.dispatchEvent(new CustomEvent('vaultSyncUpdate', {
+        detail: { keys: changedKeys }
+      }));
+    } catch(e) {}
+
+    // 3. Save state to window.name (survives location.reload) and reload.
+    //    This is the only universal approach that works across ALL frameworks —
+    //    React useState initializers, Vue refs, Svelte stores, vanilla JS —
+    //    because a full reload forces component remount and re-reads localStorage.
+    //    Debounced to 800ms to batch rapid successive updates.
+    if (_reloadTimer) clearTimeout(_reloadTimer);
+    _reloadTimer = setTimeout(function() {
+      try {
+        window.name = JSON.stringify({
+          __vault: true,
+          cache: _cache,
+          base: _baseState,
+          versions: _keyVersions
+        });
+        location.reload();
+      } catch(e) {}
+    }, RELOAD_DEBOUNCE_MS);
   };
 
 })();
