@@ -94,6 +94,17 @@
   - **WebView live re-render via `window.name` reload**: React apps that use `useState(() => localStorage.getItem(...))` don't re-read on cache updates — only on component remount. Tried 3 approaches: (1) `location.reload()` + `window.name` ✅, (2) route restoration across reload ✗, (3) event-based visibilitychange/focus ✗. Final: `_VaultSyncPush` saves state to `window.name` and calls `location.reload()` with 800ms debounce. Shim reads `window.name` at init for fresh data. Trade-off: app navigates to landing screen on reload, but data syncs within ~1s. This is the only universal approach across all frameworks.
   - Cleaned up diagnostic logs from `app/app/[id].tsx`
 
+- Auth flow migrated to email+password (Session 7 — 2026-03-17):
+  - `app/login.tsx` + `app/auth.tsx`: replaced email-OTP-only flow with email+password. Signup requires OTP email confirmation (type `signup`); login uses `signInWithPassword` — no OTP step.
+  - If a user signed up but never confirmed, login returns "Email not confirmed" → auto-resends OTP and shows verification screen so they can complete signup without a separate sign-up attempt.
+  - Toggle between Sign In / Create Account modes on the same screen.
+  - `supabase.auth.resend({ type: 'signup' })` used for both the initial confirmation and the Resend button.
+- User-change guard + wipe modal (Session 7 — 2026-03-17):
+  - `hooks/useUserChangeGuard.ts`: detects when a different Supabase user signs in while local app data exists. Persists `lastUserId` in `expo-sqlite/kv-store`. No modal shown on first login, same-user re-login, or when no local apps exist.
+  - `components/UserChangeWarningModal.tsx`: non-dismissable modal ("Different Account Detected") with red "Continue & Erase" + "Cancel". Cancel signs out; confirm wipes PowerSync + SQLite tables + bundle cache then reconnects PowerSync for new user.
+  - `app/_layout.tsx`: `AuthChangeGuard` component added inside `<PowerSyncProvider>` tree — subscribes to `SIGNED_IN`/`TOKEN_REFRESHED` events; shows modal when user changes; persists `lastUserId` on same-user sign-ins.
+  - `services/sync/PowerSyncProvider.tsx`: `powerSyncDb` and `connector` are now exported so the guard hook can call `disconnectAndClear()` / `connect()` directly.
+
 ### 🔜 Next Up
 - [ ] Remove one-time queue flush from `PowerSyncProvider` after confirming clean CRUD queues on all devices
 - [ ] Show explicit PowerSync connection error reason in Settings (not only Offline/Connected)

@@ -1,6 +1,6 @@
 # Perappos — Architecture & Context
 
-**Last Updated**: 2026-03-17 (Session 6)
+**Last Updated**: 2026-03-17 (Session 7)
 
 ## System Overview
 
@@ -83,7 +83,7 @@ Perappos is a personal app OS that lets users install web apps from URLs or ZIPs
 ## External Integrations
 
 ### Supabase
-- **Auth**: Email OTP sign-in (no magic links); login is mandatory at startup (`app/login.tsx`) — unauthenticated users are gated at the root layout before seeing any app content
+- **Auth**: Email + password. Signup requires OTP email confirmation; login uses `signInWithPassword` (no OTP step). Login is mandatory at startup (`app/login.tsx`) — unauthenticated users are gated at the root layout before seeing any app content.
 - **Database**: Shared instance tables, app data sync
 - **RPCs**: `lookup_shared_instance`, `add_instance_member`
 - **RLS**: Enforced on all tables; shared writes need member-of-instance check
@@ -120,8 +120,18 @@ The root layout (`app/_layout.tsx`) enforces authentication before any content i
 6. `onAuthStateChange` listener in root layout handles sign-out → auto-redirects to `/login`
 
 Two auth screens exist:
-- `app/login.tsx` — mandatory full-screen login (no close button); replaces to `/(tabs)` on success
-- `app/auth.tsx` — dismissable modal used from Settings → "Sign In" (post-login account mgmt)
+- `app/login.tsx` — mandatory full-screen login (no close button); replaces to `/(tabs)` on success. Shows Sign In and Create Account modes with a toggle.
+- `app/auth.tsx` — dismissable modal used from Settings → "Sign In" (post-login account mgmt). Same email+password flow.
+
+### User-change guard (`AuthChangeGuard` + `useUserChangeGuard`)
+`AuthChangeGuard` sits inside `<PowerSyncProvider>` (so it has access to both SQLite and PowerSync contexts). On every `SIGNED_IN`/`TOKEN_REFRESHED` event it calls `useUserChangeGuard.checkUserChange(userId)`:
+- Reads `lastUserId` from `expo-sqlite/kv-store`.
+- If IDs differ AND local `apps` table has rows → shows `UserChangeWarningModal`.
+- "Continue & Erase": calls `powerSyncDb.disconnectAndClear()`, wipes SQLite tables, deletes bundle cache, persists new `lastUserId`, reconnects PowerSync.
+- "Cancel": calls `supabase.auth.signOut()` → root layout redirects to `/login`, old data intact.
+- First login / same user / no local data → no modal; just persists `lastUserId`.
+
+`powerSyncDb` and `connector` are exported from `services/sync/PowerSyncProvider.tsx` so the guard hook can call them without going through React context.
 
 ## Key Directories
 
@@ -133,7 +143,7 @@ Two auth screens exist:
 | `services/` | Business logic (auth, collaboration, sync) |
 | `services/sync/` | PowerSync provider, connector, merge engine |
 | `lib/` | WebView bridge, shims, update system |
-| `hooks/` | Custom React hooks (useDatabase, useInstalledApps) |
+| `hooks/` | Custom React hooks (useDatabase, useInstalledApps, useUserChangeGuard) |
 | `utils/` | Utilities (demo app seeding) |
 | `components/` | Reusable UI components (Toast, Themed) |
 | `assets/` | App icons, splash images |

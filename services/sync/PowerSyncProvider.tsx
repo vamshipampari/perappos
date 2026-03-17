@@ -5,12 +5,12 @@ import { SupabaseConnector } from './SupabaseConnector';
 import { supabase } from '../supabase';
 import '@azure/core-asynciterator-polyfill';
 
-const powerSyncDb = new PowerSyncDatabase({
+export const powerSyncDb = new PowerSyncDatabase({
   schema: PowerSyncSchema,
   database: { dbFilename: 'powersync.db' },
 });
 
-const connector = new SupabaseConnector();
+export const connector = new SupabaseConnector();
 
 interface SyncContextType {
   db: PowerSyncDatabase;
