@@ -35,6 +35,7 @@ interface SharedInstanceRow {
   app_name: string;
   invite_code: string;
   owner_id: string;
+  is_frozen?: number; // 0 = active, 1 = frozen (PowerSync stores booleans as integers)
 }
 
 interface MemberRow {
@@ -68,6 +69,7 @@ export default function SharedInstanceScreen() {
   const [members, setMembers] = useState<MemberRow[]>([]);
   const [myUserId, setMyUserId] = useState<string | null>(null);
   const [myRole, setMyRole] = useState<'owner' | 'member' | null>(null);
+  const [isFrozen, setIsFrozen] = useState(false);
 
   // ── Load data ───────────────────────────────────────────────────────────────
 
@@ -176,6 +178,7 @@ export default function SharedInstanceScreen() {
       console.log('[manage-group] result — instance found:', !!instanceRow, 'members:', memberRows.length);
 
       setInstance(instanceRow ?? null);
+      setIsFrozen(instanceRow?.is_frozen === 1);
       setMembers(memberRows);
 
       if (userId && memberRows.length > 0) {
@@ -326,6 +329,15 @@ export default function SharedInstanceScreen() {
         </View>
         <View style={{ width: 44 }} />
       </View>
+
+      {/* ── Frozen banner (owner sees this when plan has expired) ──────── */}
+      {isFrozen && myRole === 'owner' && (
+        <View style={styles.frozenBanner}>
+          <Text style={styles.frozenBannerText}>
+            ⏸️ This shared app is paused. Upgrade your plan to resume collaboration.
+          </Text>
+        </View>
+      )}
 
       <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.scrollContent}>
 
@@ -513,6 +525,21 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '600',
     color: '#007AFF',
+  },
+
+  // Frozen banner
+  frozenBanner: {
+    backgroundColor: '#FEF3C7',
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#F59E0B',
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+  },
+  frozenBannerText: {
+    fontSize: 13,
+    color: '#92400E',
+    textAlign: 'center',
+    lineHeight: 18,
   },
 
   // Content

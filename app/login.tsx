@@ -347,7 +347,10 @@ export default function LoginScreen() {
                 }}
                 placeholder="000000"
                 placeholderTextColor="#C7C7CC"
-                keyboardType="number-pad"
+                keyboardType="numeric"
+                autoCapitalize="none"
+                autoCorrect={false}
+                spellCheck={false}
                 returnKeyType="done"
                 onSubmitEditing={handleVerifyOtp}
                 maxLength={6}

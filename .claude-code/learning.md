@@ -1,7 +1,7 @@
 # Perappos — Learnings & Gotchas
 
-**Last Updated**: 2026-03-17
-**Session Count**: 7
+**Last Updated**: 2026-03-18
+**Session Count**: 9
 
 ## Architecture Insights
 
@@ -384,12 +384,104 @@ The fundamental limitation is that `useState(() => localStorage.getItem('key'))`
     - `Storage.getItem(key)` / `Storage.setItem(key, value)` follow the `AsyncStorage` interface and persist across app restarts.
     - Using the same storage engine as Supabase auth means the session and `lastUserId` are both in the same SQLite KV DB and can be cleared together if needed.
 
+22. **Gotcha — `supabase.rpc()` returns a `PostgrestFilterBuilder`, not a native `Promise`**
+    - **Symptom**: `TS2551: Property 'catch' does not exist on type 'PostgrestFilterBuilder<...>'`
+    - **Cause**: The Supabase client's `.rpc()` returns a `PostgrestFilterBuilder` which is a thenable (has `.then()`) but not a full `Promise`, so `.catch()` is not available directly on it.
+    - **Fix**: Use `.then(undefined, () => {})` for fire-and-forget error suppression, or `await` in a try/catch.
+    - **Pattern for fire-and-forget RPC calls**:
+      ```typescript
+      void supabase.rpc('my_rpc', { param: value }).then(undefined, () => {});
+      ```
+    - **Prevention**: Never chain `.catch()` directly on `supabase.rpc()`. Also, `.then(() => {}).catch(() => {})` won't work because `.then()` on a `PromiseLike` returns another `PromiseLike`, not a full `Promise`. Always use two-argument `.then(onFulfilled, onRejected)`.
+
+23. **PATTERN — Plan limits should be client-side constants, not database fields**
+    - **Reason**: Plan limits (maxApps, maxSharedInstances) are business rules that change infrequently. Fetching them from the DB on every check adds latency and complexity.
+    - **Implementation**: Define `PLAN_LIMITS` as a `const` in `hooks/useUserProfile.ts`. The profile RPC returns only `plan` (string), and the client looks up limits locally.
+    - **Exception**: Plan _grants_ (promo code redemption, subscription events) must happen server-side via `SECURITY DEFINER` RPCs to prevent client-side manipulation.
+
+24. **PATTERN — User profile count tracking is best-effort (fire-and-forget)**
+    - **Reason**: `app_install_count` and `shared_instance_count` in `user_profiles` are for limit enforcement, not audit logs. If a network call fails, the user's UX should not be blocked.
+    - **Implementation**: All `increment_app_count` and `increment_shared_instance_count` RPC calls use `.then(undefined, () => {})` pattern — they never `await` and never show errors to the user.
+    - **Trade-off**: Counts may drift if the app crashes between a DB write and the RPC call. The RPC uses `GREATEST(0, count + delta)` to prevent negative counts.
+    - **When to fix drift**: The `get_user_profile` RPC is the right place to add a reconciliation query later (count actual rows in `apps` table) if drift becomes a problem.
+
+## Session 8 Work (2026-03-18) — User Profile, Subscription & Promo Codes
+
+### What Was Done
+1. **Supabase schema**: `user_profiles`, `promo_codes`, `promo_redemptions` tables with full RLS
+2. **Triggers**: Auto-create `user_profiles` on `auth.users` INSERT; `updated_at` auto-update
+3. **RPCs**: `get_user_profile` (auto-downgrades expired plans), `redeem_promo_code` (atomic), `increment_app_count`, `increment_shared_instance_count`
+4. **Promo codes seeded**: `BETA2026` (90d beta), `PERAPPOS` (lifetime beta), `VIBECODER` (30d beta)
+5. **`hooks/useUserProfile.ts`**: Central profile hook with `PLAN_LIMITS` constant
+6. **`hooks/useGatekeeper.ts`**: Gate functions for install + sharing, with `Alert.alert` prompts
+7. **`components/PromoCodeSheet.tsx`**: Bottom sheet modal for promo code entry
+8. **Settings screen**: Account card with avatar, plan badge (colored pills), expiry, Redeem Code button
+9. **`app/add.tsx`**: Gate on install + count increment
+10. **`app/(tabs)/index.tsx`**: Count decrement on delete
+11. **`app/app/[id].tsx`**: Sharing gate + count increment on create; decrement on delete
+12. **`services/appInstaller.ts`**: Count increment on auto-install (join flow)
+13. **`services/collaborationService.ts`**: Count decrement in `stopSharingAsOwner`
+
+### Key Gotcha (entry #22)
+All fire-and-forget RPC calls must use `.then(undefined, () => {})`, NOT `.catch()` — see entry #22.
+
+## Session 9 Work (2026-03-18) — Shared Instance Freeze on Plan Downgrade
+
+### What Was Done
+1. **Supabase migration**: Added `is_frozen`, `frozen_at`, `frozen_reason` columns to `shared_instances`
+2. **Supabase RPCs**: `freeze_owner_instances(p_owner_id)` + `unfreeze_owner_instances(p_owner_id)` (SECURITY DEFINER, called from `get_user_profile` on expiry and `redeem_promo_code` on upgrade)
+3. **`services/sync/schema.ts`**: Added `is_frozen: column.integer`, `frozen_at: column.text`, `frozen_reason: column.text` to `sharedInstances` table — PowerSync booleans use `column.integer` (0/1)
+4. **`services/sync/bridge-merge-handler.ts`**: Added `'frozen'` to `MergeStrategy` union. Freeze check at top of `handleSharedWrite` — queries `shared_instances.is_frozen` via PowerSync local, fails-open if query errors
+5. **`lib/vaultBridge.ts`**: After `handleSharedWrite` returns `INSTANCE_FROZEN` error, injects `window.__vaultInstanceFrozen = true` and dispatches `vaultInstanceFrozen` CustomEvent into WebView
+6. **`app/app/[id].tsx`**: `isFrozen` state; freeze status check in load `useEffect`; PowerSync watcher for live `shared_instances` freeze status changes; frozen banner UI (yellow `#FEF3C7`, amber border)
+7. **`app/shared-instance/[instanceId].tsx`**: `is_frozen` field on `SharedInstanceRow`; `isFrozen` state set from load; frozen banner UI shown to owner only
+
+### REQUIRED Dashboard Action (PowerSync)
+After adding freeze columns, update the PowerSync sync rules dashboard to include `is_frozen`, `frozen_at`, `frozen_reason` in the `shared_instances` SELECT projection. Without this, the columns will not sync to client devices.
+
+25. **PATTERN — PowerSync boolean columns must use `column.integer`, not `column.text` or `column.boolean`**
+    - **Reason**: PowerSync maps SQLite types to its own column types. There is no `column.boolean` type — booleans are stored as SQLite integers (0/1).
+    - **In schema.ts**: Declare boolean columns as `column.integer`
+    - **In query comparisons**: Compare with `=== 1` (not `=== true`): `instanceRows[0].is_frozen === 1`
+    - **Prevention**: Any Supabase `BOOLEAN` column that syncs through PowerSync must use `column.integer` in the PowerSync schema definition.
+
+26. **PATTERN — Freeze check is fail-open (not fail-closed)**
+    - **Reason**: On first launch or when PowerSync hasn't synced `shared_instances` yet, the local row may not exist. Blocking writes in this case would prevent legitimate new instances from receiving their first write.
+    - **Implementation**: The freeze check in `handleSharedWrite` wraps the PowerSync query in `try/catch`. If the query throws or returns 0 rows, the write proceeds normally.
+    - **When to change**: If false negatives (writes succeeding during freeze) become a problem, add a Supabase direct-query fallback. For now, the tradeoff (rare false negative vs. legitimate write blocking) favors fail-open.
+
+27. **BUG — FlatList behind a React Native Modal doesn't visibly update until modal closes**
+    - **Symptom**: After confirming delete in the home screen context menu, the deleted app stayed in the list until navigation away-and-back.
+    - **Root cause**: `performMenuDelete` called `await refresh()` (→ `setApps(newList)`) while the Modal was still open (`menuVisible = true`). React Native Modal renders in its own native layer — FlatList updates behind an open Modal may be deferred and only commit once the Modal native layer tears down. `finally { setMenuVisible(false) }` ran after `refresh()` completed, too late.
+    - **Fix**: Move `setMenuVisible(false)` to the `try` block immediately after the DB deletes, BEFORE `await refresh()`. The Modal's slide-out animation (~300ms) runs concurrently; SQLite is fast (~10–30ms) so the list is already updated when the animation finishes. Also added `setMenuVisible(false)` to the `catch` block so the modal always closes.
+    - **Prevention**: When a list state update needs to be visible, dismiss the Modal covering it BEFORE or DURING the update, not after.
+
+28. **BUG — Indian-locale keyboards emit `।` (Devanagari danda, U+0964) instead of `.` in URL fields**
+    - **Symptom**: `https://netlify.app` arrived as `https://netlify।app` — dots replaced with the Devanagari danda character.
+    - **Root cause**: Hindi/Marathi keyboards on iOS map the period key to `।` rather than `.`. The URL keyboard type does not override this.
+    - **Fix**: Added `onChangeText` normalisation in the URL TextInput (`app/add.tsx`): `.replace(/।/g, '.').replace(/॥/g, '.')` plus curly-quote → straight-quote replacements.
+    - **Prevention**: Any input expecting ASCII punctuation (URLs, codes) should normalise danda characters if targeting Indian locales.
+
+29. **BUG — `keyboardType="number-pad"` suppresses top-row number keys on physical keyboards**
+    - **Symptom**: OTP code could not be entered with top-row number keys on a Bluetooth/hardware keyboard; only numpad keys worked.
+    - **Root cause**: iOS `number-pad` restricts input to the numeric keypad and suppresses key events from the top-row number row on physical keyboards.
+    - **Fix**: Use `keyboardType="numeric"` instead. Both show the same on-screen numeric keyboard, but `"numeric"` accepts all digit sources. The existing `replace(/[^0-9]/g, '')` filter strips the decimal point.
+    - **Prevention**: For digit-only inputs, always prefer `"numeric"` over `"number-pad"` unless you're certain no physical keyboard will ever be attached.
+
+30. **PATTERN — All non-prose text inputs need `autoCorrect={false}` + `spellCheck={false}`**
+    - **Symptom**: App name and OTP fields were susceptible to Hindi autocorrect substituting Devanagari words for English text on an Indian-locale device.
+    - **Rule**: Any input that is NOT free-form prose (emails, passwords, URLs, codes, names, OTPs) should have both `autoCorrect={false}` and `spellCheck={false}`. Set `autoCapitalize` explicitly: `"none"` for codes/emails/URLs, `"words"` for names, `"characters"` for short all-caps codes.
+    - **Note**: These prevent word substitution but do NOT prevent the keyboard from switching language — that requires the user to change iOS Settings → General → Keyboard.
+
 ## To-Do for Next Session
 
+- [ ] Update PowerSync sync rules dashboard to include `is_frozen`, `frozen_at`, `frozen_reason` in `shared_instances` projection
 - [ ] Remove one-time CRUD queue flush from `PowerSyncProvider.tsx` after confirming clean CRUD queues on all devices
 - [ ] Show explicit PowerSync connection error in Settings
 - [ ] Add clipboard copy for invite codes
 - [ ] Strengthen join/create retry UX
 - [ ] Discover screen: curated template list
 - [ ] Settings: per-app permissions panel
+- [ ] Edit Profile screen (display name + avatar emoji picker)
+- [ ] RevenueCat integration for paid plan upgrades
 - [ ] Consider: For VaultAPI-aware apps, provide a `window.addEventListener('vaultSyncUpdate', ...)` pattern so apps that opt in can update without reload

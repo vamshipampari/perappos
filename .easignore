@@ -1,0 +1,34 @@
+# EAS Build ignore file — extends .gitignore
+
+# Claude Code worktrees and caches (huge — not needed for builds)
+.claude/
+
+# IDE
+.idea/
+
+# MCP config (local dev only)
+.mcp.json
+
+# Docs / dev notes (not needed for build)
+*.md
+!README.md
+
+# Local env (should already be gitignored, but be explicit)
+.env*.local
+.env.local
+
+# Test / CI artifacts
+coverage/
+__tests__/
+*.test.ts
+*.test.tsx
+*.spec.ts
+*.spec.tsx
+
+# Native build outputs (if somehow not gitignored)
+android/
+ios/Pods/
+ios/build/
+android/build/
+android/.gradle/
+android/app/build/

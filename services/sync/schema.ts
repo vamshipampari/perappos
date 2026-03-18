@@ -46,6 +46,10 @@ const sharedInstances = new Table(
     owner_id: column.text,
     invite_code: column.text,
     created_at: column.text,
+    // ─── Freeze support ───
+    is_frozen: column.integer,  // PowerSync uses integer for boolean (0 = false, 1 = true)
+    frozen_at: column.text,
+    frozen_reason: column.text,
   },
   { indexes: { by_app: ["app_id"] } },
 );

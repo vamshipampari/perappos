@@ -14,9 +14,47 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { PromoCodeSheet } from '@/components/PromoCodeSheet';
 import { useDatabase } from '@/hooks/useDatabase';
+import { useUserProfile, type PlanType } from '@/hooks/useUserProfile';
 import { supabase } from '../../services/supabase';
 import { usePowerSync } from '../../services/sync/PowerSyncProvider';
+
+// ─── Plan badge ──────────────────────────────────────────────────────────────
+
+const PLAN_BADGE_COLORS: Record<PlanType, { bg: string; text: string }> = {
+  free: { bg: '#E5E5EA', text: '#8E8E93' },
+  beta: { bg: '#7C3AED', text: '#FFFFFF' },
+  pro: { bg: '#007AFF', text: '#FFFFFF' },
+  team: { bg: '#059669', text: '#FFFFFF' },
+};
+
+function PlanBadge({ plan }: { plan: PlanType }) {
+  const colors = PLAN_BADGE_COLORS[plan] ?? PLAN_BADGE_COLORS.free;
+  const label = plan.charAt(0).toUpperCase() + plan.slice(1);
+  return (
+    <View
+      style={{
+        backgroundColor: colors.bg,
+        paddingHorizontal: 8,
+        paddingVertical: 2,
+        borderRadius: 6,
+      }}
+    >
+      <Text style={{ fontSize: 12, fontWeight: '600', color: colors.text }}>
+        {label}
+      </Text>
+    </View>
+  );
+}
+
+function formatExpiry(expiresAt: string | null): string | null {
+  if (!expiresAt) return null;
+  const d = new Date(expiresAt);
+  if (isNaN(d.getTime())) return null;
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  return `Expires ${months[d.getMonth()]} ${d.getDate()}`;
+}
 
 // ─── Primitives ──────────────────────────────────────────────────────────────
 
@@ -227,14 +265,18 @@ export default function SettingsScreen() {
   const [storageUsed, setStorageUsed] = useState(0);
   const [biometricAvailable, setBiometricAvailable] = useState(false);
   const [userEmail, setUserEmail] = useState<string | null>(null);
+  const [promoSheetVisible, setPromoSheetVisible] = useState(false);
 
-  // Refresh auth state whenever this screen comes into focus (e.g. after closing auth modal).
+  const { profile, redeemPromoCode, refresh: refreshProfile } = useUserProfile();
+
+  // Refresh auth state + profile whenever this screen comes into focus.
   useFocusEffect(
     useCallback(() => {
       supabase.auth.getSession().then(({ data: { session } }) => {
         setUserEmail(session?.user?.email ?? null);
       });
-    }, [])
+      refreshProfile();
+    }, [refreshProfile])
   );
 
   // Also keep a live subscription so sign-out updates instantly.
@@ -365,12 +407,19 @@ export default function SettingsScreen() {
           style: 'destructive',
           onPress: async () => {
             try {
+              const countRow = await db.getFirstAsync<{ n: number }>(
+                'SELECT COUNT(*) AS n FROM apps'
+              );
               await db.execAsync(`
                 DELETE FROM app_data;
                 DELETE FROM shared_data WHERE category != 'settings';
                 DELETE FROM apps;
               `);
               setStorageUsed(0);
+              // Reset app count in profile
+              if (countRow && countRow.n > 0) {
+                void supabase.rpc('increment_app_count', { delta: -countRow.n }).then(undefined, () => {});
+              }
               Alert.alert('Done', 'All app data has been cleared.');
             } catch {
               Alert.alert('Error', 'Failed to clear data. Please try again.');
@@ -464,11 +513,110 @@ export default function SettingsScreen() {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingTop: 8, paddingBottom: 48 }}
       >
-        {/* Account */}
-        <Section title="Account">
+        {/* Account Card */}
+        {userEmail && profile ? (
+          <View style={{ marginBottom: 28 }}>
+            <Text
+              style={{
+                fontSize: 13,
+                fontWeight: '500',
+                color: '#8E8E93',
+                textTransform: 'uppercase',
+                letterSpacing: 0.4,
+                paddingHorizontal: 20,
+                marginBottom: 6,
+              }}
+            >
+              Account
+            </Text>
+            <View
+              style={{
+                marginHorizontal: 16,
+                backgroundColor: '#FFFFFF',
+                borderRadius: 10,
+                overflow: 'hidden',
+                borderWidth: 0.5,
+                borderColor: '#E5E5EA',
+                padding: 16,
+              }}
+            >
+              {/* Profile row */}
+              <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 16 }}>
+                <View
+                  style={{
+                    width: 44,
+                    height: 44,
+                    borderRadius: 22,
+                    backgroundColor: '#F2F2F7',
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    marginRight: 12,
+                  }}
+                >
+                  <Text style={{ fontSize: 22 }}>{profile.avatar_emoji ?? '👤'}</Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text
+                    style={{ fontSize: 16, fontWeight: '600', color: '#1C1C1E' }}
+                    numberOfLines={1}
+                  >
+                    {userEmail}
+                  </Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 }}>
+                    <PlanBadge plan={profile.plan} />
+                    {profile.plan_expires_at && (
+                      <Text style={{ fontSize: 13, color: '#8E8E93' }}>
+                        {formatExpiry(profile.plan_expires_at)}
+                      </Text>
+                    )}
+                  </View>
+                </View>
+              </View>
+
+              {/* Action buttons */}
+              <View style={{ flexDirection: 'row', gap: 10 }}>
+                <TouchableOpacity
+                  onPress={() => setPromoSheetVisible(true)}
+                  activeOpacity={0.7}
+                  style={{
+                    flex: 1,
+                    height: 36,
+                    borderRadius: 8,
+                    backgroundColor: '#007AFF',
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                  }}
+                >
+                  <Text style={{ fontSize: 14, fontWeight: '600', color: '#FFFFFF' }}>
+                    Redeem Code
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  activeOpacity={0.7}
+                  disabled
+                  style={{
+                    flex: 1,
+                    height: 36,
+                    borderRadius: 8,
+                    backgroundColor: '#F2F2F7',
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    opacity: 0.5,
+                  }}
+                >
+                  <Text style={{ fontSize: 14, fontWeight: '600', color: '#1C1C1E' }}>
+                    Edit Profile
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        ) : null}
+
+        {/* Account rows */}
+        <Section title={userEmail && profile ? undefined : 'Account'}>
           {userEmail ? (
             <>
-              <Row kind="value" label="Email" value={userEmail} />
               <Row
                 kind="value"
                 label="Sync Status"
@@ -548,6 +696,12 @@ export default function SettingsScreen() {
           <Row kind="info" label="Perappos — Personal App OS" centered isLast />
         </Section>
       </ScrollView>
+
+      <PromoCodeSheet
+        visible={promoSheetVisible}
+        onClose={() => setPromoSheetVisible(false)}
+        onRedeem={redeemPromoCode}
+      />
     </SafeAreaView>
   );
 }
