@@ -334,7 +334,14 @@ class AddScreenErrorBoundary extends Component<
 }
 
 function AddScreenContent() {
-  const params = useLocalSearchParams<{ replace_app_id?: string; replace_url?: string }>();
+  const params = useLocalSearchParams<{
+    replace_app_id?: string;
+    replace_url?: string;
+    prefillUrl?: string;
+    prefillName?: string;
+    prefillEmoji?: string;
+    prefillColor?: string;
+  }>();
   const db = useDatabase();
   const { refresh } = useInstalledApps();
   const { showToast } = useToast();
@@ -343,6 +350,10 @@ function AddScreenContent() {
     typeof params.replace_app_id === 'string' ? params.replace_app_id : null;
   const replaceUrlParam =
     typeof params.replace_url === 'string' ? params.replace_url : null;
+  const prefillUrl = typeof params.prefillUrl === 'string' ? params.prefillUrl : null;
+  const prefillName = typeof params.prefillName === 'string' ? params.prefillName : null;
+  const prefillEmoji = typeof params.prefillEmoji === 'string' ? params.prefillEmoji : null;
+  const prefillColor = typeof params.prefillColor === 'string' ? params.prefillColor : null;
 
   const [step, setStep] = useState<Step>('input');
   const [url, setUrl] = useState('');
@@ -362,6 +373,42 @@ function AddScreenContent() {
       setUrl(String(replaceUrlParam));
     }
   }, [replaceUrlParam, url.length]);
+
+  // Auto-import when coming from the Create with AI screen
+  useEffect(() => {
+    if (!prefillUrl) return;
+    setUrl(prefillUrl);
+    if (prefillName) setAppName(prefillName);
+    if (prefillEmoji) setSelectedEmoji(prefillEmoji);
+    if (prefillColor) setSelectedBg(prefillColor);
+    // Kick off the URL fetch automatically
+    const trimmedUrl = prefillUrl.trim();
+    if (!trimmedUrl.startsWith('http')) return;
+    setError(null);
+    setStep('processing');
+    const appId = require('expo-crypto').randomUUID();
+    fetchUrlMetadata(trimmedUrl, setProcessingMsg)
+      .then((metadata) => {
+        setBundle({
+          appId,
+          html: null,
+          name: prefillName || metadata.name,
+          hash: metadata.hash,
+          size: metadata.size,
+          sourceType: 'url',
+          sourceUrl: trimmedUrl,
+          bundlePath: '',
+        });
+        if (!prefillName) setAppName(metadata.name);
+        setStep('details');
+      })
+      .catch((e) => {
+        setError(e instanceof Error ? e.message : 'Failed to read app metadata');
+        setStep('input');
+      });
+  // Only run once on mount when prefillUrl is present
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     if (!replaceAppId) return;
@@ -571,6 +618,32 @@ function AddScreenContent() {
               keyboardShouldPersistTaps="handled"
               showsVerticalScrollIndicator={false}
             >
+              {/* ── Create with AI card ─────────────────────────────────── */}
+              {step === 'input' && (
+                <View style={styles.section}>
+                  <TouchableOpacity
+                    onPress={() => router.push('/create')}
+                    activeOpacity={0.85}
+                    style={styles.aiCard}
+                  >
+                    <Text style={styles.aiCardEmoji}>✨</Text>
+                    <View style={styles.aiCardText}>
+                      <Text style={styles.aiCardTitle}>Create with AI</Text>
+                      <Text style={styles.aiCardSubtitle}>
+                        Describe what you want — get an app in seconds
+                      </Text>
+                    </View>
+                    <Text style={styles.aiCardChevron}>›</Text>
+                  </TouchableOpacity>
+
+                  <View style={styles.dividerRow}>
+                    <View style={styles.dividerLine} />
+                    <Text style={styles.dividerText}>or import existing</Text>
+                    <View style={styles.dividerLine} />
+                  </View>
+                </View>
+              )}
+
               {/* ── Section 1: From URL ──────────────────────────────────── */}
               {(step === 'input' || step === 'details') && (
                 <View style={styles.section}>
@@ -1086,5 +1159,39 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     color: '#1C1C1E',
     flex: 1,
+  },
+
+  // Create with AI card
+  aiCard: {
+    backgroundColor: '#F5F3FF',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#DDD6FE',
+    padding: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  aiCardEmoji: {
+    fontSize: 28,
+  },
+  aiCardText: {
+    flex: 1,
+    gap: 2,
+  },
+  aiCardTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#1C1C1E',
+  },
+  aiCardSubtitle: {
+    fontSize: 13,
+    color: '#8E8E93',
+    lineHeight: 18,
+  },
+  aiCardChevron: {
+    fontSize: 22,
+    color: '#C7C7CC',
+    fontWeight: '300',
   },
 });

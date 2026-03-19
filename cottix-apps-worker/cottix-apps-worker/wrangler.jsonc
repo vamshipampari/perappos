@@ -1,0 +1,31 @@
+/**
+ * Cottix Apps Worker — serves AI-generated mini-apps from Cloudflare KV.
+ * Deploy: npm run deploy
+ * Docs: https://developers.cloudflare.com/workers/wrangler/configuration/
+ */
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "cottix-apps-worker",
+	"main": "src/index.ts",
+	"compatibility_date": "2026-03-10",
+	"compatibility_flags": [
+		"nodejs_compat"
+	],
+	"observability": {
+		"enabled": true
+	},
+	"kv_namespaces": [
+		{
+			"binding": "APPS",
+			"id": "f176620f8f9c4cae9b773e70299a63d5",
+			"preview_id": "5e024ffa44af4031981adb29c1354107"
+		}
+	]
+	/**
+	 * Custom domain — uncomment after adding apps.cottix.co to Cloudflare DNS.
+	 * In Cloudflare dashboard: Workers & Pages → your worker → Settings → Domains & Routes → Add
+	 */
+	// "routes": [
+	//   { "pattern": "apps.cottix.co/*", "custom_domain": true }
+	// ]
+}

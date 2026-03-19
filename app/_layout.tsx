@@ -378,6 +378,18 @@ export default function RootLayout() {
                   }}
                 />
                 <Stack.Screen
+                  name="create"
+                  options={{
+                    presentation: 'modal',
+                    headerShown: true,
+                    headerStyle: { backgroundColor: '#FFFFFF' },
+                    headerTitleStyle: { color: '#1C1C1E', fontWeight: '600' },
+                    headerTintColor: '#007AFF',
+                    gestureEnabled: true,
+                    animation: 'slide_from_bottom',
+                  }}
+                />
+                <Stack.Screen
                   name="join-shared-app"
                   options={{
                     headerShown: false,

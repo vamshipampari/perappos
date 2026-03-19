@@ -1,6 +1,6 @@
 # Cottix — Status
 
-**Last Updated**: 2026-03-19 (Session 9)
+**Last Updated**: 2026-03-19 (Session 10)
 
 ## Current Sprint: UX Polish + Sync Reliability
 
@@ -153,15 +153,32 @@
   - Added Android SDK tools to `PATH`
   - First `npx expo prebuild --clean` initiated successfully — downloads Android NDK
 
+- **Create with AI** feature (Session 10 — 2026-03-19):
+  - **Cloudflare Worker** (`cottix-apps-worker/`): serves generated HTML from Cloudflare KV at `https://apps.cottix.co/{appId}`; KV namespace bound as `APPS`; health check at `/health`
+  - **Supabase Edge Function** (`supabase/functions/generate-app/`): calls Claude Sonnet 4.6 via Anthropic API; streams SSE response with `progress` + `done` + `error` events; publishes HTML to Cloudflare KV; saves record to `generated_apps` table; rate-limits to 20 generations/user/day; supports conversation history for iterative refinement
+  - **JWT auth in edge function**: ES256 user JWTs use `aud: "authenticated"` (not `role`); decode locally to avoid unreliable `auth.getUser()` network calls; deployed with `--no-verify-jwt` so Supabase infrastructure skips its own HS256 check
+  - **SSE streaming**: Edge function streams `progress: { chars }` events every ~200 chars; app consumes via `XMLHttpRequest.onprogress` (React Native's fetch polyfill doesn't expose `response.body`)
+  - **`app/create.tsx`**: State machine (idle → generating → preview → error); idle shows example prompts; generating shows rotating messages + live char counter ("2,450 chars written…"); preview shows app info bar + WebView + Install/Share buttons; type to refine regenerates same app ID (overwrites KV)
+  - **`app/add.tsx`**: "Create with AI" card at top; prefill params (`prefillUrl`, `prefillName`, `prefillEmoji`, `prefillColor`) auto-trigger fetch + skip to details step
+  - **`app/_layout.tsx`**: `create` registered as modal `Stack.Screen` (slide_from_bottom)
+  - **`generated_apps` Supabase table**: `user_id`, `app_id`, `prompt`, `title`, `description`, `icon_emoji`, `icon_bg_color`, `html_size`, `hosted_url`, `conversation_history` (jsonb)
+  - **Known limitation**: Complex apps (>8k tokens) may time out; simple apps (counter, todo, etc.) work reliably; streaming gives real-time feedback
+
 ### 🔜 Next Up
 - [ ] **UPDATE POWERSYNC SYNC RULES**: Add `is_frozen`, `frozen_at`, `frozen_reason` to `shared_instances` SELECT projection in PowerSync dashboard (required for freeze to work on client)
 - [ ] Complete `npx expo prebuild --clean` (downloading NDK, ~5-15 min)
 - [ ] Run `npx expo run:android` to test build with new Cottix app name
+- [ ] **Create with AI — optimizations**:
+  - [ ] Custom domain `apps.cottix.co` → point DNS to Cloudflare Worker route
+  - [ ] Improve prompt for complex multi-screen apps
+  - [ ] Show generated app history in Discover screen
+  - [ ] Progressive complexity: start with 4k tokens, retry with 8k if first attempt is too short
+  - [ ] Gifting/sharing generated app links
 - [ ] Remove one-time queue flush from `PowerSyncProvider` after confirming clean CRUD queues on all devices
 - [ ] Show explicit PowerSync connection error reason in Settings (not only Offline/Connected)
 - [ ] Add clipboard copy button for invite codes (currently uses share sheet fallback)
 - [ ] Strengthen join/create retry UX for intermittent RPC/network failures
-- [ ] Discover screen: curated template list
+- [ ] Discover screen: curated template list + AI-generated apps feed
 - [ ] Settings: per-app permissions panel
 - [ ] Edit Profile screen (display name + avatar emoji picker)
 - [ ] RevenueCat integration for paid plan upgrades
