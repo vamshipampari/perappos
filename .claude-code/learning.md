@@ -1,10 +1,12 @@
 # Cottix — Learnings & Gotchas
 
 **Last Updated**: 2026-03-19
-**Session Count**: 9
+**Session Count**: 10
 
 ## Architecture Insights
 
+- **Supabase Edge Functions + AI generation**: Edge functions run in Deno with a 150s max timeout. For LLM calls that can take 30-60s, always stream the response (SSE) rather than waiting for a single JSON reply — this also gives the client live progress feedback.
+- **Cloudflare KV for serving generated content**: KV is ideal for storing and serving user-generated HTML blobs. Key pattern: `app:{appId}`. Worker extracts ID from URL path and returns raw HTML with `Content-Type: text/html`.
 - PowerSync maintains its own SQLite DB (`powersync.db`) separate from expo-sqlite — they are two different databases
 - `app_data.id` in Supabase must be TEXT, not UUID, because PowerSync uses `${appId}/${key}` as a composite row ID
 - Shared collaboration uses invite codes (6-char uppercase) stored in `shared_instances`, looked up via Supabase RPCs (not direct table queries) to bypass RLS
@@ -486,6 +488,67 @@ After adding freeze columns, update the PowerSync sync rules dashboard to includ
     - **Rule**: Any input that is NOT free-form prose (emails, passwords, URLs, codes, names, OTPs) should have both `autoCorrect={false}` and `spellCheck={false}`. Set `autoCapitalize` explicitly: `"none"` for codes/emails/URLs, `"words"` for names, `"characters"` for short all-caps codes.
     - **Note**: These prevent word substitution but do NOT prevent the keyboard from switching language — that requires the user to change iOS Settings → General → Keyboard.
 
+## Session 10 Work (2026-03-19) — Create with AI Feature
+
+### What Was Built
+- Cloudflare Worker serving AI-generated HTML from KV at `apps.cottix.co/{appId}`
+- Supabase Edge Function (`generate-app`) calling Claude Sonnet 4.6 with SSE streaming
+- `app/create.tsx` — full state machine UI with live char counter
+- `app/add.tsx` — "Create with AI" card + prefill auto-import flow
+
+### Key Gotchas Discovered
+
+31. **Supabase user JWTs use `aud: "authenticated"`, NOT `role: "authenticated"`**
+    - **Symptom**: `auth.getUser()` kept returning 401; checking `payload.role !== "authenticated"` always failed for user JWTs.
+    - **Root cause**: Service-role API keys use `{ role: "service_role" }` in the JWT payload. User JWTs (ES256) use `{ aud: "authenticated", sub: "uuid" }` — the role is in `aud`, not `role`.
+    - **Fix**: Check `payload.aud === "authenticated" || payload.role === "authenticated"`.
+    - **Prevention**: Always check both `aud` and `role` when validating Supabase JWTs in edge functions.
+
+32. **Supabase Edge Function infrastructure validates JWTs using HS256 (JWT secret), not ES256**
+    - **Symptom**: Requests with service-role key Bearer token reached the function; requests with user JWT (ES256) got `{"code":401,"message":"Invalid JWT"}` from the infrastructure before the function ran.
+    - **Root cause**: Supabase's API gateway validates JWTs using the project's HS256 JWT secret. Service-role keys are HS256 and pass. User JWTs are ES256 and fail.
+    - **Fix**: Deploy edge functions with `--no-verify-jwt` flag. The function handles its own auth via local JWT decode.
+    - **Prevention**: Always use `supabase functions deploy <name> --no-verify-jwt` for functions that receive user JWTs directly.
+
+33. **`auth.getUser()` in Supabase edge functions is unreliable — decode JWT locally instead**
+    - **Symptom**: `supabase.auth.getUser()` (both with and without token parameter) returned 401 inside the edge function even with valid tokens.
+    - **Root cause**: The GoTrue client's `getUser()` makes a network call to `/auth/v1/user`. This call can fail for various reasons (timing, ES256 key mismatch, etc.).
+    - **Fix**: Decode the JWT payload locally using `atob()`. Supabase infrastructure already validates the signature at the gateway level when a valid user makes the request.
+    - **Pattern**:
+      ```typescript
+      const seg = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+      const padded = seg + '='.repeat((4 - seg.length % 4) % 4);
+      const payload = JSON.parse(atob(padded));
+      // Check payload.aud === 'authenticated' && payload.sub && payload.exp > now
+      ```
+    - **Critical**: JWT base64url segments omit padding — `atob()` requires padding. Always add `=` padding before calling `atob()`.
+
+34. **React Native's fetch polyfill (`whatwg-fetch`) does NOT expose `response.body` as a ReadableStream**
+    - **Symptom**: `response.body?.getReader()` returned `undefined`; thrown as "No response body".
+    - **Root cause**: The `whatwg-fetch` polyfill used by React Native (even with Hermes/New Architecture) buffers the entire response before exposing it — `response.body` is null.
+    - **Fix**: Use `XMLHttpRequest` with `onprogress` for SSE/streaming responses:
+      ```javascript
+      xhr.onprogress = () => {
+        const newText = xhr.responseText.slice(processedLen);
+        processedLen = xhr.responseText.length;
+        // parse SSE from newText
+      };
+      ```
+    - **Prevention**: Never use `response.body.getReader()` in React Native. Always use `XMLHttpRequest` for streaming.
+
+35. **Supabase Edge Function streaming: background IIFE + TransformStream pattern**
+    - **Pattern for SSE streaming from a Supabase edge function**:
+      1. Create `new TransformStream<Uint8Array, Uint8Array>()`
+      2. Return `new Response(readable, { headers: { "Content-Type": "text/event-stream" } })` immediately
+      3. Run the actual work in a fire-and-forget `(async () => { ... })()` that writes to the transform stream's writer
+      4. Always `await writer.close()` in `finally` — or the client will hang waiting for stream end
+    - **Why**: Supabase edge functions need the `Response` returned synchronously; the background IIFE keeps writing after the response is returned.
+
+36. **Claude Sonnet 4.6 streaming SSE format**
+    - Anthropic streaming API sends `event: content_block_delta` with `delta.type: "text_delta"` and `delta.text`.
+    - The `[DONE]` sentinel is a bare string (not JSON) — skip it with `if (raw === "[DONE]") continue` before `JSON.parse`.
+    - Buffer incoming chunks and split by `\n`; keep the last partial line in a buffer for the next chunk.
+
 ## To-Do for Next Session
 
 - [ ] Update PowerSync sync rules dashboard to include `is_frozen`, `frozen_at`, `frozen_reason` in `shared_instances` projection
@@ -493,6 +556,7 @@ After adding freeze columns, update the PowerSync sync rules dashboard to includ
 - [ ] Show explicit PowerSync connection error in Settings
 - [ ] Add clipboard copy for invite codes
 - [ ] Strengthen join/create retry UX
+- [ ] **Create with AI optimizations**: custom domain DNS, complex app prompts, generated app history in Discover
 - [ ] Discover screen: curated template list
 - [ ] Settings: per-app permissions panel
 - [ ] Edit Profile screen (display name + avatar emoji picker)
