@@ -376,7 +376,7 @@ export default function SettingsScreen() {
       ]);
 
       const payload = JSON.stringify({ apps: appRows, app_data: dataRows }, null, 2);
-      const path = `${FileSystem.cacheDirectory}perappos-export.json`;
+      const path = `${FileSystem.cacheDirectory}cottix-export.json`;
       await FileSystem.writeAsStringAsync(path, payload, {
         encoding: FileSystem.EncodingType.UTF8,
       });
@@ -388,7 +388,7 @@ export default function SettingsScreen() {
       }
       await Sharing.shareAsync(path, {
         mimeType: 'application/json',
-        dialogTitle: 'Export Perappos Data',
+        dialogTitle: 'Export Cottix Data',
         UTI: 'public.json',
       });
     } catch (e) {
@@ -693,7 +693,7 @@ export default function SettingsScreen() {
         <Section title="About">
           <Row kind="value" label="Version" value="0.1.0" />
           <Row kind="info" label="Built with ❤️ in Hyderabad" centered />
-          <Row kind="info" label="Perappos — Personal App OS" centered isLast />
+          <Row kind="info" label="Cottix — Personal App OS" centered isLast />
         </Section>
       </ScrollView>
 

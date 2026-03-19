@@ -30,7 +30,7 @@ export default function DiscoverScreen() {
           Coming soon
         </Text>
         <Text style={{ fontSize: 15, color: '#8E8E93', textAlign: 'center', lineHeight: 22 }}>
-          Browse and share app templates with the Perappos community.
+          Browse and share app templates with the Cottix community.
         </Text>
       </View>
     </SafeAreaView>

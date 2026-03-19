@@ -19,7 +19,7 @@ import { supabase } from '../services/supabase';
 
 SplashScreen.preventAutoHideAsync();
 
-const DB_NAME = 'perappos.db';
+const DB_NAME = 'cottix.db';
 
 const initializeDatabase = async (db: import('expo-sqlite').SQLiteDatabase) => {
   await db.execAsync(`
@@ -101,7 +101,7 @@ function AppLockGate({ children }: { children: React.ReactNode }) {
 
   const authenticate = useCallback(async () => {
     const result = await LocalAuthentication.authenticateAsync({
-      promptMessage: 'Unlock Perappos',
+      promptMessage: 'Unlock Cottix',
       fallbackLabel: 'Use passcode',
     });
     if (result.success) setLocked(false);
@@ -144,7 +144,7 @@ function AppLockGate({ children }: { children: React.ReactNode }) {
     return (
       <View style={{ flex: 1, backgroundColor: '#F2F2F7', alignItems: 'center', justifyContent: 'center', gap: 16 }}>
         <Text style={{ fontSize: 64 }}>🔒</Text>
-        <Text style={{ fontSize: 20, fontWeight: '600', color: '#1C1C1E' }}>Perappos is locked</Text>
+        <Text style={{ fontSize: 20, fontWeight: '600', color: '#1C1C1E' }}>Cottix is locked</Text>
         <Text style={{ fontSize: 15, color: '#8E8E93' }}>Authenticate to continue</Text>
         <TouchableOpacity
           onPress={authenticate}

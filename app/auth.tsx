@@ -231,7 +231,7 @@ export default function AuthScreen() {
               marginBottom: 6,
             }}
           >
-            Perappos
+            Cottix
           </Text>
           <Text
             style={{

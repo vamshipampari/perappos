@@ -215,8 +215,8 @@ export default function SharedInstanceScreen() {
     try {
       await Share.share({
         message:
-          `Join my "${instance.app_name}" on Perappos!\n` +
-          `Open Perappos → Settings → Join Shared App → Code: ${code}`,
+          `Join my "${instance.app_name}" on Cottix!\n` +
+          `Open Cottix → Settings → Join Shared App → Code: ${code}`,
       });
     } catch {
       // dismissed

@@ -607,8 +607,8 @@ export default function AppScreen() {
                       onPress: () => {
                         void Share.share({
                           message:
-                            `Join my "${app.name}" on Perappos!\n` +
-                            `Open Perappos -> Settings -> Join Shared App -> Enter code: ${inviteCode}`,
+                            `Join my "${app.name}" on Cottix!\n` +
+                            `Open Cottix -> Settings -> Join Shared App -> Enter code: ${inviteCode}`,
                         });
                       },
                     },
@@ -645,8 +645,8 @@ export default function AppScreen() {
                     onPress: async () => {
                       await Share.share({
                         message:
-                          `Join my "${app.name}" on Perappos!\n` +
-                          `Open Perappos -> Settings -> Join Shared App -> Enter code: ${inviteCode}`,
+                          `Join my "${app.name}" on Cottix!\n` +
+                          `Open Cottix -> Settings -> Join Shared App -> Enter code: ${inviteCode}`,
                       });
                     },
                   },

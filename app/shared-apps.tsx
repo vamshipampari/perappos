@@ -49,7 +49,7 @@ export default function SharedAppsScreen() {
   }, [load]);
 
   const handleCopyLink = async (code: string) => {
-    await Share.share({ message: `perappos://share/${code}` });
+    await Share.share({ message: `cottix://share/${code}` });
   };
 
   const handleDeactivate = (item: SharedApp) => {

@@ -1,6 +1,6 @@
-# Perappos — Learnings & Gotchas
+# Cottix — Learnings & Gotchas
 
-**Last Updated**: 2026-03-18
+**Last Updated**: 2026-03-19
 **Session Count**: 9
 
 ## Architecture Insights
@@ -94,6 +94,19 @@ From code-reviewer agent on `bridge-merge-handler.ts`:
    - **Fix in `bridge-merge-handler.ts`**: Added `ORDER BY version DESC` before `LIMIT 1` in `readCurrentRow()` as a defence-in-depth measure — even if duplicate rows exist (from previous bad migrations), we always pick the highest-version one.
    - **Fix in `app/app/[id].tsx` `loadShimPayload`**: Added `ORDER BY version DESC` to the `shared_app_data` preload query AND a `if (row.key in preloadedData) continue` guard in the loop. Without this, the shim could be preloaded with the stale UUID row (version=1) instead of the latest compound-key row — causing every subsequent `baseVersion` sent by the shim to be wrong, and `readCurrentRow()` to then compute `newVersion = stale_version + 1` on each write (effectively resetting version to 1+1=2 every time instead of incrementing).
    - **Prevention**: Any direct PowerSync `INSERT` into a table that is also written by a handler must use the SAME row ID format as that handler. For `shared_app_data`, that is `` `${instanceId}/${appId}/${key}` ``. Also, any preload query over a PowerSync table that may have duplicate rows for the same logical key MUST include `ORDER BY` + deduplication guard.
+
+## Build & Environment Setup
+
+### Android SDK Configuration (2026-03-19)
+- **Problem**: `npx expo run:android` fails with "SDK location not found. Define a valid SDK location with an ANDROID_HOME environment variable or by setting the sdk.dir path"
+- **Solution**: Add `ANDROID_HOME` export to `~/.zshrc` + add tools/platform-tools to `PATH`:
+  ```bash
+  export ANDROID_HOME="/Users/vamshipampari/Library/Android/sdk"
+  export PATH="$ANDROID_HOME/tools:$ANDROID_HOME/platform-tools:$PATH"
+  ```
+- **Then**: Run `source ~/.zshrc` to reload shell and test with `echo $ANDROID_HOME`
+- **First build**: `npx expo prebuild --clean` downloads Android NDK (~5-15 min depending on internet). This is one-time only.
+- **Prevention**: Always set ANDROID_HOME in shell profile when setting up dev environment for React Native projects
 
 ## Dependencies & Their Quirks
 
@@ -302,7 +315,7 @@ useEffect(() => {
 
 ### Key Design Decisions
 - **Two auth screens** are intentional: `login.tsx` (gate, mandatory) vs `auth.tsx` (modal, optional re-auth from Settings). Do not merge them — they serve different flows.
-- **`getSession()` is called outside `SQLiteProvider`** — it uses the Supabase client's own SQLite storage (separate from the app's main `perappos.db`), so it works before `SQLiteProvider` renders.
+- **`getSession()` is called outside `SQLiteProvider`** — it uses the Supabase client's own SQLite storage (separate from the app's main `cottix.db`), so it works before `SQLiteProvider` renders.
 - **`gestureEnabled: false` + `animation: 'fade'`** on the login Stack.Screen prevents swipe-back from exposing the home screen before auth.
 - **Sign-out redirect** is handled centrally in root layout via `onAuthStateChange`, not in each individual screen's sign-out handler.
 

@@ -78,13 +78,13 @@ export async function shareApp(app: InstalledApp): Promise<ShareResult> {
   }
 
   const shareMessage =
-    `Hey! Check out this app I'm using on Perappos:\n\n` +
+    `Hey! Check out this app I'm using on Cottix:\n\n` +
     `${app.name}\n\n` +
     `To install it:\n` +
-    `1. Open Perappos\n` +
+    `1. Open Cottix\n` +
     `2. Tap + to add a new app\n` +
     `3. Paste this URL: ${app.source_url}\n\n` +
-    `Get Perappos: [TestFlight link here]`;
+    `Get Cottix: [TestFlight link here]`;
 
   await Share.share({ message: shareMessage });
 

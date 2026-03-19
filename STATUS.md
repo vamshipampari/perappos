@@ -1,4 +1,6 @@
-# Perappos — Status
+# Cottix — Status
+
+**Last Updated**: 2026-03-19 (Session 9)
 
 ## Current Sprint: UX Polish + Sync Reliability
 
@@ -10,7 +12,7 @@
 - `hooks/useInstalledApps.ts` — reads apps table, exposes `refresh()` and `recordOpen()`
 - Tab bar (`app/(tabs)/_layout.tsx`) — Home, Discover, Settings with Unicode icons
 - Home screen (`app/(tabs)/index.tsx`):
-  - Large title "Perappos"
+  - Large title "Cottix"
   - 3-column app grid with Reanimated press-scale animation
   - Empty state with icon, copy, and "Add Your First App" button
   - FAB (shown only when apps are installed)
@@ -136,8 +138,25 @@
   - **OTP top-row number keys blocked**: `keyboardType="number-pad"` suppresses top-row number key events on physical/Bluetooth keyboards (iOS quirk). Changed to `keyboardType="numeric"` in `app/login.tsx` and `app/auth.tsx`. The existing `replace(/[^0-9]/g, '')` filter already strips the decimal point the numeric pad adds.
   - **Missing `autoCorrect`/`spellCheck` on text inputs**: App name field (`add.tsx`) had no guards, allowing Hindi autocorrect to substitute words. OTP fields in `login.tsx` and `auth.tsx` were also missing these props. Added `autoCorrect={false}` + `spellCheck={false}` + correct `autoCapitalize` to all three inputs.
 
+- App name rebranding from Perappos to Cottix (Session 9 — 2026-03-19):
+  - **Configuration**: Updated `app.json` (name, slug, scheme, bundleIdentifier)
+  - **Package**: Updated `package.json` name field
+  - **Documentation**: Updated all `.md` files (`CLAUDE.md`, `TECHNICAL.md`, `README.md`, `MINIAPP_API.md`)
+  - **Context files**: Updated `.claude-code/` files (`context.md`, `learning.md`, `rules.md`)
+  - **Source code**: Updated all UI strings in app screens (13 files touched)
+  - **Database**: Changed DB_NAME from `perappos.db` → `cottix.db`, biometric prompt
+  - **Sharing**: Updated share message templates (4 files, 4+ strings each)
+  - **Intent handling**: Updated deep link scheme from `perappos://` → `cottix://`
+  - **Notes**: Folder paths left unchanged per user preference; `PERAPPOS` promo code kept as-is
+- Android SDK environment setup (2026-03-19):
+  - Added `ANDROID_HOME` export to `~/.zshrc`
+  - Added Android SDK tools to `PATH`
+  - First `npx expo prebuild --clean` initiated successfully — downloads Android NDK
+
 ### 🔜 Next Up
 - [ ] **UPDATE POWERSYNC SYNC RULES**: Add `is_frozen`, `frozen_at`, `frozen_reason` to `shared_instances` SELECT projection in PowerSync dashboard (required for freeze to work on client)
+- [ ] Complete `npx expo prebuild --clean` (downloading NDK, ~5-15 min)
+- [ ] Run `npx expo run:android` to test build with new Cottix app name
 - [ ] Remove one-time queue flush from `PowerSyncProvider` after confirming clean CRUD queues on all devices
 - [ ] Show explicit PowerSync connection error reason in Settings (not only Offline/Connected)
 - [ ] Add clipboard copy button for invite codes (currently uses share sheet fallback)

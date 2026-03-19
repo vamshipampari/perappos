@@ -1,10 +1,10 @@
-# Perappos — Architecture & Context
+# Cottix — Architecture & Context
 
 **Last Updated**: 2026-03-17 (Session 7)
 
 ## System Overview
 
-Perappos is a personal app OS that lets users install web apps from URLs or ZIPs, run them in sandboxed WebViews with native bridge APIs, and collaborate on shared app state in real-time.
+Cottix is a personal app OS that lets users install web apps from URLs or ZIPs, run them in sandboxed WebViews with native bridge APIs, and collaborate on shared app state in real-time.
 
 ```
 +-----------------------+
@@ -98,7 +98,7 @@ Perappos is a personal app OS that lets users install web apps from URLs or ZIPs
 ### EAS (Expo Application Services)
 - **Build profiles**: iOS TestFlight, Android preview
 - **Project ID**: `2ebec141-aefa-43b8-b6f3-377add3fcc4d`
-- **Bundle ID**: `com.perappos.app`
+- **Bundle ID**: `com.cottix.app`
 
 ## Environment Setup
 

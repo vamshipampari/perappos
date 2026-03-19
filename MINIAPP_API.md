@@ -1,12 +1,12 @@
-# Perappos Mini-App API Reference
+# Cottix Mini-App API Reference
 
-> **For vibe coders:** Add this file to your prompt context when building apps for Perappos.
+> **For vibe coders:** Add this file to your prompt context when building apps for Cottix.
 
 ---
 
-## What is Perappos?
+## What is Cottix?
 
-Perappos runs your web app (built with Lovable, Bolt, Replit, Vercel, or any URL) natively on iOS/Android inside a sandboxed WebView. The platform injects a bridge layer (`window.VaultAPI`) that gives your app access to native storage, device features, and real-time collaboration — without any SDK to install.
+Cottix runs your web app (built with Lovable, Bolt, Replit, Vercel, or any URL) natively on iOS/Android inside a sandboxed WebView. The platform injects a bridge layer (`window.VaultAPI`) that gives your app access to native storage, device features, and real-time collaboration — without any SDK to install.
 
 ---
 
@@ -27,7 +27,7 @@ Perappos runs your web app (built with Lovable, Bolt, Replit, Vercel, or any URL
 
 ### `localStorage` — Simplest option
 
-Works exactly like web `localStorage`. Perappos intercepts it and persists data to native SQLite automatically.
+Works exactly like web `localStorage`. Cottix intercepts it and persists data to native SQLite automatically.
 
 ```js
 localStorage.setItem('score', '42')         // persisted to device
@@ -156,7 +156,7 @@ const user = await window.VaultAPI.auth.getUser()
 // Signed out → null
 ```
 
-Use this to personalize your app if the user is signed in to Perappos. You don't need to implement your own auth — Perappos handles it.
+Use this to personalize your app if the user is signed in to Cottix. You don't need to implement your own auth — Cottix handles it.
 
 ---
 
@@ -169,7 +169,7 @@ const info = await window.VaultAPI.app.getInfo()
 Returns:
 ```js
 {
-  app_id: 'abc123',          // unique ID assigned by Perappos
+  app_id: 'abc123',          // unique ID assigned by Cottix
   name: 'My Habit Tracker',  // display name user gave the app
   source_url: 'https://...', // original URL (null for ZIPs)
   installed_at: '2026-03-01T10:00:00Z',
@@ -184,7 +184,7 @@ Check `instance_id` to detect whether you're running in shared/collaborative mod
 
 ## Collaborative Mode (Shared Apps)
 
-When a Perappos user shares their app with others (via invite code), all members run the same app with **shared, synced state**.
+When a Cottix user shares their app with others (via invite code), all members run the same app with **shared, synced state**.
 
 **You don't need to change your code.** The bridge automatically:
 - Routes `localStorage` writes through a 3-way merge engine

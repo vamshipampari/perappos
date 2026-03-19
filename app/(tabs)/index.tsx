@@ -628,7 +628,7 @@ export default function HomeScreen() {
           largeTitleStyle,
         ]}
       >
-        Perappos
+        Cottix
       </Animated.Text>
       {!loading && (
         <Animated.Text
@@ -661,7 +661,7 @@ export default function HomeScreen() {
             navBarTitleStyle,
           ]}
         >
-          Perappos
+          Cottix
         </Animated.Text>
         {scanRunning && (
           <View style={{ position: 'absolute', right: 16 }}>

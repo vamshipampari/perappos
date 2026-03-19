@@ -13,7 +13,7 @@ export default function AppScreenWeb() {
     >
       <Text style={{ fontSize: 32 }}>📱</Text>
       <Text style={{ fontSize: 20, fontWeight: '600', color: '#1C1C1E', textAlign: 'center' }}>
-        Open in the Perappos app
+        Open in the Cottix app
       </Text>
       <Text style={{ fontSize: 15, color: '#8E8E93', textAlign: 'center', lineHeight: 22 }}>
         Mini-apps run inside native WebViews and are not available in the browser.

@@ -201,7 +201,7 @@ export default function LoginScreen() {
               marginBottom: 6,
             }}
           >
-            Perappos
+            Cottix
           </Text>
           <Text
             style={{
