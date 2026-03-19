@@ -82,6 +82,7 @@ export default function AppScreen() {
   const [webCanGoBack, setWebCanGoBack] = useState(false);
   const [checkingUpdate, setCheckingUpdate] = useState(false);
   const [signedInUserId, setSignedInUserId] = useState<string | null>(null);
+  const [isFrozen, setIsFrozen] = useState(false);
 
   // WebView fades in from 0 → 1 once the page finishes loading
   const webOpacity = useSharedValue(0);
@@ -232,6 +233,22 @@ export default function AppScreen() {
         setApp(foundApp);
         setShimJS(generatedShimJS);
         console.log('[webview] using shim:', isShared ? 'SYNC' : 'LOCAL', 'preload:', preloadSource);
+
+        // ── Freeze status check ──
+        if (foundApp.instance_id) {
+          try {
+            const instanceRows = await syncDbRef.current?.getAll(
+              `SELECT is_frozen FROM shared_instances WHERE instance_id = ?`,
+              [foundApp.instance_id]
+            );
+            if (instanceRows && instanceRows.length > 0 && instanceRows[0].is_frozen === 1) {
+              setIsFrozen(true);
+            }
+          } catch (err) {
+            console.warn('[app] freeze status check failed:', err);
+          }
+        }
+
         setPhase('ready');
       } catch (e) {
         console.error('[AppScreen] load error:', e);
@@ -379,6 +396,47 @@ export default function AppScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [app?.instance_id, app?.app_id]); // syncDbRef + webViewRef are refs — intentionally excluded
 
+  // ── Live freeze status watcher ────────────────────────────────────────────
+  // Watches shared_instances for is_frozen changes so the banner appears /
+  // disappears in real-time when the owner's plan expires or is restored.
+  useEffect(() => {
+    const instanceId = app?.instance_id;
+    if (!instanceId) return;
+
+    const abortController = new AbortController();
+
+    async function watchFreezeStatus() {
+      const db = syncDbRef.current;
+      if (!db) return;
+
+      try {
+        for await (const result of db.watch(
+          `SELECT is_frozen FROM shared_instances WHERE instance_id = ?`,
+          [instanceId],
+          { signal: abortController.signal, throttleMs: 500 }
+        )) {
+          if (abortController.signal.aborted) break;
+          const rows = result.rows?._array ?? [];
+          if (rows.length > 0) {
+            setIsFrozen(rows[0].is_frozen === 1);
+          }
+        }
+      } catch (err: unknown) {
+        const errObj = err as { name?: string } | null;
+        if (errObj?.name !== 'AbortError') {
+          console.warn('[app] freeze watcher error:', err);
+        }
+      }
+    }
+
+    watchFreezeStatus();
+
+    return () => {
+      abortController.abort();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [app?.instance_id]); // syncDbRef is a ref — intentionally excluded
+
   const rebuildShimForApp = useCallback(
     async (target: InstalledApp) => {
       const { shim, preloadSource } = await loadShimPayload(target);
@@ -454,7 +512,7 @@ export default function AppScreen() {
     webViewRef.current?.reload();
   }, [webOpacity]);
 
-  const handleCollaborate = useCallback(() => {
+  const handleCollaborate = useCallback(async () => {
     if (!app) return;
     if (!signedInUserId) {
       setMenuVisible(false);
@@ -468,6 +526,37 @@ export default function AppScreen() {
       setMenuVisible(false);
       Alert.alert('Already shared', 'This app is already in shared mode.');
       return;
+    }
+
+    // Check shared instance limit before proceeding
+    try {
+      const { data: profileData } = await supabase.rpc('get_user_profile');
+      if (profileData) {
+        const plan = (profileData as { plan: string }).plan;
+        const count = (profileData as { shared_instance_count: number }).shared_instance_count;
+        const isFree = plan === 'free';
+        if (isFree) {
+          setMenuVisible(false);
+          Alert.alert(
+            'Upgrade Required',
+            'Sharing apps requires a Pro or Beta plan. Redeem a promo code in Settings to unlock this feature.',
+            [{ text: 'OK' }]
+          );
+          return;
+        }
+        const limit = plan === 'team' ? Infinity : 5;
+        if (count >= limit) {
+          setMenuVisible(false);
+          Alert.alert(
+            'Shared Instance Limit Reached',
+            `Your plan allows up to ${limit} shared instances. Upgrade to Team for unlimited.`,
+            [{ text: 'OK' }]
+          );
+          return;
+        }
+      }
+    } catch {
+      // If profile check fails, allow the action (don't block on network errors)
     }
 
     setMenuVisible(false);
@@ -518,8 +607,8 @@ export default function AppScreen() {
                       onPress: () => {
                         void Share.share({
                           message:
-                            `Join my "${app.name}" on Perappos!\n` +
-                            `Open Perappos -> Settings -> Join Shared App -> Enter code: ${inviteCode}`,
+                            `Join my "${app.name}" on Cottix!\n` +
+                            `Open Cottix -> Settings -> Join Shared App -> Enter code: ${inviteCode}`,
                         });
                       },
                     },
@@ -530,6 +619,9 @@ export default function AppScreen() {
               }
 
               const result = await createSharedInstanceForApp(db, syncDb, app);
+              if (result.created) {
+                void supabase.rpc('increment_shared_instance_count', { delta: 1 }).then(undefined, () => {});
+              }
               const inviteCode = result.inviteCode.toUpperCase();
               const updatedApp = { ...app, instance_id: result.instanceId };
               setApp(updatedApp);
@@ -553,8 +645,8 @@ export default function AppScreen() {
                     onPress: async () => {
                       await Share.share({
                         message:
-                          `Join my "${app.name}" on Perappos!\n` +
-                          `Open Perappos -> Settings -> Join Shared App -> Enter code: ${inviteCode}`,
+                          `Join my "${app.name}" on Cottix!\n` +
+                          `Open Cottix -> Settings -> Join Shared App -> Enter code: ${inviteCode}`,
                       });
                     },
                   },
@@ -715,6 +807,7 @@ export default function AppScreen() {
               await db.runAsync('UPDATE apps SET instance_id = NULL WHERE app_id = ?', app.app_id);
               await syncDb.execute('DELETE FROM app_data WHERE app_id = ?', [app.app_id]);
               await db.runAsync('DELETE FROM apps WHERE app_id = ?', app.app_id);
+              void supabase.rpc('increment_app_count', { delta: -1 }).then(undefined, () => {});
             } catch {
               // ignore
             }
@@ -801,6 +894,15 @@ export default function AppScreen() {
           <Text style={styles.menuDots}>•••</Text>
         </TouchableOpacity>
       </View>
+
+      {/* ── Frozen banner ────────────────────────────────────────────────── */}
+      {isFrozen && (
+        <View style={styles.frozenBanner}>
+          <Text style={styles.frozenBannerText}>
+            🔒 This shared app is read-only. The owner's plan has expired.
+          </Text>
+        </View>
+      )}
 
       {/* ── WebView + overlays ──────────────────────────────────────────── */}
       <View style={styles.webContainer}>
@@ -1140,6 +1242,21 @@ const styles = StyleSheet.create({
     color: '#007AFF',
     letterSpacing: 1.5,
     lineHeight: 20,
+  },
+
+  // Frozen instance banner
+  frozenBanner: {
+    backgroundColor: '#FEF3C7',
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#F59E0B',
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+  },
+  frozenBannerText: {
+    fontSize: 13,
+    color: '#92400E',
+    textAlign: 'center',
+    lineHeight: 18,
   },
 
   // WebView layer

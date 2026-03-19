@@ -67,7 +67,8 @@ export type MergeStrategy =
   | 'array_merge'
   | 'object_merge'
   | 'lww'
-  | 'idempotent_skip';
+  | 'idempotent_skip'
+  | 'frozen';
 
 /** Row from shared_app_data in PowerSync */
 interface SharedRow {
@@ -138,6 +139,32 @@ export async function handleSharedWrite(
   let conflictTypes: string[] = [];
 
   try {
+    // ── FREEZE CHECK ──
+    // Query PowerSync local for the shared instance's freeze status.
+    // Fail-open: if the row isn't present yet (e.g. first sync in progress),
+    // allow the write rather than blocking legitimate new instances.
+    try {
+      const instanceRows = await psDb.getAll(
+        `SELECT is_frozen FROM shared_instances WHERE instance_id = ?`,
+        [instanceId]
+      );
+      if (instanceRows.length > 0 && instanceRows[0].is_frozen === 1) {
+        console.log('[merge] Instance is frozen, rejecting write:', instanceId);
+        return {
+          success: false,
+          newVersion: 0,
+          newValue: null,
+          strategy: 'frozen',
+          conflictCount: 0,
+          error: 'INSTANCE_FROZEN',
+        };
+      }
+    } catch (freezeErr) {
+      // If we can't check freeze status, allow the write (fail-open).
+      // PowerSync local might not have the row yet on first launch.
+      console.warn('[merge] freeze check failed, allowing write:', freezeErr);
+    }
+
     // ── Guard 1: No-op suppression ──
     if (message.baseHash && quickHash(message.value) === message.baseHash) {
       if (!message.baseValue || message.value === message.baseValue) {

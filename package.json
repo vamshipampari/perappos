@@ -1,5 +1,5 @@
 {
-  "name": "perappos",
+  "name": "cottix",
   "main": "expo-router/entry",
   "version": "1.0.0",
   "scripts": {
@@ -54,7 +54,8 @@
     "@types/react": "~19.2.2",
     "expo-linking": "^55.0.7",
     "expo-web-browser": "^55.0.9",
-    "typescript": "~5.9.2"
+    "typescript": "~5.9.2",
+    "wrangler": "^4.75.0"
   },
   "expo": {
     "doctor": {

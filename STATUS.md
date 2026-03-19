@@ -1,4 +1,6 @@
-# Perappos — Status
+# Cottix — Status
+
+**Last Updated**: 2026-03-19 (Session 9)
 
 ## Current Sprint: UX Polish + Sync Reliability
 
@@ -10,7 +12,7 @@
 - `hooks/useInstalledApps.ts` — reads apps table, exposes `refresh()` and `recordOpen()`
 - Tab bar (`app/(tabs)/_layout.tsx`) — Home, Discover, Settings with Unicode icons
 - Home screen (`app/(tabs)/index.tsx`):
-  - Large title "Perappos"
+  - Large title "Cottix"
   - 3-column app grid with Reanimated press-scale animation
   - Empty state with icon, copy, and "Add Your First App" button
   - FAB (shown only when apps are installed)
@@ -105,13 +107,64 @@
   - `app/_layout.tsx`: `AuthChangeGuard` component added inside `<PowerSyncProvider>` tree — subscribes to `SIGNED_IN`/`TOKEN_REFRESHED` events; shows modal when user changes; persists `lastUserId` on same-user sign-ins.
   - `services/sync/PowerSyncProvider.tsx`: `powerSyncDb` and `connector` are now exported so the guard hook can call `disconnectAndClear()` / `connect()` directly.
 
+- Shared instance freeze on plan downgrade (Session 9 — 2026-03-18):
+  - **Supabase migration**: Added `is_frozen` (boolean), `frozen_at`, `frozen_reason` columns to `shared_instances` table
+  - **Supabase RPCs**: `freeze_owner_instances(p_owner_id)` + `unfreeze_owner_instances(p_owner_id)` — auto-called by `get_user_profile` on expiry detection and `redeem_promo_code` on plan upgrade
+  - **PowerSync schema**: `sharedInstances` table now includes `is_frozen: column.integer`, `frozen_at: column.text`, `frozen_reason: column.text`
+  - **Merge handler freeze gate**: `handleSharedWrite` checks `shared_instances.is_frozen` before processing writes — returns `strategy: 'frozen'` with `error: 'INSTANCE_FROZEN'` if frozen; fails-open if PowerSync row not yet present
+  - **WebView bridge freeze signal**: `vaultBridge.ts` injects `window.__vaultInstanceFrozen = true` + dispatches `vaultInstanceFrozen` CustomEvent when merge handler rejects with `INSTANCE_FROZEN`
+  - **App screen frozen banner**: Yellow `#FEF3C7` banner with lock icon shown above WebView in `app/app/[id].tsx` when instance is frozen; powered by `isFrozen` state with initial check on load + live PowerSync `db.watch()` watcher
+  - **Manage Group frozen banner**: Same amber banner shown to owner only in `app/shared-instance/[instanceId].tsx` with "Upgrade your plan to resume collaboration" message
+  - **⚠️ REQUIRED**: Update PowerSync sync rules dashboard to include `is_frozen`, `frozen_at`, `frozen_reason` in `shared_instances` SELECT projection
+- User profile, subscription plans, and promo code redemption (Session 8 — 2026-03-18):
+  - **Supabase schema**: `user_profiles` table (plan, avatar, display_name, counts), `promo_codes`, `promo_redemptions` with full RLS
+  - **Triggers**: Auto-create `user_profiles` row on `auth.users` INSERT; `updated_at` auto-update trigger
+  - **RPCs**: `get_user_profile()` (with plan expiry auto-downgrade), `redeem_promo_code(code_input)` (atomic), `increment_app_count(delta)`, `increment_shared_instance_count(delta)`
+  - **Promo codes seeded**: `BETA2026` (90d beta, 100 max), `PERAPPOS` (lifetime beta, 50 max), `VIBECODER` (30d beta, 200 max)
+  - **`hooks/useUserProfile.ts`**: Central profile hook with PLAN_LIMITS constant, `redeemPromoCode`, `updateDisplayName`, `updateAvatarEmoji`
+  - **`hooks/useGatekeeper.ts`**: Gate functions for app install and shared instance creation with `Alert.alert` upgrade prompts
+  - **`components/PromoCodeSheet.tsx`**: Bottom sheet modal for promo code entry with haptic feedback
+  - **Settings screen**: Account card with avatar emoji, plan badge (colored pills), expiry date, Redeem Code + Edit Profile buttons
+  - **Install gate**: `app/add.tsx` checks `gateAppInstall()` before new installs; fire-and-forget `increment_app_count` on install
+  - **Delete tracking**: Count decrements wired in `app/(tabs)/index.tsx`, `app/app/[id].tsx`, `app/(tabs)/settings.tsx` Clear All
+  - **Sharing gate**: `app/app/[id].tsx` checks plan before `createSharedInstanceForApp`; count increment on creation
+  - **appInstaller.ts**: Count increment wired after `installUrlApp()` for join-flow auto-installs
+  - **`services/collaborationService.ts`**: Count decrement in `stopSharingAsOwner()`
+  - **Plan tiers**: free (5 apps, no sharing), beta/pro (unlimited apps, 5 shared), team (unlimited everything)
+
+- Bug fixes & UX polish (2026-03-18):
+  - **Delete list refresh bug**: After confirming delete in home screen context menu, the FlatList was not updating until navigating away. Root cause: `await refresh()` was called while the Modal was still open — React Native Modal renders in a separate native layer so FlatList state updates behind it don't surface until modal closes. Fix: moved `setMenuVisible(false)` to immediately after the delete succeeds (in `try`), so the slide-out animation runs while `refresh()` executes. SQLite is faster than the animation so the list is already correct when the modal finishes closing.
+  - **URL input Devanagari danda**: On Indian-locale iOS keyboards, the period key emits `।` (U+0964, Devanagari danda) instead of `.`, mangling URLs like `netlify.app` → `netlify।app`. Added `onChangeText` normalisation in `app/add.tsx` that replaces `।` → `.`, `॥` → `.`, and curly quotes/apostrophes → straight ASCII equivalents.
+  - **OTP top-row number keys blocked**: `keyboardType="number-pad"` suppresses top-row number key events on physical/Bluetooth keyboards (iOS quirk). Changed to `keyboardType="numeric"` in `app/login.tsx` and `app/auth.tsx`. The existing `replace(/[^0-9]/g, '')` filter already strips the decimal point the numeric pad adds.
+  - **Missing `autoCorrect`/`spellCheck` on text inputs**: App name field (`add.tsx`) had no guards, allowing Hindi autocorrect to substitute words. OTP fields in `login.tsx` and `auth.tsx` were also missing these props. Added `autoCorrect={false}` + `spellCheck={false}` + correct `autoCapitalize` to all three inputs.
+
+- App name rebranding from Perappos to Cottix (Session 9 — 2026-03-19):
+  - **Configuration**: Updated `app.json` (name, slug, scheme, bundleIdentifier)
+  - **Package**: Updated `package.json` name field
+  - **Documentation**: Updated all `.md` files (`CLAUDE.md`, `TECHNICAL.md`, `README.md`, `MINIAPP_API.md`)
+  - **Context files**: Updated `.claude-code/` files (`context.md`, `learning.md`, `rules.md`)
+  - **Source code**: Updated all UI strings in app screens (13 files touched)
+  - **Database**: Changed DB_NAME from `perappos.db` → `cottix.db`, biometric prompt
+  - **Sharing**: Updated share message templates (4 files, 4+ strings each)
+  - **Intent handling**: Updated deep link scheme from `perappos://` → `cottix://`
+  - **Notes**: Folder paths left unchanged per user preference; `PERAPPOS` promo code kept as-is
+- Android SDK environment setup (2026-03-19):
+  - Added `ANDROID_HOME` export to `~/.zshrc`
+  - Added Android SDK tools to `PATH`
+  - First `npx expo prebuild --clean` initiated successfully — downloads Android NDK
+
 ### 🔜 Next Up
+- [ ] **UPDATE POWERSYNC SYNC RULES**: Add `is_frozen`, `frozen_at`, `frozen_reason` to `shared_instances` SELECT projection in PowerSync dashboard (required for freeze to work on client)
+- [ ] Complete `npx expo prebuild --clean` (downloading NDK, ~5-15 min)
+- [ ] Run `npx expo run:android` to test build with new Cottix app name
 - [ ] Remove one-time queue flush from `PowerSyncProvider` after confirming clean CRUD queues on all devices
 - [ ] Show explicit PowerSync connection error reason in Settings (not only Offline/Connected)
 - [ ] Add clipboard copy button for invite codes (currently uses share sheet fallback)
 - [ ] Strengthen join/create retry UX for intermittent RPC/network failures
 - [ ] Discover screen: curated template list
 - [ ] Settings: per-app permissions panel
+- [ ] Edit Profile screen (display name + avatar emoji picker)
+- [ ] RevenueCat integration for paid plan upgrades
 
 ### Known Issues / Decisions Pending
 - `+html.tsx` and `+not-found.tsx` from default template remain (harmless)

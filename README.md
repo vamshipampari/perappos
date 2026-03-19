@@ -1,4 +1,4 @@
-# Perappos
+# Cottix
 
 Your personal app OS. Install, organize, and run AI-generated web apps — from Lovable, Bolt, Vercel, Replit, or any URL — directly on your phone, with no browser needed.
 
@@ -6,9 +6,9 @@ Your personal app OS. Install, organize, and run AI-generated web apps — from 
 
 ## What it does
 
-Vibe-coding tools like Lovable and Bolt let anyone build a web app in minutes. The problem: every app lives as a separate browser tab with no shared home. Perappos is that home.
+Vibe-coding tools like Lovable and Bolt let anyone build a web app in minutes. The problem: every app lives as a separate browser tab with no shared home. Cottix is that home.
 
-- **Install from URL** — paste a link to any web app. Perappos downloads the HTML, CSS, and JS bundle to your device, so apps work offline and load instantly.
+- **Install from URL** — paste a link to any web app. Cottix downloads the HTML, CSS, and JS bundle to your device, so apps work offline and load instantly.
 - **Install from ZIP** — export your project as a ZIP and sideload it directly.
 - **Run natively** — each app opens in a full-screen WebView with its own sandboxed local storage.
 - **Organize** — pick an emoji icon and color for each app. Your home grid, your rules.
@@ -38,7 +38,7 @@ Vibe-coding tools like Lovable and Bolt let anyone build a web app in minutes. T
 ## Project structure
 
 ```
-perappos/
+cottix/
 ├── app/
 │   ├── _layout.tsx          Root layout — SQLiteProvider + Stack navigator
 │   ├── add.tsx              Modal — add app via URL or ZIP
@@ -113,8 +113,8 @@ Cross-app shared data (contacts, preferences, etc.). Primary key: `(category, ke
 ### Install
 
 ```bash
-git clone https://github.com/vamshipampari/perappos.git
-cd perappos
+git clone https://github.com/vamshipampari/cottix.git
+cd cottix
 yarn install
 ```
 

@@ -103,5 +103,5 @@ export async function seedDemoApps(db: SQLiteDatabase): Promise<void> {
     htmlContent: EXPENSE_SNAP_HTML,
   });
 
-  console.log('[Perappos] Demo apps seeded successfully');
+  console.log('[Cottix] Demo apps seeded successfully');
 }

@@ -1,7 +1,7 @@
 # PERAPPOS — Expo/React Native Build Prompts
 ### Skip PWA. Go straight to mobile. Ship APK by end of Week 1.
 
-Working name: Perappos (Personal App OS)
+Working name: Cottix (Personal App OS)
 Design: iOS-native feel (clean, white, Apple-like)
 Demo apps: Workout Log, Daily Habits, Expense Snap
 
@@ -60,8 +60,8 @@ Run these commands in your terminal FIRST (not in Cursor):
 
 ```bash
 # Create the project
-npx create-expo-app@latest perappos --template tabs
-cd perappos
+npx create-expo-app@latest cottix --template tabs
+cd cottix
 
 # Install core dependencies
 npx expo install expo-sqlite expo-file-system expo-document-picker \
@@ -80,7 +80,7 @@ cursor .
 Paste into Cursor:
 
 ```
-I'm building "Perappos" — a mobile app that hosts mini web apps inside WebViews.
+I'm building "Cottix" — a mobile app that hosts mini web apps inside WebViews.
 
 FIRST: Set up NativeWind properly:
 - Create tailwind.config.js with content pointing to app/**/*.tsx
@@ -102,7 +102,7 @@ app/
   add.tsx              — Modal: add new app (URL paste or ZIP upload)
 
 HOME SCREEN (app/(tabs)/index.tsx):
-- Top: "Perappos" as large title (like iOS Settings app large title style)
+- Top: "Cottix" as large title (like iOS Settings app large title style)
 - Below: Grid of installed mini-apps, 3 columns
 - Each grid item: 60x60 rounded-rect icon (with colored background + emoji), 
   app name below in 12px gray text
@@ -117,7 +117,7 @@ HOME SCREEN (app/(tabs)/index.tsx):
 
 DATABASE SETUP:
 - Use expo-sqlite with SQLiteProvider wrapping the app in _layout.tsx
-- Database name: "perappos.db"
+- Database name: "cottix.db"
 - Initialize tables on first launch:
 
 CREATE TABLE IF NOT EXISTS apps (
@@ -175,7 +175,7 @@ Make everything TypeScript. Clean, well-structured components.
 ### Session 1C: Settings Screen
 
 ```
-Build the Settings screen for Perappos (app/(tabs)/settings.tsx):
+Build the Settings screen for Cottix (app/(tabs)/settings.tsx):
 
 iOS Settings-style list layout:
 - Grouped sections with gray background between groups
@@ -199,7 +199,7 @@ SECTIONS:
 4. "About" section:
    - "Version" row → "0.1.0"
    - "Built with ❤️ in Hyderabad"
-   - "Perappos — Personal App OS"
+   - "Cottix — Personal App OS"
 
 Use proper iOS-style list components. White rows, rounded group corners, 
 thin 0.5px separators with left padding. Subtle chevron (›) for drill-down rows.
@@ -212,7 +212,7 @@ thin 0.5px separators with left padding. Subtle chevron (›) for drill-down row
 ### Session 2A: WebView App Screen with Shim Injection
 
 ```
-Build the mini-app viewer screen for Perappos (app/app/[id].tsx).
+Build the mini-app viewer screen for Cottix (app/app/[id].tsx).
 
 This is the MOST IMPORTANT screen. It loads a mini web app inside a WebView 
 and injects a JavaScript shim that intercepts localStorage and provides 
@@ -369,7 +369,7 @@ Single HTML file, self-contained.
 IMPORTANT: These demo apps must use ONLY localStorage for storage. 
 They should NOT know about VaultAPI. The whole point is that they 
 "just work" because the shim intercepts localStorage transparently.
-This proves that ANY web app using localStorage will work in Perappos.
+This proves that ANY web app using localStorage will work in Cottix.
 
 After creating the demos, the home screen should show all 3 in the grid.
 Tapping one should open it in the WebView, and data should PERSIST 
@@ -383,7 +383,7 @@ across app restarts (because the shim saves to SQLite, not actual localStorage).
 ### Session 3A: Add App Screen (URL + ZIP Import)
 
 ```
-Build the "Add App" screen for Perappos (app/add.tsx).
+Build the "Add App" screen for Cottix (app/add.tsx).
 
 This should be presented as a modal (expo-router modal route).
 
@@ -448,7 +448,7 @@ TECHNICAL NOTES:
 ### Session 3B: Auto-Update Detection
 
 ```
-Add app update detection to Perappos.
+Add app update detection to Cottix.
 
 1. Create a utility function: checkForUpdates(app) that:
    - Only works for source_type='url' apps
@@ -494,7 +494,7 @@ Add app update detection to Perappos.
 ### Session 4A: Native Features Integration
 
 ```
-Add native device features to the Perappos bridge.
+Add native device features to the Cottix bridge.
 
 Extend the WebView bridge handler (onMessage) to support these:
 
@@ -522,7 +522,7 @@ Extend the WebView bridge handler (onMessage) to support these:
 4. APP LOCK (expo-local-authentication):
    - In _layout.tsx, check if app lock is enabled (from settings)
    - If yes, on app foreground (useAppState hook), show biometric prompt
-   - LocalAuthentication.authenticateAsync({ promptMessage: 'Unlock Perappos' })
+   - LocalAuthentication.authenticateAsync({ promptMessage: 'Unlock Cottix' })
    - If fails, show "Locked" screen with retry button
    - Store lock preference in expo-sqlite/kv-store
 
@@ -544,11 +544,11 @@ Extend the WebView bridge handler (onMessage) to support these:
 ### Session 4B: Visual Polish + UX
 
 ```
-Polish the Perappos app to feel premium and iOS-native:
+Polish the Cottix app to feel premium and iOS-native:
 
 1. HOME SCREEN POLISH:
    - Large title that collapses on scroll (like iOS Settings):
-     "Perappos" in 34px bold when scrolled to top → shrinks to 17px in nav bar on scroll
+     "Cottix" in 34px bold when scrolled to top → shrinks to 17px in nav bar on scroll
    - App grid items: on tap, scale to 0.92 with spring animation (Reanimated), 
      then navigate on release
    - Pull-to-refresh on home screen: checks for updates on all URL-sourced apps
@@ -598,17 +598,17 @@ Polish the Perappos app to feel premium and iOS-native:
 ### Session 5: Build Configuration
 
 ```
-Configure Perappos for production Android build:
+Configure Cottix for production Android build:
 
 1. Update app.json / app.config.ts:
 {
   "expo": {
-    "name": "Perappos",
-    "slug": "perappos",
+    "name": "Cottix",
+    "slug": "cottix",
     "version": "0.1.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "scheme": "perappos",
+    "scheme": "cottix",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
     "splash": {
@@ -621,14 +621,14 @@ Configure Perappos for production Android build:
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#FFFFFF"
       },
-      "package": "com.perappos.app",
+      "package": "com.cottix.app",
       "permissions": [
         "NOTIFICATIONS",
         "VIBRATE"
       ]
     },
     "ios": {
-      "bundleIdentifier": "com.perappos.app",
+      "bundleIdentifier": "com.cottix.app",
       "supportsTablet": true
     },
     "plugins": [
@@ -698,13 +698,13 @@ After the build completes:
    - Lovable/Bolt Discord community members
 
 4. Include a short message:
-   "Hey! I built Perappos — it turns any web app (from Lovable, Bolt, Claude) 
+   "Hey! I built Cottix — it turns any web app (from Lovable, Bolt, Claude) 
     into a mobile app with one tap. Paste a URL, it becomes an app.
     
     Here's the APK: [link]
     
     Try this: open any app you've built in Lovable/Bolt, copy the deployed URL, 
-    paste it in Perappos. Let me know what breaks!"
+    paste it in Cottix. Let me know what breaks!"
 
 5. Create a feedback channel:
    - Telegram group or Discord server

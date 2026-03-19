@@ -244,7 +244,7 @@ function setReminder() {
     });
     alert('Reminder set for 1 hour from now!');
   } else {
-    alert('Notifications not available in browser. Install in Perappos for reminders!');
+    alert('Notifications not available in browser. Install in Cottix for reminders!');
   }
 }
 

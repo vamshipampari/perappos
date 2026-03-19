@@ -1,4 +1,4 @@
-# Perappos — Claude Code Protocol & Rules
+# Cottix — Claude Code Protocol & Rules
 
 ## Before Starting Any Task
 

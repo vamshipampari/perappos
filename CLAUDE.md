@@ -1,8 +1,8 @@
-# Perappos — Claude Code Guidelines
+# Cottix — Claude Code Guidelines
 
 ## Project Context
 
-- **Project**: Perappos
+- **Project**: Cottix
 - **Purpose**: Personal app OS for iOS/Android — install, organize, and run AI-generated web apps (from Lovable, Bolt, Vercel, Replit, or any URL) natively on your phone
 - **Tech Stack**: Expo SDK 55 (New Arch) + TypeScript + NativeWind v4 + expo-sqlite + PowerSync + Supabase + react-native-webview
 - **Current Status**: Core features complete. Shared collaboration with 3-way merge engine shipped. Working on sync reliability and UX polish.

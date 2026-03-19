@@ -1,6 +1,7 @@
 import * as FileSystem from 'expo-file-system/legacy';
 import { router, useFocusEffect } from 'expo-router';
 import * as Sharing from 'expo-sharing';
+import { supabase } from '@/services/supabase';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -581,15 +582,20 @@ export default function HomeScreen() {
             try {
               await db.runAsync('DELETE FROM app_data WHERE app_id = ?', menuTargetApp.app_id);
               await db.runAsync('DELETE FROM apps WHERE app_id = ?', menuTargetApp.app_id);
+              void supabase.rpc('increment_app_count', { delta: -1 }).then(undefined, () => {});
               setUpdatesAvailable((prev) => {
                 const next = { ...prev };
                 delete next[menuTargetApp.app_id];
                 return next;
               });
+              // Close the modal first so the list is visible when refresh runs.
+              // React Native Modal renders in a separate native layer — calling
+              // setApps() while the modal is open doesn't reliably update the
+              // FlatList until the modal is dismissed.
+              setMenuVisible(false);
               await refresh();
             } catch {
               Alert.alert('Delete failed', 'Could not delete app.');
-            } finally {
               setMenuVisible(false);
             }
           },
@@ -622,7 +628,7 @@ export default function HomeScreen() {
           largeTitleStyle,
         ]}
       >
-        Perappos
+        Cottix
       </Animated.Text>
       {!loading && (
         <Animated.Text
@@ -655,7 +661,7 @@ export default function HomeScreen() {
             navBarTitleStyle,
           ]}
         >
-          Perappos
+          Cottix
         </Animated.Text>
         {scanRunning && (
           <View style={{ position: 'absolute', right: 16 }}>

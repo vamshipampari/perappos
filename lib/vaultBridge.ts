@@ -131,6 +131,20 @@ export async function handleVaultMessage(
           userId
         );
 
+        // If the instance is frozen, inject a notification into the WebView
+        // so the native layer can show the frozen banner.
+        if (!result.success && result.error === 'INSTANCE_FROZEN') {
+          webViewRef.current?.injectJavaScript(`
+            (function() {
+              window.__vaultInstanceFrozen = true;
+              window.dispatchEvent(new CustomEvent('vaultInstanceFrozen', {
+                detail: { message: "This shared app is currently read-only because the owner's plan has expired." }
+              }));
+            })();
+            true;
+          `);
+        }
+
         respond({
           success: result.success,
           newVersion: result.newVersion,

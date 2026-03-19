@@ -1,11 +1,11 @@
 {
   "expo": {
-    "name": "Perappos",
-    "slug": "perappos",
+    "name": "Cottix",
+    "slug": "cottix",
     "version": "0.1.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "perappos",
+    "scheme": "cottix",
     "userInterfaceStyle": "light",
     "splash": {
       "image": "./assets/images/splash-icon.png",
@@ -14,7 +14,7 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.perappos.app",
+      "bundleIdentifier": "com.cottix.app",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       }
@@ -28,7 +28,7 @@
       },
       "softwareKeyboardLayoutMode": "pan",
       "predictiveBackGestureEnabled": false,
-      "package": "com.perappos.app",
+      "package": "com.cottix.app",
       "permissions": ["NOTIFICATIONS", "VIBRATE"]
     },
     "web": {

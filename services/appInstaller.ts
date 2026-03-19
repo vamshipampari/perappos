@@ -7,6 +7,8 @@
 import * as Crypto from 'expo-crypto';
 import type { SQLiteDatabase } from 'expo-sqlite';
 
+import { supabase } from './supabase';
+
 export interface InstallUrlOptions {
   url: string;
   name: string;
@@ -38,6 +40,9 @@ export async function installUrlApp(
     options.iconBgColor,
     options.url
   );
+
+  // Increment app count (fire-and-forget)
+  void supabase.rpc('increment_app_count', { delta: 1 }).then(undefined, () => {});
 
   return appId;
 }

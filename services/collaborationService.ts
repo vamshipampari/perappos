@@ -423,4 +423,7 @@ export async function stopSharingAsOwner(
   await deleteSharedInstanceInOrder(instanceId);
 
   await db.runAsync('UPDATE apps SET instance_id = NULL WHERE app_id = ?', appId);
+
+  // Decrement shared instance count (fire-and-forget)
+  void supabase.rpc('increment_shared_instance_count', { delta: -1 }).then(undefined, () => {});
 }

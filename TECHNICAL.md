@@ -1,4 +1,4 @@
-# Perappos — Technical Reference
+# Cottix — Technical Reference
 
 ## Tech Stack
 
@@ -19,7 +19,7 @@
 ## File Structure
 
 ```
-perappos/
+cottix/
 ├── app/
 │   ├── _layout.tsx          Root layout — SQLiteProvider + PowerSyncProvider + Stack navigator
 │   ├── login.tsx            Full-screen gate — mandatory OTP sign-in (no close, gestureEnabled:false)
@@ -293,7 +293,7 @@ These columns must exist in both the PowerSync schema and the Supabase table, an
 When a different Supabase user signs in while local app data exists, `AuthChangeGuard` (in `_layout.tsx`) detects the mismatch via `useUserChangeGuard` and shows `UserChangeWarningModal`. The modal is not dismissable — user must choose "Continue & Erase" (wipes everything, switches to new user) or "Cancel" (signs out, preserves old data). See `hooks/useUserChangeGuard.ts` for wipe sequence.
 
 ### Deep-link handling (retained for future use)
-`app/_layout.tsx` still listens for `perappos://auth/callback` via `Linking` in case deep-link
+`app/_layout.tsx` still listens for `cottix://auth/callback` via `Linking` in case deep-link
 auth is re-enabled (e.g., OAuth providers). Handles both hash-token and PKCE code-exchange flows.
 
 ## Collaboration Flow (Shared Data)

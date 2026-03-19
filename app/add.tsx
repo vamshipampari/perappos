@@ -19,8 +19,10 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useToast } from '@/components/Toast';
 import { useDatabase } from '@/hooks/useDatabase';
+import { useGatekeeper } from '@/hooks/useGatekeeper';
 import { useInstalledApps } from '@/hooks/useInstalledApps';
 import { Haptics, safeNotificationAsync } from '@/lib/haptics';
+import { supabase } from '@/services/supabase';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -336,6 +338,7 @@ function AddScreenContent() {
   const db = useDatabase();
   const { refresh } = useInstalledApps();
   const { showToast } = useToast();
+  const { gateAppInstall } = useGatekeeper();
   const replaceAppId =
     typeof params.replace_app_id === 'string' ? params.replace_app_id : null;
   const replaceUrlParam =
@@ -458,6 +461,10 @@ function AddScreenContent() {
 
   const handleInstall = async () => {
     if (!bundle || step === 'installing') return;
+
+    // Gate new installs (skip for replacements/updates)
+    if (!replaceAppId && !gateAppInstall()) return;
+
     setStep('installing');
 
     try {
@@ -501,6 +508,12 @@ function AddScreenContent() {
       }
 
       await refresh();
+
+      // Increment app count for new installs (fire-and-forget)
+      if (!replaceAppId) {
+        void supabase.rpc('increment_app_count', { delta: 1 }).then(undefined, () => {});
+      }
+
       void safeNotificationAsync(Haptics.NotificationFeedbackType.Success);
       showToast(replaceAppId ? 'App updated ✓' : 'App installed ✓', 'success');
       setTimeout(() => {
@@ -565,7 +578,18 @@ function AddScreenContent() {
                   <View style={styles.card}>
                     <TextInput
                       value={url}
-                      onChangeText={setUrl}
+                      onChangeText={(text) => {
+                        // Normalise locale-specific punctuation to ASCII equivalents.
+                        // Some keyboards (e.g. Hindi/Marathi) emit the Devanagari danda
+                        // character (।, U+0964) instead of a period when the URL keyboard
+                        // is active, turning "netlify.app" into "netlify।app".
+                        const normalised = text
+                          .replace(/।/g, '.')   // Devanagari danda → period
+                          .replace(/॥/g, '.')   // double danda → period
+                          .replace(/['']/g, "'") // curly apostrophes → straight
+                          .replace(/[""]/g, '"'); // curly quotes → straight
+                        setUrl(normalised);
+                      }}
                       placeholder="Paste app URL (lovable.dev, bolt.host, vercel.app…)"
                       placeholderTextColor="#C7C7CC"
                       style={styles.urlInput}
@@ -677,6 +701,9 @@ function AddScreenContent() {
                         placeholder="App name"
                         placeholderTextColor="#C7C7CC"
                         style={styles.nameInput}
+                        autoCapitalize="words"
+                        autoCorrect={false}
+                        spellCheck={false}
                         returnKeyType="done"
                       />
                     </View>
