@@ -618,31 +618,6 @@ function AddScreenContent() {
               keyboardShouldPersistTaps="handled"
               showsVerticalScrollIndicator={false}
             >
-              {/* ── Create with AI card ─────────────────────────────────── */}
-              {step === 'input' && (
-                <View style={styles.section}>
-                  <TouchableOpacity
-                    onPress={() => router.push('/create')}
-                    activeOpacity={0.85}
-                    style={styles.aiCard}
-                  >
-                    <Text style={styles.aiCardEmoji}>✨</Text>
-                    <View style={styles.aiCardText}>
-                      <Text style={styles.aiCardTitle}>Create with AI</Text>
-                      <Text style={styles.aiCardSubtitle}>
-                        Describe what you want — get an app in seconds
-                      </Text>
-                    </View>
-                    <Text style={styles.aiCardChevron}>›</Text>
-                  </TouchableOpacity>
-
-                  <View style={styles.dividerRow}>
-                    <View style={styles.dividerLine} />
-                    <Text style={styles.dividerText}>or import existing</Text>
-                    <View style={styles.dividerLine} />
-                  </View>
-                </View>
-              )}
 
               {/* ── Section 1: From URL ──────────────────────────────────── */}
               {(step === 'input' || step === 'details') && (
@@ -738,7 +713,7 @@ function AddScreenContent() {
                 </View>
               )}
 
-              {/* ── Section 2: From ZIP ──────────────────────────────────── */}
+              {/* ── Create with AI card (Coming Soon) ───────────────────── */}
               {step === 'input' && (
                 <View style={styles.section}>
                   <View style={styles.dividerRow}>
@@ -748,15 +723,21 @@ function AddScreenContent() {
                   </View>
 
                   <TouchableOpacity
-                    onPress={handleSelectZip}
-                    activeOpacity={0.8}
-                    style={styles.outlineBtn}
+                    onPress={() => Alert.alert('Coming Soon', 'Create with AI is coming soon!')}
+                    activeOpacity={0.7}
+                    style={[styles.aiCard, styles.aiCardDisabled]}
                   >
-                    <Text style={styles.outlineBtnText}>Upload ZIP File</Text>
+                    <Text style={styles.aiCardEmoji}>✨</Text>
+                    <View style={styles.aiCardText}>
+                      <Text style={styles.aiCardTitle}>Create with AI</Text>
+                      <Text style={styles.aiCardSubtitle}>
+                        Describe what you want — get an app in seconds
+                      </Text>
+                    </View>
+                    <View style={styles.comingSoonBadge}>
+                      <Text style={styles.comingSoonText}>Soon</Text>
+                    </View>
                   </TouchableOpacity>
-                  <Text style={styles.zipHint}>
-                    ZIP must contain an index.html at root or one level deep
-                  </Text>
                 </View>
               )}
 
@@ -1193,5 +1174,19 @@ const styles = StyleSheet.create({
     fontSize: 22,
     color: '#C7C7CC',
     fontWeight: '300',
+  },
+  aiCardDisabled: {
+    opacity: 0.6,
+  },
+  comingSoonBadge: {
+    backgroundColor: '#E0E7FF',
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  comingSoonText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#6366F1',
   },
 });
