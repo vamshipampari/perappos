@@ -5,9 +5,7 @@ import {
   ActivityIndicator,
   Alert,
   BackHandler,
-  Modal,
   Platform,
-  Pressable,
   Share,
   StyleSheet,
   Text,
@@ -22,8 +20,10 @@ import Animated, {
 } from 'react-native-reanimated';
 import WebView from 'react-native-webview';
 
+import { ActionSheet } from '@/components/ActionSheet';
+import { AppIcon } from '@/components/AppIcon';
 import { useDatabase } from '@/hooks/useDatabase';
-import type { InstalledApp } from '@/hooks/useInstalledApps';
+import type { InstalledApp, Phase } from '@/types';
 import { usePowerSync } from '../../services/sync/PowerSyncProvider';
 import { createSharedInstanceForApp } from '../../services/collaborationService';
 import {
@@ -35,6 +35,7 @@ import {
 import { handleVaultMessage } from '@/lib/vaultBridge';
 import { buildVaultShim } from '@/lib/vaultShim';
 import { buildSyncShim } from '@/lib/vaultShimSync';
+import { log } from '@/lib/logger';
 import { DEMO_HTML_BY_NAME } from '@/utils/demoAppsHtml';
 import { supabase } from '@/services/supabase';
 
@@ -49,10 +50,6 @@ const ANDROID_KEYBOARD_FIX_JS = `
     }
   })();
 `;
-
-// ── Types ─────────────────────────────────────────────────────────────────────
-
-type Phase = 'loading' | 'ready' | 'not_found';
 
 // ── Screen ────────────────────────────────────────────────────────────────────
 
@@ -232,7 +229,7 @@ export default function AppScreen() {
 
         setApp(foundApp);
         setShimJS(generatedShimJS);
-        console.log('[webview] using shim:', isShared ? 'SYNC' : 'LOCAL', 'preload:', preloadSource);
+        log.info('[webview] using shim:', isShared ? 'SYNC' : 'LOCAL', 'preload:', preloadSource);
 
         // ── Freeze status check ──
         if (foundApp.instance_id) {
@@ -241,17 +238,17 @@ export default function AppScreen() {
               `SELECT is_frozen FROM shared_instances WHERE instance_id = ?`,
               [foundApp.instance_id]
             );
-            if (instanceRows && instanceRows.length > 0 && instanceRows[0].is_frozen === 1) {
+            if (instanceRows && instanceRows.length > 0 && (instanceRows[0] as Record<string, unknown>).is_frozen === 1) {
               setIsFrozen(true);
             }
           } catch (err) {
-            console.warn('[app] freeze status check failed:', err);
+            log.warn('[app] freeze status check failed:', err);
           }
         }
 
         setPhase('ready');
       } catch (e) {
-        console.error('[AppScreen] load error:', e);
+        log.error('[AppScreen] load error:', e);
         setPhase('not_found');
       }
     })();
@@ -310,7 +307,7 @@ export default function AppScreen() {
 
       if (!webViewRef.current) {
         // WebView not ready yet — buffer for onLoadEnd
-        console.log('[live-push] WebView not ready — buffering', pendingUpdates.length, 'update(s)');
+        log.info('[live-push] WebView not ready — buffering', pendingUpdates.length, 'update(s)');
         pendingRemoteUpdates.current.push(...pendingUpdates);
         pendingUpdates = [];
         return;
@@ -326,7 +323,7 @@ export default function AppScreen() {
     async function startWatching() {
       const db = syncDbRef.current;
       if (!db) {
-        console.warn('[live-push] syncDbRef.current is null — watcher not started');
+        log.warn('[live-push] syncDbRef.current is null — watcher not started');
         return;
       }
 
@@ -381,7 +378,7 @@ export default function AppScreen() {
       } catch (err: unknown) {
         const errObj = err as { name?: string } | null;
         if (errObj?.name !== 'AbortError') {
-          console.error('[live-push] watcher error:', err);
+          log.error('[live-push] watcher error:', err);
         }
       }
     }
@@ -389,7 +386,7 @@ export default function AppScreen() {
     startWatching();
 
     return () => {
-      console.log('[live-push] watcher teardown for instanceId:', instanceId);
+      log.info('[live-push] watcher teardown for instanceId:', instanceId);
       abortController.abort();
       if (debounceTimer) clearTimeout(debounceTimer);
     };
@@ -424,7 +421,7 @@ export default function AppScreen() {
       } catch (err: unknown) {
         const errObj = err as { name?: string } | null;
         if (errObj?.name !== 'AbortError') {
-          console.warn('[app] freeze watcher error:', err);
+          log.warn('[app] freeze watcher error:', err);
         }
       }
     }
@@ -441,7 +438,7 @@ export default function AppScreen() {
     async (target: InstalledApp) => {
       const { shim, preloadSource } = await loadShimPayload(target);
       setShimJS(shim);
-      console.log('[webview] using shim:', target.instance_id ? 'SYNC' : 'LOCAL', 'preload:', preloadSource);
+      log.info('[webview] using shim:', target.instance_id ? 'SYNC' : 'LOCAL', 'preload:', preloadSource);
     },
     [loadShimPayload]
   );
@@ -461,11 +458,11 @@ export default function AppScreen() {
           clientWriteId?: string;
         };
         if (parsed.type === 'js_error') {
-          console.error('[webview] js error:', parsed.message, 'line:', parsed.line);
+          log.error('[webview] js error:', parsed.message, 'line:', parsed.line);
           return;
         }
         if (parsed.type === 'shim_error') {
-          console.error('[webview] shim error:', parsed.error, parsed.stack ?? '');
+          log.error('[webview] shim error:', parsed.error, parsed.stack ?? '');
           return;
         }
         // Track own writes so the PowerSync watcher can skip them (no echo).
@@ -626,7 +623,7 @@ export default function AppScreen() {
               const updatedApp = { ...app, instance_id: result.instanceId };
               setApp(updatedApp);
               await rebuildShimForApp(updatedApp);
-              console.log('[share] shim rebuilt for shared instance, reloading WebView');
+              log.info('[share] shim rebuilt for shared instance, reloading WebView');
               // Reload immediately so the WebView picks up the sync shim.
               // Use setTimeout(0) to let React commit the new shimJS prop before reload.
               setTimeout(() => refreshWebView(), 0);
@@ -654,7 +651,7 @@ export default function AppScreen() {
                 ]
               );
             } catch (error) {
-              console.error('[collaborate] error:', error);
+              log.error('[collaborate] error:', error);
               Alert.alert(
                 'Could not check existing shared instance',
                 error instanceof Error ? error.message : String(error)
@@ -865,11 +862,11 @@ export default function AppScreen() {
 
         {/* App identity */}
         <View style={styles.headerCenter}>
-          <View
-            style={[styles.headerIcon, { backgroundColor: app.icon_bg_color }]}
-          >
-            <Text style={{ fontSize: 12 }}>{app.icon_emoji}</Text>
-          </View>
+          <AppIcon
+            emoji={app.icon_emoji}
+            bgColor={app.icon_bg_color}
+            size={22}
+          />
           <Text style={styles.headerTitle} numberOfLines={1}>
             {app.name}
           </Text>
@@ -964,7 +961,7 @@ export default function AppScreen() {
                 webOpacity.value = withTiming(1, { duration: 380 });
                 // Flush any remote updates that arrived before the WebView was ready
                 if (pendingRemoteUpdates.current.length > 0 && webViewRef.current) {
-                  console.log('[live-push] onLoadEnd flushing', pendingRemoteUpdates.current.length, 'buffered update(s)');
+                  log.info('[live-push] onLoadEnd flushing', pendingRemoteUpdates.current.length, 'buffered update(s)');
                   const payload = JSON.stringify(pendingRemoteUpdates.current);
                   webViewRef.current.injectJavaScript(
                     `window._VaultSyncPush && window._VaultSyncPush(${payload});true;`
@@ -973,7 +970,7 @@ export default function AppScreen() {
                 }
               }}
               onError={(e) => {
-                console.error('[webview] error:', e.nativeEvent.description);
+                log.error('[webview] error:', e.nativeEvent.description);
                 hasLoadedOnceRef.current = true;
                 setWebLoading(false);
                 setWebError(e.nativeEvent.description ?? 'Failed to load');
@@ -1028,110 +1025,6 @@ export default function AppScreen() {
   );
 }
 
-// ── ActionSheet ───────────────────────────────────────────────────────────────
-// Cross-platform iOS-style bottom action sheet using Modal.
-
-interface SheetAction {
-  label: string;
-  onPress: () => void;
-  loading?: boolean;
-  disabled?: boolean;
-}
-
-function ActionSheet({
-  visible,
-  title,
-  actions,
-  destructiveActions = [],
-  onDismiss,
-}: {
-  visible: boolean;
-  title: string;
-  actions: SheetAction[];
-  destructiveActions?: SheetAction[];
-  onDismiss: () => void;
-}) {
-  return (
-    <Modal
-      visible={visible}
-      transparent
-      animationType="slide"
-      statusBarTranslucent
-      onRequestClose={onDismiss}
-    >
-      <View style={sheet.wrapper}>
-        {/* Tap-away backdrop */}
-        <Pressable style={StyleSheet.absoluteFill} onPress={onDismiss} />
-
-        <View style={sheet.container}>
-          {/* Title card */}
-          <View style={sheet.group}>
-            <View style={sheet.titleRow}>
-              <Text style={sheet.titleText} numberOfLines={1}>
-                {title}
-              </Text>
-            </View>
-          </View>
-
-          {/* Normal actions */}
-          <View style={sheet.group}>
-            {actions.map((action, i) => (
-              <View key={action.label}>
-                <TouchableOpacity
-                  onPress={action.onPress}
-                  disabled={action.disabled}
-                  activeOpacity={0.55}
-                  style={[sheet.row, action.disabled && { opacity: 0.55 }]}
-                >
-                  <View style={sheet.rowInner}>
-                    {action.loading ? (
-                      <ActivityIndicator size="small" color="#007AFF" />
-                    ) : null}
-                    <Text style={sheet.rowText}>{action.label}</Text>
-                  </View>
-                </TouchableOpacity>
-                {i < actions.length - 1 && <View style={sheet.separator} />}
-              </View>
-            ))}
-          </View>
-
-          {/* Destructive actions */}
-          {destructiveActions.length > 0 && (
-            <View style={sheet.group}>
-              {destructiveActions.map((action, i) => (
-                <View key={action.label}>
-                  <TouchableOpacity
-                    onPress={action.onPress}
-                    activeOpacity={0.55}
-                    style={sheet.row}
-                  >
-                    <Text style={[sheet.rowText, sheet.destructiveText]}>
-                      {action.label}
-                    </Text>
-                  </TouchableOpacity>
-                  {i < destructiveActions.length - 1 && (
-                    <View style={sheet.separator} />
-                  )}
-                </View>
-              ))}
-            </View>
-          )}
-
-          {/* Cancel */}
-          <View style={sheet.group}>
-            <TouchableOpacity
-              onPress={onDismiss}
-              activeOpacity={0.55}
-              style={sheet.row}
-            >
-              <Text style={[sheet.rowText, sheet.cancelText]}>Cancel</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </View>
-    </Modal>
-  );
-}
 
 // ── Styles ────────────────────────────────────────────────────────────────────
 
@@ -1209,13 +1102,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 6,
     paddingHorizontal: 4,
-  },
-  headerIcon: {
-    width: 22,
-    height: 22,
-    borderRadius: 5,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   headerTitle: {
     fontSize: 16,
@@ -1301,56 +1187,3 @@ const styles = StyleSheet.create({
   },
 });
 
-const sheet = StyleSheet.create({
-  wrapper: {
-    flex: 1,
-    justifyContent: 'flex-end',
-    backgroundColor: 'rgba(0,0,0,0.35)',
-  },
-  container: {
-    paddingHorizontal: 8,
-    paddingBottom: 34, // accommodate home indicator
-    gap: 8,
-  },
-  group: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 13,
-    overflow: 'hidden',
-  },
-  titleRow: {
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    alignItems: 'center',
-  },
-  titleText: {
-    fontSize: 13,
-    color: '#8E8E93',
-    fontWeight: '500',
-  },
-  row: {
-    paddingVertical: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  rowInner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-  },
-  rowText: {
-    fontSize: 17,
-    color: '#007AFF',
-  },
-  destructiveText: {
-    color: '#FF3B30',
-  },
-  cancelText: {
-    fontWeight: '600',
-  },
-  separator: {
-    height: 0.5,
-    backgroundColor: '#E5E5EA',
-    marginLeft: 0,
-  },
-});

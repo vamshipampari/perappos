@@ -17,6 +17,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { PromoCodeSheet } from '@/components/PromoCodeSheet';
 import { useDatabase } from '@/hooks/useDatabase';
 import { useUserProfile, type PlanType } from '@/hooks/useUserProfile';
+import { log } from '@/lib/logger';
 import { supabase } from '../../services/supabase';
 import { usePowerSync } from '../../services/sync/PowerSyncProvider';
 
@@ -452,10 +453,10 @@ export default function SettingsScreen() {
         'SELECT app_id, name, instance_id FROM apps'
       );
       const count = total?.n ?? 0;
-      console.log('[DebugSync] app_data row count:', count);
-      console.log('[DebugSync] first rows:', rows);
-      console.log('[DebugSync] merge status rows:', mergeRows);
-      console.log('[DebugSync] apps rows:', appRows);
+      log.info('[DebugSync] app_data row count:', count);
+      log.info('[DebugSync] first rows:', rows);
+      log.info('[DebugSync] merge status rows:', mergeRows);
+      log.info('[DebugSync] apps rows:', appRows);
 
       const mergeStatus = mergeRows.length === 0
         ? 'none'
@@ -480,7 +481,7 @@ export default function SettingsScreen() {
           + `\n\nApps:\n${appsStatus}`
       );
     } catch (e) {
-      console.error('[DebugSync] error:', e);
+      log.error('[DebugSync] error:', e);
       Alert.alert('Debug error', String(e));
     }
   };

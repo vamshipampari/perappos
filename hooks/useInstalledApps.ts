@@ -1,25 +1,8 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useDatabase } from './useDatabase';
+import type { InstalledApp } from '@/types';
 
-export interface InstalledApp {
-  app_id: string;
-  name: string;
-  icon_emoji: string;
-  icon_bg_color: string;
-  bundle_path: string;
-  source_type: string;
-  source_url: string | null;
-  bundle_html: string | null;
-  bundle_hash: string | null;
-  auto_update: number;
-  permissions: string;
-  bundle_size: number;
-  installed_at: string;
-  updated_at: string;
-  last_opened: string | null;
-  open_count: number;
-  instance_id: string | null;
-}
+export type { InstalledApp };
 
 export function useInstalledApps() {
   const db = useDatabase();

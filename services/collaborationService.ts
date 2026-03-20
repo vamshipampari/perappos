@@ -2,7 +2,8 @@ import type { AbstractPowerSyncDatabase } from '@powersync/react-native';
 import * as Crypto from 'expo-crypto';
 import type { SQLiteDatabase } from 'expo-sqlite';
 
-import type { InstalledApp } from '@/hooks/useInstalledApps';
+import { log } from '@/lib/logger';
+import type { InstalledApp } from '@/types';
 import { installUrlApp } from './appInstaller';
 import { supabase } from './supabase';
 
@@ -51,7 +52,7 @@ function safeErrorLogPayload(error: unknown): string {
 }
 
 function throwWithStage(stage: string, error: unknown): never {
-  console.error('Create shared error:', safeErrorLogPayload(error));
+  log.error('Create shared error:', safeErrorLogPayload(error));
   const message = error instanceof Error ? error.message : String(error);
   throw new Error(`${stage}: ${message}`);
 }
@@ -88,7 +89,7 @@ export async function getOwnedSharedInstance(appId: string): Promise<SharedInsta
   });
 
   if (error) {
-    console.error('getOwnedSharedInstance error:', safeErrorLogPayload(error));
+    log.error('getOwnedSharedInstance error:', safeErrorLogPayload(error));
     throw new Error(`Failed checking existing shared instance: ${error.message}`);
   }
 
@@ -211,7 +212,7 @@ export async function createSharedInstanceForApp(
     try {
       await deleteSharedInstanceInOrder(instanceId);
     } catch (rollbackError) {
-      console.error('Create shared rollback error:', safeErrorLogPayload(rollbackError));
+      log.error('Create shared rollback error:', safeErrorLogPayload(rollbackError));
     }
     throwWithStage('Failed adding owner as member', error);
   }
@@ -297,7 +298,7 @@ export async function joinSharedAppByCode(
   const { data, error: lookupError } = await supabase.rpc('lookup_shared_instance', {
     p_invite_code: normalizedCode,
   });
-  console.log('Lookup result:', JSON.stringify(data), 'Error:', JSON.stringify(lookupError));
+  log.info('Lookup result:', JSON.stringify(data), 'Error:', JSON.stringify(lookupError));
   const instance = (data as SharedInstance[] | null)?.[0] ?? null;
 
   if (lookupError || !instance) {
@@ -313,7 +314,7 @@ export async function joinSharedAppByCode(
     p_user_id: userId,
     p_role: 'member',
   });
-  console.log(
+  log.info(
     'Member add result:',
     JSON.stringify(memberAddData),
     'Error:',
@@ -350,7 +351,7 @@ export async function joinSharedAppByCode(
       iconBgColor: '#DBEAFE',
       url: instance.app_source_url,
     });
-    console.log('App install result:', JSON.stringify({ appId, appSourceUrl: instance.app_source_url }));
+    log.info('App install result:', JSON.stringify({ appId, appSourceUrl: instance.app_source_url }));
   }
 
   onStateChange?.('link_local_instance');

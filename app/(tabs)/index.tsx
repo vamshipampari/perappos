@@ -7,7 +7,6 @@ import {
   ActivityIndicator,
   Alert,
   FlatList,
-  Modal,
   Pressable,
   RefreshControl,
   Text,
@@ -15,6 +14,8 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { ActionSheet } from '@/components/ActionSheet';
+import { AppIcon } from '@/components/AppIcon';
 import Animated, {
   Extrapolation,
   interpolate,
@@ -26,7 +27,8 @@ import Animated, {
 
 import { useToast } from '@/components/Toast';
 import { useDatabase } from '@/hooks/useDatabase';
-import { type InstalledApp, useInstalledApps } from '@/hooks/useInstalledApps';
+import type { InstalledApp } from '@/types';
+import { useInstalledApps } from '@/hooks/useInstalledApps';
 import { applyUrlAppUpdate, checkForUpdates } from '@/lib/appUpdates';
 import { Haptics, safeImpactAsync } from '@/lib/haptics';
 import { shareApp } from '../../services/shareService';
@@ -104,58 +106,14 @@ function AppListCard({
           ]}
         >
           {/* Icon */}
-          <View style={{ position: 'relative', marginRight: 14 }}>
-            <View
-              style={{
-                width: ICON_SIZE,
-                height: ICON_SIZE,
-                borderRadius: 12,
-                backgroundColor: app.icon_bg_color,
-                alignItems: 'center',
-                justifyContent: 'center',
-                shadowColor: '#000',
-                shadowOffset: { width: 0, height: 1 },
-                shadowOpacity: 0.08,
-                shadowRadius: 3,
-                elevation: 2,
-              }}
-            >
-              <Text style={{ fontSize: 24 }}>{app.icon_emoji}</Text>
-            </View>
-            {hasUpdate && (
-              <View
-                style={{
-                  position: 'absolute',
-                  top: -2,
-                  right: -2,
-                  width: 10,
-                  height: 10,
-                  borderRadius: 5,
-                  backgroundColor: '#FF3B30',
-                  borderWidth: 1.5,
-                  borderColor: '#FFFFFF',
-                }}
-              />
-            )}
-            {app.instance_id ? (
-              <View
-                style={{
-                  position: 'absolute',
-                  right: -4,
-                  bottom: -4,
-                  width: 18,
-                  height: 18,
-                  borderRadius: 9,
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  backgroundColor: '#FFFFFF',
-                  borderWidth: 1,
-                  borderColor: '#D1D1D6',
-                }}
-              >
-                <Text style={{ fontSize: 10 }}>👥</Text>
-              </View>
-            ) : null}
+          <View style={{ marginRight: 14 }}>
+            <AppIcon
+              emoji={app.icon_emoji}
+              bgColor={app.icon_bg_color}
+              size={ICON_SIZE}
+              hasUpdate={hasUpdate}
+              isShared={!!app.instance_id}
+            />
           </View>
 
           {/* Text */}
@@ -701,103 +659,49 @@ export default function HomeScreen() {
       </View>
 
       {/* ── Long-press context menu ────────────────────────────────────── */}
-      <Modal
+      <ActionSheet
         visible={menuVisible}
-        transparent
-        animationType="slide"
-        onRequestClose={closeContextMenu}
-      >
-        <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.3)' }}>
-          <Pressable style={{ flex: 1 }} onPress={closeContextMenu} />
-          <View style={{ paddingHorizontal: 8, paddingBottom: 30, gap: 8 }}>
-            <View style={{ backgroundColor: '#FFFFFF', borderRadius: 13, overflow: 'hidden' }}>
-              <TouchableOpacity
-                onPress={() => menuTargetApp && router.push(`/app/${menuTargetApp.app_id}`)}
-                style={{ paddingVertical: 16, alignItems: 'center' }}
-              >
-                <Text style={{ fontSize: 17, color: '#007AFF' }}>Open</Text>
-              </TouchableOpacity>
-              {menuTargetApp?.instance_id ? (
-                <>
-                  <View style={{ height: 0.5, backgroundColor: '#E5E5EA' }} />
-                  <TouchableOpacity
-                    onPress={() => {
-                      setMenuVisible(false);
-                      router.push(`/shared-instance/${menuTargetApp.instance_id}`);
-                    }}
-                    style={{ paddingVertical: 16, alignItems: 'center' }}
-                  >
-                    <Text style={{ fontSize: 17, color: '#007AFF' }}>👥 Manage Group</Text>
-                  </TouchableOpacity>
-                </>
-              ) : null}
-              <View style={{ height: 0.5, backgroundColor: '#E5E5EA' }} />
-              <TouchableOpacity
-                onPress={performMenuCheckUpdate}
-                disabled={menuBusy}
-                style={{ paddingVertical: 16, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 8 }}
-              >
-                {menuBusy ? <ActivityIndicator size="small" color="#007AFF" /> : null}
-                <Text style={{ fontSize: 17, color: '#007AFF' }}>
-                  {menuTargetApp && updatesAvailable[menuTargetApp.app_id]
-                    ? 'Check for Update (Available!)'
-                    : 'Check for Update'}
-                </Text>
-              </TouchableOpacity>
-              <View style={{ height: 0.5, backgroundColor: '#E5E5EA' }} />
-              <TouchableOpacity
-                onPress={performMenuReplaceCode}
-                style={{ paddingVertical: 16, alignItems: 'center' }}
-              >
-                <Text style={{ fontSize: 17, color: '#007AFF' }}>Replace App Code</Text>
-              </TouchableOpacity>
-              <View style={{ height: 0.5, backgroundColor: '#E5E5EA' }} />
-              <TouchableOpacity
-                onPress={performMenuInfo}
-                style={{ paddingVertical: 16, alignItems: 'center' }}
-              >
-                <Text style={{ fontSize: 17, color: '#007AFF' }}>App Info</Text>
-              </TouchableOpacity>
-              <View style={{ height: 0.5, backgroundColor: '#E5E5EA' }} />
-              <TouchableOpacity
-                onPress={performMenuExportData}
-                disabled={menuBusy}
-                style={{ paddingVertical: 16, alignItems: 'center' }}
-              >
-                <Text style={{ fontSize: 17, color: '#007AFF' }}>Export Data</Text>
-              </TouchableOpacity>
-              <View style={{ height: 0.5, backgroundColor: '#E5E5EA' }} />
-              <TouchableOpacity
-                onPress={performMenuShare}
-                disabled={menuBusy}
-                style={{ paddingVertical: 16, alignItems: 'center' }}
-              >
-                <Text style={{ fontSize: 17, color: '#007AFF' }}>
-                  Share App
-                </Text>
-              </TouchableOpacity>
-            </View>
-
-            <View style={{ backgroundColor: '#FFFFFF', borderRadius: 13, overflow: 'hidden' }}>
-              <TouchableOpacity
-                onPress={performMenuDelete}
-                style={{ paddingVertical: 16, alignItems: 'center' }}
-              >
-                <Text style={{ fontSize: 17, color: '#FF3B30' }}>Delete</Text>
-              </TouchableOpacity>
-            </View>
-
-            <View style={{ backgroundColor: '#FFFFFF', borderRadius: 13, overflow: 'hidden' }}>
-              <TouchableOpacity
-                onPress={closeContextMenu}
-                style={{ paddingVertical: 16, alignItems: 'center' }}
-              >
-                <Text style={{ fontSize: 17, color: '#007AFF', fontWeight: '600' }}>Cancel</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
+        title={menuTargetApp?.name ?? ''}
+        onDismiss={closeContextMenu}
+        actions={[
+          {
+            label: 'Open',
+            onPress: () => menuTargetApp && router.push(`/app/${menuTargetApp.app_id}`),
+          },
+          ...(menuTargetApp?.instance_id
+            ? [{
+                label: '👥 Manage Group',
+                onPress: () => {
+                  setMenuVisible(false);
+                  router.push(`/shared-instance/${menuTargetApp.instance_id}`);
+                },
+              }]
+            : []),
+          {
+            label: menuTargetApp && updatesAvailable[menuTargetApp.app_id]
+              ? 'Check for Update (Available!)'
+              : 'Check for Update',
+            onPress: performMenuCheckUpdate,
+            loading: menuBusy,
+            disabled: menuBusy,
+          },
+          { label: 'Replace App Code', onPress: performMenuReplaceCode },
+          { label: 'App Info', onPress: performMenuInfo },
+          {
+            label: 'Export Data',
+            onPress: performMenuExportData,
+            disabled: menuBusy,
+          },
+          {
+            label: 'Share App',
+            onPress: performMenuShare,
+            disabled: menuBusy,
+          },
+        ]}
+        destructiveActions={[
+          { label: 'Delete', onPress: performMenuDelete },
+        ]}
+      />
     </SafeAreaView>
   );
 }

@@ -17,6 +17,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import WebView from 'react-native-webview';
 
 import { useToast } from '@/components/Toast';
+import { log } from '@/lib/logger';
 import { supabase } from '@/services/supabase';
 
 // ---------- Constants ----------
@@ -107,7 +108,7 @@ export default function CreateScreen() {
       if (result?.appId) body.appId = result.appId;
       if (conversationHistory.length > 0) body.conversationHistory = conversationHistory;
 
-      console.log('[create] fetching generate-app (SSE), userId:', session.user.id);
+      log.info('[create] fetching generate-app (SSE), userId:', session.user.id);
       setCharsGenerated(0);
 
       // React Native's fetch polyfill doesn't expose response.body as a ReadableStream.
@@ -191,7 +192,7 @@ export default function CreateScreen() {
       setPrompt('');
       setStatus('preview');
     } catch (e) {
-      console.error('[create] error:', e);
+      log.error('[create] error:', e);
       const msg = e instanceof Error ? e.message : 'Network error. Please try again.';
       setError(msg);
       setStatus('error');

@@ -1,0 +1,86 @@
+# Cottix Refactoring Tracker
+
+Tracks progress across multi-session refactoring effort. Started 2026-03-20.
+
+---
+
+## Phase 1: Foundation — Types, Logger, Cleanup
+**Status: COMPLETE** (2026-03-20)
+
+- [x] Create `types/index.ts` — centralize `InstalledApp`, `AppManifest`, `RawMessage`, `Phase`, re-export `SharedWriteMessage`
+- [x] Create `lib/logger.ts` — `__DEV__`-gated logger with prefix support
+- [x] Update all imports to use `@/types` for shared types (7 files updated)
+- [x] Replace `console.log/warn/error` with logger calls (14 app files updated)
+- [x] Delete `app/shared-apps.tsx` (deprecated, zero imports)
+- [x] Remove unused dep: `@react-native-async-storage/async-storage`
+- [x] Verify: `npx tsc --noEmit` passes (0 app errors)
+
+---
+
+## Phase 2: Extract Shared UI Components
+**Status: COMPLETE** (2026-03-20)
+
+- [x] Extract `components/ActionSheet.tsx` from `app/app/[id].tsx` (~325 lines removed)
+- [x] Extract `components/AppIcon.tsx` — shared icon with update dot + shared badge
+- [x] Update `app/app/[id].tsx` to import ActionSheet + AppIcon (removed inline component + `sheet` StyleSheet)
+- [x] Refactor `app/(tabs)/index.tsx` context menu — replaced ~95-line inline Modal with ActionSheet; replaced inline icon block with AppIcon
+- [x] Verify: `npx tsc --noEmit` passes (0 app errors)
+
+---
+
+## Phase 3: Decompose `app/app/[id].tsx` (1,356 → ~300 lines)
+**Status: NOT STARTED**
+
+- [ ] Extract `hooks/useWebViewApp.ts` — state machine, initial load, shim building
+- [ ] Extract `hooks/useLiveSyncPush.ts` — PowerSync watcher for remote updates
+- [ ] Extract `hooks/useFreezeWatcher.ts` — freeze status effect
+- [ ] Extract `lib/appActions.ts` — menu action functions
+- [ ] Slim down `app/app/[id].tsx` to hook calls + JSX
+- [ ] Verify: personal app, shared app, URL app all work correctly
+
+---
+
+## Phase 4: Decompose `app/add.tsx` (1,192 → ~400 lines)
+**Status: NOT STARTED**
+
+- [ ] Extract `services/urlFetcher.ts` — URL crawling, BFS, HTML rewriting
+- [ ] Extract `services/zipInstaller.ts` — ZIP extraction and validation
+- [ ] Extract `components/EmojiPicker.tsx`
+- [ ] Extract `components/ColorPicker.tsx`
+- [ ] Slim down `app/add.tsx` to step state machine + JSX
+- [ ] Verify: URL install, ZIP install, emoji/color pickers, replace-app flow
+
+---
+
+## Phase 5: Decompose Home Screen + vaultBridge
+**Status: NOT STARTED**
+
+- [ ] Extract `hooks/useUpdateScanner.ts` — background update scanning
+- [ ] Extract `hooks/useAppContextMenu.ts` — menu callbacks + state
+- [ ] Refactor `lib/vaultBridge.ts` — `buildSharedWriteMessage()` + `getUserId()` helpers
+- [ ] Slim down `app/(tabs)/index.tsx` to ~400 lines
+- [ ] Verify: home screen, long-press menu, update scanning, bridge messages
+
+---
+
+## Phase 6: Test Infrastructure
+**Status: NOT STARTED**
+
+- [ ] Configure Jest at root level
+- [ ] Create `__mocks__/` for RN modules
+- [ ] Write `vaultBridge.test.ts`
+- [ ] Write `urlFetcher.test.ts`
+- [ ] Write `zipInstaller.test.ts`
+- [ ] Add `"test": "jest"` to package.json
+- [ ] Verify: `npm test` passes
+
+---
+
+## Phase 7: Type Safety + Linting
+**Status: NOT STARTED**
+
+- [ ] Fix ~50 `any` usages (shape-classifier, bridge-merge-handler, merge-utils, add.tsx)
+- [ ] Add ESLint with `@typescript-eslint/recommended`
+- [ ] Add Prettier
+- [ ] Add husky + lint-staged pre-commit hooks
+- [ ] Verify: `npx eslint .` and `npx tsc --noEmit` pass

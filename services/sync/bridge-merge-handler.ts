@@ -20,6 +20,7 @@
  *   // Send ack back to WebView with result
  */
 
+import { log } from '@/lib/logger';
 import { classifyShape, shapesCompatible } from './shape-classifier';
 import { mergeArraysById, mergeObjectFields } from './three-way-merge';
 import { deepEqual, quickHash } from './merge-utils';
@@ -149,7 +150,7 @@ export async function handleSharedWrite(
         [instanceId]
       );
       if (instanceRows.length > 0 && instanceRows[0].is_frozen === 1) {
-        console.log('[merge] Instance is frozen, rejecting write:', instanceId);
+        log.info('[merge] Instance is frozen, rejecting write:', instanceId);
         return {
           success: false,
           newVersion: 0,
@@ -162,7 +163,7 @@ export async function handleSharedWrite(
     } catch (freezeErr) {
       // If we can't check freeze status, allow the write (fail-open).
       // PowerSync local might not have the row yet on first launch.
-      console.warn('[merge] freeze check failed, allowing write:', freezeErr);
+      log.warn('[merge] freeze check failed, allowing write:', freezeErr);
     }
 
     // ── Guard 1: No-op suppression ──
@@ -307,7 +308,7 @@ export async function handleSharedWrite(
       conflictCount,
     };
   } catch (error) {
-    console.error('[merge] Error in handleSharedWrite:', error);
+    log.error('[merge] Error in handleSharedWrite:', error);
     logTelemetry('lww', 0, ['error'], message, appId, instanceId, startTime);
     return {
       success: false,
@@ -377,7 +378,7 @@ async function readCurrentRow(
     );
     return rows.length > 0 ? (rows[0] as SharedRow) : null;
   } catch (error) {
-    console.warn('[merge] readCurrentRow failed:', error);
+    log.warn('[merge] readCurrentRow failed:', error);
     return null;
   }
 }

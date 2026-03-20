@@ -22,6 +22,7 @@ import { useDatabase } from '@/hooks/useDatabase';
 import { useGatekeeper } from '@/hooks/useGatekeeper';
 import { useInstalledApps } from '@/hooks/useInstalledApps';
 import { Haptics, safeNotificationAsync } from '@/lib/haptics';
+import { log } from '@/lib/logger';
 import { supabase } from '@/services/supabase';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -305,7 +306,7 @@ class AddScreenErrorBoundary extends Component<
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
-    console.error('[AddScreen] Unhandled render error:', error, info);
+    log.error('[AddScreen] Unhandled render error:', error, info);
   }
 
   render() {
@@ -466,7 +467,7 @@ function AddScreenContent() {
         throw metadataError;
       }
     } catch (e) {
-      console.error('[AddScreen] URL import flow failed:', e);
+      log.error('[AddScreen] URL import flow failed:', e);
       setError(e instanceof Error ? e.message : 'Failed to read app metadata');
       setStep('input');
     }
@@ -567,7 +568,7 @@ function AddScreenContent() {
         try {
           router.back();
         } catch (navErr) {
-          console.error('[AddScreen] router.back() failed after install:', navErr);
+          log.error('[AddScreen] router.back() failed after install:', navErr);
           router.push('/(tabs)');
         }
       }, 300);
