@@ -32,10 +32,12 @@ import { deepEqual, quickHash } from './merge-utils';
  * the PowerSync database instance from @powersync/react-native.
  * Using a minimal interface so we don't import the full package here.
  */
+type SqlParam = string | number | boolean | null | Uint8Array;
+
 export interface PowerSyncDB {
-  execute: (sql: string, params?: any[]) => Promise<{ rows: { _array: any[] } }>;
-  getAll: (sql: string, params?: any[]) => Promise<any[]>;
-  get: (sql: string, params?: any[]) => Promise<any | null>;
+  execute: (sql: string, params?: SqlParam[]) => Promise<{ rows: { _array: unknown[] } }>;
+  getAll: (sql: string, params?: SqlParam[]) => Promise<unknown[]>;
+  get: (sql: string, params?: SqlParam[]) => Promise<unknown>;
 }
 
 /** What the shim sends on every shared write */
@@ -149,7 +151,7 @@ export async function handleSharedWrite(
         `SELECT is_frozen FROM shared_instances WHERE instance_id = ?`,
         [instanceId]
       );
-      if (instanceRows.length > 0 && instanceRows[0].is_frozen === 1) {
+      if (instanceRows.length > 0 && (instanceRows[0] as { is_frozen?: number }).is_frozen === 1) {
         log.info('[merge] Instance is frozen, rejecting write:', instanceId);
         return {
           success: false,

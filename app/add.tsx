@@ -218,24 +218,20 @@ function AddScreenContent() {
       setStep('processing');
       const appId = replaceAppId ?? Crypto.randomUUID();
 
-      try {
-        const metadata = await fetchUrlMetadata(trimmedUrl, setProcessingMsg);
-        setBundle({
-          appId,
-          html: null,
-          name: metadata.name,
-          hash: metadata.hash,
-          size: metadata.size,
-          sourceType: 'url',
-          sourceUrl: trimmedUrl,
-          bundlePath: '',
-        });
-        setAppName(metadata.name);
-        if (metadata.faviconUrl) setSelectedEmoji('🌐');
-        setStep('details');
-      } catch (metadataError) {
-        throw metadataError;
-      }
+      const metadata = await fetchUrlMetadata(trimmedUrl, setProcessingMsg);
+      setBundle({
+        appId,
+        html: null,
+        name: metadata.name,
+        hash: metadata.hash,
+        size: metadata.size,
+        sourceType: 'url',
+        sourceUrl: trimmedUrl,
+        bundlePath: '',
+      });
+      setAppName(metadata.name);
+      if (metadata.faviconUrl) setSelectedEmoji('🌐');
+      setStep('details');
     } catch (e) {
       log.error('[AddScreen] URL import flow failed:', e);
       setError(e instanceof Error ? e.message : 'Failed to read app metadata');

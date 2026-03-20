@@ -108,7 +108,7 @@ export async function extractAndBundle(
   // Rewrite absolute paths in index.html so they resolve against file://
   //   src="/assets/x.js"  →  src="./assets/x.js"
   //   href="/assets/x.css" → href="./assets/x.css"
-  let modifiedHtml = rawIndex
+  const modifiedHtml = rawIndex
     .replace(/\bsrc="\/(?!\/)/g, 'src="./')
     .replace(/\bsrc='\/(?!\/)/g, "src='./")
     .replace(/\bhref="\/(?!\/)/g, 'href="./')
