@@ -20,43 +20,34 @@ import type { AbstractPowerSyncDatabase } from '@powersync/react-native';
 import { handleSharedWrite } from '@/services/sync/bridge-merge-handler';
 import type { SharedWriteMessage } from '@/services/sync/bridge-merge-handler';
 import { supabase } from '../services/supabase';
+import type { AppManifest, RawMessage } from '@/types';
+
+export type { AppManifest };
 
 type WebViewRef = RefObject<WebView | null>;
 
-// ── Types ─────────────────────────────────────────────────────────────────────
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
-export interface AppManifest {
-  app_id: string;
-  name: string;
-  source_url: string | null;
-  installed_at: string;
-  open_count: number;
-  instance_id: string | null;
+async function getUserId(): Promise<string> {
+  const { data: { session } } = await supabase.auth.getSession();
+  return session?.user?.id ?? '';
 }
 
-interface RawMessage {
-  type: string;
-  id?: string;       // present for VaultAPI calls and ls_set_sync, absent for ls_* fire-and-forget
-  appId: string;
-  _callbackId?: number;
-  app_id?: string;
-  key?: string;
-  value?: string;
-  baseVersion?: number;
-  baseHash?: string | null;
-  baseValue?: string | null;
-  clientWriteId?: string;
-  pageAge?: number;
-  hadInteraction?: boolean;
-  timestamp?: number;
-  style?: string;
-  title?: string;
-  body?: string;
-  url?: string;
-  text?: string;     // plain-text content for device_share
-  message?: string;
-  delay_seconds?: number;
-  [k: string]: unknown;
+function buildSharedWriteMessage(
+  msg: RawMessage,
+  prefix: string
+): SharedWriteMessage {
+  return {
+    key: msg.key!,
+    value: msg.value!,
+    baseVersion: msg.baseVersion ?? 0,
+    baseHash: msg.baseHash ?? null,
+    baseValue: msg.baseValue ?? null,
+    clientWriteId: msg.clientWriteId ?? `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    pageAge: msg.pageAge ?? 0,
+    hadInteraction: msg.hadInteraction ?? false,
+    timestamp: msg.timestamp ?? Date.now(),
+  };
 }
 
 // ── Main handler ──────────────────────────────────────────────────────────────
@@ -109,19 +100,8 @@ export async function handleVaultMessage(
           return;
         }
 
-        const { data: { session } } = await supabase.auth.getSession();
-        const userId = session?.user?.id ?? '';
-        const sharedMsg: SharedWriteMessage = {
-          key: msg.key,
-          value: msg.value,
-          baseVersion: msg.baseVersion ?? 0,
-          baseHash: msg.baseHash ?? null,
-          baseValue: msg.baseValue ?? null,
-          clientWriteId: msg.clientWriteId ?? '',
-          pageAge: msg.pageAge ?? 0,
-          hadInteraction: msg.hadInteraction ?? false,
-          timestamp: msg.timestamp ?? Date.now(),
-        };
+        const userId = await getUserId();
+        const sharedMsg = buildSharedWriteMessage(msg, 'ls_set_sync');
 
         const result = await handleSharedWrite(
           syncDb as unknown as Parameters<typeof handleSharedWrite>[0],
@@ -162,8 +142,7 @@ export async function handleVaultMessage(
           // Fallback: if the sync shim didn't load (race condition during
           // WebView reload after creating a shared instance), route through
           // the merge handler so the write is never silently lost.
-          const { data: { session: lsSharedSession } } = await supabase.auth.getSession();
-          const lsSharedUserId = lsSharedSession?.user?.id ?? '';
+          const lsSharedUserId = await getUserId();
           const lsSharedMsg: SharedWriteMessage = {
             key: msg.key!,
             value: msg.value!,
@@ -184,11 +163,11 @@ export async function handleVaultMessage(
           );
           break;
         }
-        const { data: { session: lsSession } } = await supabase.auth.getSession();
+        const lsUserId = await getUserId();
         await syncDb.execute(
           `INSERT OR REPLACE INTO app_data (id, user_id, app_id, key, value, updated_at)
            VALUES (?, ?, ?, ?, ?, datetime('now'))`,
-          [`${effectiveAppId}/${msg.key!}`, lsSession?.user?.id ?? null, effectiveAppId, msg.key!, msg.value!]
+          [`${effectiveAppId}/${msg.key!}`, lsUserId || null, effectiveAppId, msg.key!, msg.value!]
         );
         break;
       }
@@ -222,11 +201,10 @@ export async function handleVaultMessage(
       // These come from window.VaultAPI.db.* and carry an `id` for the response.
 
       case 'db_set': {
-        const { data: { session: dbSession } } = await supabase.auth.getSession();
+        const dbUserId = await getUserId();
         if (isShared && instanceId) {
           // Route shared VaultAPI.db.set through the merge handler so writes
           // get proper version tracking and merge metadata.
-          const dbUserId = dbSession?.user?.id ?? '';
           const sharedDbMsg: SharedWriteMessage = {
             key: msg.key!,
             value: msg.value!,
@@ -250,7 +228,7 @@ export async function handleVaultMessage(
           await syncDb.execute(
             `INSERT OR REPLACE INTO app_data (id, user_id, app_id, key, value, updated_at)
              VALUES (?, ?, ?, ?, ?, datetime('now'))`,
-            [`${effectiveAppId}/${msg.key!}`, dbSession?.user?.id ?? null, effectiveAppId, msg.key!, msg.value!]
+            [`${effectiveAppId}/${msg.key!}`, dbUserId || null, effectiveAppId, msg.key!, msg.value!]
           );
           respond(true);
         }

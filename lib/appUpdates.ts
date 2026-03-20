@@ -2,7 +2,7 @@ import * as Crypto from 'expo-crypto';
 import * as FileSystem from 'expo-file-system/legacy';
 import type { SQLiteDatabase } from 'expo-sqlite';
 
-import type { InstalledApp } from '@/hooks/useInstalledApps';
+import type { InstalledApp } from '@/types';
 
 const UPDATE_TIMEOUT_MS = 10_000;
 

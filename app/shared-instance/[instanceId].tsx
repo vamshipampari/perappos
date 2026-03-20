@@ -11,6 +11,7 @@
 
 import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
+import { log } from '@/lib/logger';
 import {
   ActivityIndicator,
   Alert,
@@ -77,7 +78,7 @@ export default function SharedInstanceScreen() {
     if (!instanceId) return;
     setLoading(true);
     try {
-      console.log('[manage-group] loading instanceId:', instanceId);
+      log.info('[manage-group] loading instanceId:', instanceId);
 
       const { data: { session } } = await supabase.auth.getSession();
       const userId = session?.user?.id ?? null;
@@ -103,7 +104,7 @@ export default function SharedInstanceScreen() {
       // 3. Supabase fallback — covers the case where PowerSync sync is lagging
       //    or the RLS SELECT policy allows direct reads (it should for members).
       if (!instanceRow && userId) {
-        console.log('[manage-group] local miss — trying Supabase fallback');
+        log.info('[manage-group] local miss — trying Supabase fallback');
         try {
           // Direct query: SELECT RLS on shared_instances should allow members to
           // read instances they belong to. If this is blocked, the user needs to
@@ -153,11 +154,11 @@ export default function SharedInstanceScreen() {
                 ]
               );
             } catch (seedErr) {
-              console.warn('[manage-group] pre-seed failed:', seedErr);
+              log.warn('[manage-group] pre-seed failed:', seedErr);
             }
           }
         } catch (fallbackErr) {
-          console.warn('[manage-group] Supabase fallback error:', fallbackErr);
+          log.warn('[manage-group] Supabase fallback error:', fallbackErr);
         }
       }
 
@@ -175,7 +176,7 @@ export default function SharedInstanceScreen() {
         memberRows = [{ user_id: userId, role: myGuessedRole, joined_at: '' }];
       }
 
-      console.log('[manage-group] result — instance found:', !!instanceRow, 'members:', memberRows.length);
+      log.info('[manage-group] result — instance found:', !!instanceRow, 'members:', memberRows.length);
 
       setInstance(instanceRow ?? null);
       setIsFrozen(instanceRow?.is_frozen === 1);
@@ -186,7 +187,7 @@ export default function SharedInstanceScreen() {
         setMyRole(mine?.role ?? null);
       }
     } catch (e) {
-      console.error('[SharedInstanceScreen] load error:', e);
+      log.error('[SharedInstanceScreen] load error:', e);
     } finally {
       setLoading(false);
     }

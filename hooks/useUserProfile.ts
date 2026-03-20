@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { log } from '@/lib/logger';
 import { supabase } from '../services/supabase';
 
 // Plan limits configuration
@@ -81,7 +82,7 @@ export function useUserProfile(): UserProfileState {
       setProfile(data as UserProfile);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Failed to load profile';
-      console.error('[useUserProfile] fetch error:', err);
+      log.error('[useUserProfile] fetch error:', err);
       setError(message);
     } finally {
       setLoading(false);

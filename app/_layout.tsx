@@ -13,6 +13,7 @@ import { useUserChangeGuard } from '@/hooks/useUserChangeGuard';
 
 import { ToastProvider } from '@/components/Toast';
 import { cleanupExpiredUpdateBackups } from '@/lib/appUpdates';
+import { log } from '@/lib/logger';
 import { seedDemoApps } from '@/utils/createDemoApp';
 import { PowerSyncProvider } from '../services/sync/PowerSyncProvider';
 import { supabase } from '../services/supabase';
@@ -286,11 +287,11 @@ export default function RootLayout() {
           if (!error) {
             router.replace('/(tabs)/settings');
           } else {
-            console.error('Auth code exchange error:', error);
+            log.error('Auth code exchange error:', error);
           }
         }
       } catch (error) {
-        console.error('Auth callback error:', error);
+        log.error('Auth callback error:', error);
       }
     };
 
@@ -307,7 +308,7 @@ export default function RootLayout() {
           await handleAuthCallback(initialUrl);
         }
       } catch (error) {
-        console.error('Deep link setup error:', error);
+        log.error('Deep link setup error:', error);
       } finally {
         if (isMounted) {
           setIsDeepLinkReady(true);

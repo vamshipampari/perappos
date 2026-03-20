@@ -3,6 +3,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 import { type SQLiteDatabase } from 'expo-sqlite';
 import { Platform } from 'react-native';
 
+import { log } from '@/lib/logger';
 import {
   DAILY_HABITS_HTML,
   EXPENSE_SNAP_HTML,
@@ -103,5 +104,5 @@ export async function seedDemoApps(db: SQLiteDatabase): Promise<void> {
     htmlContent: EXPENSE_SNAP_HTML,
   });
 
-  console.log('[Cottix] Demo apps seeded successfully');
+  log.info('[Cottix] Demo apps seeded successfully');
 }

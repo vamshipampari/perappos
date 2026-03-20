@@ -14,6 +14,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useDatabase } from '@/hooks/useDatabase';
 import { useInstalledApps } from '@/hooks/useInstalledApps';
+import { log } from '@/lib/logger';
 import { joinSharedAppByCode, type SharedInstance } from '@/services/collaborationService';
 import { reconnectPowerSync } from '@/services/sync/PowerSyncProvider';
 import { supabase } from '@/services/supabase';
@@ -41,7 +42,7 @@ export default function JoinSharedAppScreen() {
       const { data, error } = await supabase.rpc('lookup_shared_instance', {
         p_invite_code: normalizedCode,
       });
-      console.log('Lookup result:', JSON.stringify(data), 'Error:', JSON.stringify(error));
+      log.info('Lookup result:', JSON.stringify(data), 'Error:', JSON.stringify(error));
       const instance = (data as SharedInstance[] | null)?.[0] ?? null;
 
       if (error || !instance) {
@@ -72,7 +73,7 @@ export default function JoinSharedAppScreen() {
       const result = await joinSharedAppByCode(db, normalizedCode, (state) => {
         joinStateRef.current = state;
       });
-      console.log('App install result:', JSON.stringify(result));
+      log.info('App install result:', JSON.stringify(result));
       // Force PowerSync reconnect so this device immediately receives
       // other members' shared_app_data rows under the refreshed sync buckets.
       await reconnectPowerSync();
@@ -82,9 +83,9 @@ export default function JoinSharedAppScreen() {
       router.replace(`/app/${result.appId}`);
     } catch (err) {
       try {
-        console.error('Join error:', JSON.stringify(err));
+        log.error('Join error:', JSON.stringify(err));
       } catch {
-        console.error('Join error:', String(err));
+        log.error('Join error:', String(err));
       }
       Alert.alert('Error', String(err));
       setJoining(false);
