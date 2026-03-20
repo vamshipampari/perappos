@@ -26,6 +26,30 @@ export type { AppManifest };
 
 type WebViewRef = RefObject<WebView | null>;
 
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+async function getUserId(): Promise<string> {
+  const { data: { session } } = await supabase.auth.getSession();
+  return session?.user?.id ?? '';
+}
+
+function buildSharedWriteMessage(
+  msg: RawMessage,
+  prefix: string
+): SharedWriteMessage {
+  return {
+    key: msg.key!,
+    value: msg.value!,
+    baseVersion: msg.baseVersion ?? 0,
+    baseHash: msg.baseHash ?? null,
+    baseValue: msg.baseValue ?? null,
+    clientWriteId: msg.clientWriteId ?? `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    pageAge: msg.pageAge ?? 0,
+    hadInteraction: msg.hadInteraction ?? false,
+    timestamp: msg.timestamp ?? Date.now(),
+  };
+}
+
 // ── Main handler ──────────────────────────────────────────────────────────────
 
 export async function handleVaultMessage(
@@ -76,19 +100,8 @@ export async function handleVaultMessage(
           return;
         }
 
-        const { data: { session } } = await supabase.auth.getSession();
-        const userId = session?.user?.id ?? '';
-        const sharedMsg: SharedWriteMessage = {
-          key: msg.key,
-          value: msg.value,
-          baseVersion: msg.baseVersion ?? 0,
-          baseHash: msg.baseHash ?? null,
-          baseValue: msg.baseValue ?? null,
-          clientWriteId: msg.clientWriteId ?? '',
-          pageAge: msg.pageAge ?? 0,
-          hadInteraction: msg.hadInteraction ?? false,
-          timestamp: msg.timestamp ?? Date.now(),
-        };
+        const userId = await getUserId();
+        const sharedMsg = buildSharedWriteMessage(msg, 'ls_set_sync');
 
         const result = await handleSharedWrite(
           syncDb as unknown as Parameters<typeof handleSharedWrite>[0],
@@ -129,8 +142,7 @@ export async function handleVaultMessage(
           // Fallback: if the sync shim didn't load (race condition during
           // WebView reload after creating a shared instance), route through
           // the merge handler so the write is never silently lost.
-          const { data: { session: lsSharedSession } } = await supabase.auth.getSession();
-          const lsSharedUserId = lsSharedSession?.user?.id ?? '';
+          const lsSharedUserId = await getUserId();
           const lsSharedMsg: SharedWriteMessage = {
             key: msg.key!,
             value: msg.value!,
@@ -151,11 +163,11 @@ export async function handleVaultMessage(
           );
           break;
         }
-        const { data: { session: lsSession } } = await supabase.auth.getSession();
+        const lsUserId = await getUserId();
         await syncDb.execute(
           `INSERT OR REPLACE INTO app_data (id, user_id, app_id, key, value, updated_at)
            VALUES (?, ?, ?, ?, ?, datetime('now'))`,
-          [`${effectiveAppId}/${msg.key!}`, lsSession?.user?.id ?? null, effectiveAppId, msg.key!, msg.value!]
+          [`${effectiveAppId}/${msg.key!}`, lsUserId || null, effectiveAppId, msg.key!, msg.value!]
         );
         break;
       }
@@ -189,11 +201,10 @@ export async function handleVaultMessage(
       // These come from window.VaultAPI.db.* and carry an `id` for the response.
 
       case 'db_set': {
-        const { data: { session: dbSession } } = await supabase.auth.getSession();
+        const dbUserId = await getUserId();
         if (isShared && instanceId) {
           // Route shared VaultAPI.db.set through the merge handler so writes
           // get proper version tracking and merge metadata.
-          const dbUserId = dbSession?.user?.id ?? '';
           const sharedDbMsg: SharedWriteMessage = {
             key: msg.key!,
             value: msg.value!,
@@ -217,7 +228,7 @@ export async function handleVaultMessage(
           await syncDb.execute(
             `INSERT OR REPLACE INTO app_data (id, user_id, app_id, key, value, updated_at)
              VALUES (?, ?, ?, ?, ?, datetime('now'))`,
-            [`${effectiveAppId}/${msg.key!}`, dbSession?.user?.id ?? null, effectiveAppId, msg.key!, msg.value!]
+            [`${effectiveAppId}/${msg.key!}`, dbUserId || null, effectiveAppId, msg.key!, msg.value!]
           );
           respond(true);
         }

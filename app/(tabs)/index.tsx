@@ -1,11 +1,9 @@
 import * as FileSystem from 'expo-file-system/legacy';
 import { router, useFocusEffect } from 'expo-router';
 import * as Sharing from 'expo-sharing';
-import { supabase } from '@/services/supabase';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   FlatList,
   Pressable,
   RefreshControl,
@@ -26,17 +24,15 @@ import Animated, {
 } from 'react-native-reanimated';
 
 import { useToast } from '@/components/Toast';
+import { useAppContextMenu } from '@/hooks/useAppContextMenu';
 import { useDatabase } from '@/hooks/useDatabase';
+import { useUpdateScanner } from '@/hooks/useUpdateScanner';
 import type { InstalledApp } from '@/types';
 import { useInstalledApps } from '@/hooks/useInstalledApps';
-import { applyUrlAppUpdate, checkForUpdates } from '@/lib/appUpdates';
-import { Haptics, safeImpactAsync } from '@/lib/haptics';
-import { shareApp } from '../../services/shareService';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const ICON_SIZE = 48;
-const UPDATE_SCAN_CONCURRENCY = 3;
 
 // Scroll offset at which the large title fully collapses into the nav bar title
 const COLLAPSE_START = 12;
@@ -46,6 +42,41 @@ const COLLAPSE_END = 44;
 const AnimatedFlatList = Animated.createAnimatedComponent(
   FlatList as React.ComponentType<React.ComponentProps<typeof FlatList<InstalledApp>>>
 );
+
+// ── Data export helper ────────────────────────────────────────────────────────
+
+async function exportAppData(
+  db: ReturnType<typeof useDatabase>,
+  app: InstalledApp
+): Promise<void> {
+  const rows = await db.getAllAsync<{ key: string; value: string; updated_at: string }>(
+    'SELECT key, value, updated_at FROM app_data WHERE app_id = ? ORDER BY key ASC',
+    app.app_id
+  );
+  const payload = JSON.stringify(
+    {
+      app: { app_id: app.app_id, name: app.name, source_url: app.source_url },
+      app_data: rows,
+      exported_at: new Date().toISOString(),
+    },
+    null,
+    2
+  );
+
+  const path = `${FileSystem.cacheDirectory}${app.app_id}-data-export.json`;
+  await FileSystem.writeAsStringAsync(path, payload, {
+    encoding: FileSystem.EncodingType.UTF8,
+  });
+
+  const canShare = await Sharing.isAvailableAsync();
+  if (!canShare) throw new Error('Sharing not available on this device');
+
+  await Sharing.shareAsync(path, {
+    mimeType: 'application/json',
+    dialogTitle: `Export "${app.name}" Data`,
+    UTI: 'public.json',
+  });
+}
 
 // ── App list card ─────────────────────────────────────────────────────────────
 
@@ -230,59 +261,13 @@ function FAB() {
   );
 }
 
-// ── Data export helper ────────────────────────────────────────────────────────
-
-async function exportAppData(
-  db: ReturnType<typeof useDatabase>,
-  app: InstalledApp
-): Promise<void> {
-  const rows = await db.getAllAsync<{ key: string; value: string; updated_at: string }>(
-    'SELECT key, value, updated_at FROM app_data WHERE app_id = ? ORDER BY key ASC',
-    app.app_id
-  );
-  const payload = JSON.stringify(
-    {
-      app: { app_id: app.app_id, name: app.name, source_url: app.source_url },
-      app_data: rows,
-      exported_at: new Date().toISOString(),
-    },
-    null,
-    2
-  );
-
-  const path = `${FileSystem.cacheDirectory}${app.app_id}-data-export.json`;
-  await FileSystem.writeAsStringAsync(path, payload, {
-    encoding: FileSystem.EncodingType.UTF8,
-  });
-
-  const canShare = await Sharing.isAvailableAsync();
-  if (!canShare) throw new Error('Sharing not available on this device');
-
-  await Sharing.shareAsync(path, {
-    mimeType: 'application/json',
-    dialogTitle: `Export "${app.name}" Data`,
-    UTI: 'public.json',
-  });
-}
-
 // ── Screen ────────────────────────────────────────────────────────────────────
 
 export default function HomeScreen() {
   const db = useDatabase();
   const { apps, loading, refresh } = useInstalledApps();
   const { showToast } = useToast();
-
-  const [updatesAvailable, setUpdatesAvailable] = useState<Record<string, boolean>>({});
-  const [menuVisible, setMenuVisible] = useState(false);
-  const [menuTargetApp, setMenuTargetApp] = useState<InstalledApp | null>(null);
-  const [menuBusy, setMenuBusy] = useState(false);
-  const [scanRunning, setScanRunning] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
-
-  const scanSeqRef = useRef(0);
-  const scanRunningRef = useRef(false);
-  const hasScannedForCurrentFocusRef = useRef(false);
-  const latestAppsRef = useRef<InstalledApp[]>([]);
 
   // ── Collapsing large-title header ──────────────────────────────────────────
   const scrollY = useSharedValue(0);
@@ -293,12 +278,10 @@ export default function HomeScreen() {
     },
   });
 
-  // Nav-bar small title: fades in as user scrolls past the large title
   const navBarTitleStyle = useAnimatedStyle(() => ({
     opacity: interpolate(scrollY.value, [COLLAPSE_START, COLLAPSE_END], [0, 1], Extrapolation.CLAMP),
   }));
 
-  // Large title inside the list header: fades out & translates up on scroll
   const largeTitleStyle = useAnimatedStyle(() => ({
     opacity: interpolate(scrollY.value, [0, COLLAPSE_START], [1, 0], Extrapolation.CLAMP),
     transform: [
@@ -310,72 +293,15 @@ export default function HomeScreen() {
 
   // ── Update scanning ────────────────────────────────────────────────────────
 
-  const eligibleAutoUpdateApps = useMemo(
-    () => apps.filter((a) => a.auto_update === 1 && a.source_type === 'url' && !!a.source_url),
-    [apps]
-  );
+  const { updatesAvailable, setUpdatesAvailable, scanRunning, runBackgroundUpdateScan } =
+    useUpdateScanner(apps);
 
-  useEffect(() => {
-    latestAppsRef.current = apps;
-  }, [apps]);
-
-  const runBackgroundUpdateScan = useCallback(async () => {
-    if (eligibleAutoUpdateApps.length === 0 || scanRunningRef.current) return;
-    scanRunningRef.current = true;
-    const seq = ++scanSeqRef.current;
-    setScanRunning(true);
-
-    const found: Record<string, boolean> = {};
-    let cursor = 0;
-    const worker = async () => {
-      while (cursor < eligibleAutoUpdateApps.length) {
-        const i = cursor++;
-        const app = eligibleAutoUpdateApps[i];
-        try {
-          const result = await checkForUpdates(app);
-          if (result.available) found[app.app_id] = true;
-        } catch {
-          // Ignore transient failures in background checks.
-        }
-      }
-    };
-
-    const workerCount = Math.min(UPDATE_SCAN_CONCURRENCY, eligibleAutoUpdateApps.length);
-    await Promise.all(Array.from({ length: workerCount }, () => worker()));
-
-    if (seq === scanSeqRef.current) {
-      setUpdatesAvailable(() => {
-        const next: Record<string, boolean> = {};
-        for (const app of latestAppsRef.current) {
-          if (found[app.app_id]) next[app.app_id] = true;
-        }
-        return next;
-      });
-    }
-
-    scanRunningRef.current = false;
-    setScanRunning(false);
-  }, [eligibleAutoUpdateApps]);
-
+  // Refresh app list on focus
   useFocusEffect(
     useCallback(() => {
-      hasScannedForCurrentFocusRef.current = false;
       refresh().catch(() => {});
-      return () => {
-        scanSeqRef.current += 1;
-        scanRunningRef.current = false;
-        setScanRunning(false);
-      };
     }, [refresh])
   );
-
-  useEffect(() => {
-    if (hasScannedForCurrentFocusRef.current) return;
-    hasScannedForCurrentFocusRef.current = true;
-    runBackgroundUpdateScan().catch(() => {});
-  }, [apps, runBackgroundUpdateScan]);
-
-  // ── Pull-to-refresh ────────────────────────────────────────────────────────
 
   const handlePullRefresh = useCallback(async () => {
     setIsRefreshing(true);
@@ -389,178 +315,26 @@ export default function HomeScreen() {
 
   // ── Context menu ───────────────────────────────────────────────────────────
 
-  const openContextMenu = useCallback((app: InstalledApp) => {
-    void safeImpactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    setMenuTargetApp(app);
-    setMenuVisible(true);
-  }, []);
-
-  const closeContextMenu = useCallback(() => {
-    if (menuBusy) return;
-    setMenuVisible(false);
-    setMenuTargetApp(null);
-  }, [menuBusy]);
-
-  const performMenuCheckUpdate = useCallback(async () => {
-    if (!menuTargetApp || menuBusy) return;
-    setMenuBusy(true);
-    try {
-      const result = await checkForUpdates(menuTargetApp);
-      if (!result.available) {
-        setUpdatesAvailable((prev) => ({ ...prev, [menuTargetApp.app_id]: false }));
-        Alert.alert('Already up to date', 'No newer version is available.');
-        return;
-      }
-
-      setUpdatesAvailable((prev) => ({ ...prev, [menuTargetApp.app_id]: true }));
-      Alert.alert(
-        'Update Available!',
-        'A newer version was detected. Download and apply now?',
-        [
-          { text: 'Later', style: 'cancel' },
-          {
-            text: 'Update Now',
-            onPress: async () => {
-              try {
-                const latestApp = await db.getFirstAsync<InstalledApp>(
-                  'SELECT * FROM apps WHERE app_id = ?',
-                  menuTargetApp.app_id
-                );
-                if (!latestApp) return;
-                const applied = await applyUrlAppUpdate(db, latestApp, result.newHash);
-                if (applied.updated) {
-                  setUpdatesAvailable((prev) => ({ ...prev, [menuTargetApp.app_id]: false }));
-                  await refresh();
-                  showToast('Updated ✓', 'success');
-                } else {
-                  Alert.alert('Already up to date', 'Already up to date ✓');
-                }
-              } catch {
-                showToast('Could not apply update', 'error');
-              }
-            },
-          },
-        ]
-      );
-    } catch {
-      Alert.alert('Update check failed', 'Could not check updates right now.');
-    } finally {
-      setMenuBusy(false);
-      setMenuVisible(false);
-    }
-  }, [db, menuBusy, menuTargetApp, refresh, showToast]);
-
-  const performMenuReplaceCode = useCallback(() => {
-    if (!menuTargetApp) return;
-    const url = encodeURIComponent(menuTargetApp.source_url ?? '');
-    const appId = encodeURIComponent(menuTargetApp.app_id);
-    setMenuVisible(false);
-    router.push(`/add?replace_app_id=${appId}&replace_url=${url}`);
-  }, [menuTargetApp]);
-
-  const performMenuInfo = useCallback(async () => {
-    if (!menuTargetApp) return;
-    setMenuVisible(false);
-    try {
-      const dataCount = await db.getFirstAsync<{ n: number }>(
-        'SELECT COUNT(*) AS n FROM app_data WHERE app_id = ?',
-        menuTargetApp.app_id
-      );
-      Alert.alert(
-        menuTargetApp.name,
-        [
-          `Source: ${menuTargetApp.source_url ?? menuTargetApp.bundle_path}`,
-          `Type: ${menuTargetApp.source_type}`,
-          `Stored entries: ${dataCount?.n ?? 0}`,
-          `Opened: ${menuTargetApp.open_count} time${menuTargetApp.open_count === 1 ? '' : 's'}`,
-          updatesAvailable[menuTargetApp.app_id] ? 'Update: Available' : 'Update: Up to date',
-        ].join('\n'),
-        [{ text: 'OK' }]
-      );
-    } catch {
-      Alert.alert('Error', 'Could not load app details.');
-    }
-  }, [db, menuTargetApp, updatesAvailable]);
-
-  const performMenuShare = useCallback(async () => {
-    if (!menuTargetApp || menuBusy) return;
-
-    if (!menuTargetApp.source_url) {
-      setMenuVisible(false);
-      Alert.alert(
-        'Cannot Share',
-        "This app can only be shared if it was installed from a URL. ZIP and demo apps can't be shared yet."
-      );
-      return;
-    }
-
-    setMenuBusy(true);
-    try {
-      const result = await shareApp(menuTargetApp);
-      if (result.error === 'not_signed_in') {
-        Alert.alert('Sign in to Share', 'You need to sign in to share apps.', [
-          { text: 'Cancel', style: 'cancel' },
-          { text: 'Sign In', onPress: () => router.push('/auth') },
-        ]);
-      } else if (!result.success) {
-        Alert.alert('Share failed', 'Could not share app. Please try again.');
-      }
-    } catch {
-      Alert.alert('Share failed', 'Could not share app. Please try again.');
-    } finally {
-      setMenuBusy(false);
-      setMenuVisible(false);
-    }
-  }, [menuTargetApp, menuBusy]);
-
-  const performMenuExportData = useCallback(async () => {
-    if (!menuTargetApp || menuBusy) return;
-    setMenuBusy(true);
-    try {
-      await exportAppData(db, menuTargetApp);
-    } catch {
-      Alert.alert('Export failed', 'Could not export app data.');
-    } finally {
-      setMenuBusy(false);
-      setMenuVisible(false);
-    }
-  }, [db, menuBusy, menuTargetApp]);
-
-  const performMenuDelete = useCallback(() => {
-    if (!menuTargetApp) return;
-    Alert.alert(
-      `Delete "${menuTargetApp.name}"?`,
-      'This will permanently remove the app and all its stored data.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await db.runAsync('DELETE FROM app_data WHERE app_id = ?', menuTargetApp.app_id);
-              await db.runAsync('DELETE FROM apps WHERE app_id = ?', menuTargetApp.app_id);
-              void supabase.rpc('increment_app_count', { delta: -1 }).then(undefined, () => {});
-              setUpdatesAvailable((prev) => {
-                const next = { ...prev };
-                delete next[menuTargetApp.app_id];
-                return next;
-              });
-              // Close the modal first so the list is visible when refresh runs.
-              // React Native Modal renders in a separate native layer — calling
-              // setApps() while the modal is open doesn't reliably update the
-              // FlatList until the modal is dismissed.
-              setMenuVisible(false);
-              await refresh();
-            } catch {
-              Alert.alert('Delete failed', 'Could not delete app.');
-              setMenuVisible(false);
-            }
-          },
-        },
-      ]
-    );
-  }, [db, menuTargetApp, refresh]);
+  const {
+    menuVisible,
+    menuTargetApp,
+    menuBusy,
+    openContextMenu,
+    closeContextMenu,
+    performMenuCheckUpdate,
+    performMenuReplaceCode,
+    performMenuInfo,
+    performMenuShare,
+    performMenuExportData,
+    performMenuDelete,
+  } = useAppContextMenu({
+    db,
+    refresh,
+    showToast,
+    updatesAvailable,
+    setUpdatesAvailable,
+    exportAppData,
+  });
 
   // ── List rendering ─────────────────────────────────────────────────────────
 
@@ -577,7 +351,6 @@ export default function HomeScreen() {
 
   const keyExtractor = useCallback((item: InstalledApp) => item.app_id, []);
 
-  // Large-title list header (scrolls with content)
   const listHeader = (
     <View style={{ paddingTop: 4, paddingBottom: apps.length > 0 ? 12 : 0 }}>
       <Animated.Text
@@ -672,7 +445,7 @@ export default function HomeScreen() {
             ? [{
                 label: '👥 Manage Group',
                 onPress: () => {
-                  setMenuVisible(false);
+                  closeContextMenu();
                   router.push(`/shared-instance/${menuTargetApp.instance_id}`);
                 },
               }]

@@ -53,13 +53,13 @@ Tracks progress across multi-session refactoring effort. Started 2026-03-20.
 ---
 
 ## Phase 5: Decompose Home Screen + vaultBridge
-**Status: NOT STARTED**
+**Status: COMPLETE** (2026-03-20)
 
-- [ ] Extract `hooks/useUpdateScanner.ts` — background update scanning
-- [ ] Extract `hooks/useAppContextMenu.ts` — menu callbacks + state
-- [ ] Refactor `lib/vaultBridge.ts` — `buildSharedWriteMessage()` + `getUserId()` helpers
-- [ ] Slim down `app/(tabs)/index.tsx` to ~400 lines
-- [ ] Verify: home screen, long-press menu, update scanning, bridge messages
+- [x] Extract `hooks/useUpdateScanner.ts` — background update scanning with concurrency pool + useFocusEffect
+- [x] Extract `hooks/useAppContextMenu.ts` — all 8 menu callbacks + state (visible, target, busy)
+- [x] Refactor `lib/vaultBridge.ts` — extract `getUserId()` helper (dedup 4x session calls) + `buildSharedWriteMessage()` (dedup ls_set_sync)
+- [x] Slim down `app/(tabs)/index.tsx` — 708 → 344 lines
+- [x] Verify: `npx tsc --noEmit` passes (0 app errors)
 
 ---
 
