@@ -28,15 +28,15 @@ Tracks progress across multi-session refactoring effort. Started 2026-03-20.
 
 ---
 
-## Phase 3: Decompose `app/app/[id].tsx` (1,356 → ~300 lines)
-**Status: NOT STARTED**
+## Phase 3: Decompose `app/app/[id].tsx` (1,356 → 466 lines)
+**Status: COMPLETE** (2026-03-20)
 
-- [ ] Extract `hooks/useWebViewApp.ts` — state machine, initial load, shim building
-- [ ] Extract `hooks/useLiveSyncPush.ts` — PowerSync watcher for remote updates
-- [ ] Extract `hooks/useFreezeWatcher.ts` — freeze status effect
-- [ ] Extract `lib/appActions.ts` — menu action functions
-- [ ] Slim down `app/app/[id].tsx` to hook calls + JSX
-- [ ] Verify: personal app, shared app, URL app all work correctly
+- [x] Extract `hooks/useWebViewApp.ts` — state machine, loadShimPayload, initial load, auth session, ownWriteIds prune
+- [x] Extract `hooks/useLiveSyncPush.ts` — PowerSync db.watch() watcher for remote updates
+- [x] Extract `hooks/useFreezeWatcher.ts` — initial check + live freeze status watcher
+- [x] Extract `hooks/useAppMenuActions.ts` — handleCollaborate, handleManageGroup, handleCheckUpdate, handleAppInfo, handleDelete
+- [x] Slim down `app/app/[id].tsx` to 466 lines (hook calls + JSX + styles)
+- [x] Verify: `npx tsc --noEmit` passes (0 app errors)
 
 ---
 
