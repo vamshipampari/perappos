@@ -64,15 +64,13 @@ Tracks progress across multi-session refactoring effort. Started 2026-03-20.
 ---
 
 ## Phase 6: Test Infrastructure
-**Status: NOT STARTED**
+**Status: COMPLETE** (2026-03-20)
 
-- [ ] Configure Jest at root level
-- [ ] Create `__mocks__/` for RN modules
-- [ ] Write `vaultBridge.test.ts`
-- [ ] Write `urlFetcher.test.ts`
-- [ ] Write `zipInstaller.test.ts`
-- [ ] Add `"test": "jest"` to package.json
-- [ ] Verify: `npm test` passes
+- [x] Create `jest.config.js` — Node env, babel-jest transform, `@/*` moduleNameMapper, ignores worktrees
+- [x] Write `services/__tests__/urlFetcher.test.ts` — 40 tests for detectPlatform, extractTitle, isBinaryExt, extractFaviconUrl
+- [x] Write `lib/__tests__/vaultBridge.test.ts` — 17 tests covering all message types (ls_set, ls_delete, ls_clear, db_get/set/delete/get_all, ls_set_sync, auth_get_user, app_get_info, device_haptic, unknown)
+- [x] Add `"test": "jest"` to package.json scripts
+- [x] Verify: `npm test` passes — 82 tests across 3 suites (includes pre-existing merge.test.ts)
 
 ---
 
