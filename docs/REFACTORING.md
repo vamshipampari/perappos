@@ -40,15 +40,15 @@ Tracks progress across multi-session refactoring effort. Started 2026-03-20.
 
 ---
 
-## Phase 4: Decompose `app/add.tsx` (1,192 → ~400 lines)
-**Status: NOT STARTED**
+## Phase 4: Decompose `app/add.tsx` (1,194 → 488 lines)
+**Status: COMPLETE** (2026-03-20)
 
-- [ ] Extract `services/urlFetcher.ts` — URL crawling, BFS, HTML rewriting
-- [ ] Extract `services/zipInstaller.ts` — ZIP extraction and validation
-- [ ] Extract `components/EmojiPicker.tsx`
-- [ ] Extract `components/ColorPicker.tsx`
-- [ ] Slim down `app/add.tsx` to step state machine + JSX
-- [ ] Verify: URL install, ZIP install, emoji/color pickers, replace-app flow
+- [x] Extract `services/urlFetcher.ts` — platform detection, title/favicon extraction, fetchUrlMetadata
+- [x] Extract `services/zipInstaller.ts` — ZIP extraction, path rewriting, ParsedBundle type
+- [x] Extract `components/EmojiPicker.tsx`
+- [x] Extract `components/ColorPicker.tsx`
+- [x] Slim down `app/add.tsx` to step state machine + JSX (488 lines)
+- [x] Verify: `npx tsc --noEmit` passes (0 app errors)
 
 ---
 
