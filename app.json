@@ -1,14 +1,14 @@
 {
   "expo": {
     "name": "Cottix",
-    "slug": "cottix",
+    "slug": "perappos",
     "version": "0.1.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "cottix",
     "userInterfaceStyle": "light",
     "splash": {
-      "image": "./assets/images/splash-icon.png",
+      "image": "./assets/images/logo.png",
       "resizeMode": "contain",
       "backgroundColor": "#FFFFFF"
     },
@@ -29,7 +29,10 @@
       "softwareKeyboardLayoutMode": "pan",
       "predictiveBackGestureEnabled": false,
       "package": "com.cottix.app",
-      "permissions": ["NOTIFICATIONS", "VIBRATE"]
+      "permissions": [
+        "NOTIFICATIONS",
+        "VIBRATE"
+      ]
     },
     "web": {
       "bundler": "metro",
@@ -47,7 +50,14 @@
         }
       ],
       "@journeyapps/react-native-quick-sqlite",
-      "expo-web-browser"
+      "expo-web-browser",
+      "expo-secure-store",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Cottix needs access to your photos so mini-apps can upload images."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true
@@ -57,6 +67,7 @@
       "eas": {
         "projectId": "2ebec141-aefa-43b8-b6f3-377add3fcc4d"
       }
-    }
+    },
+    "owner": "vamshipampari"
   }
 }
