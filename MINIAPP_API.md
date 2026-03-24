@@ -425,7 +425,7 @@ localStorage.setItem('app_state', JSON.stringify(entireAppState))
 | File system access | ❌ Not available |
 | Secure API key storage | ✅ `VaultAPI.secrets.set/fetch` — global keychain, never exposed to JS |
 | External API calls with secret | ✅ `VaultAPI.secrets.fetch` — native HTTP with `{{secret}}` header injection |
-| Image upload to cloud | ✅ `VaultAPI.storage.upload` → `getUrl` (requires Supabase `user-media` bucket RLS) |
+| Image upload to cloud | ✅ `VaultAPI.storage.upload` → `getUrl` — confirmed working |
 | Geolocation | ✅ Works (native WebView handles it, user prompted for permission) |
 | IndexedDB | ❌ Not available — use `localStorage` or `VaultAPI.db` |
 | WebSockets / fetch | ✅ Work normally |

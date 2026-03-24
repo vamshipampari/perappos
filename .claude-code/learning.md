@@ -15,6 +15,11 @@
     - They share NO common base. Any new `VaultAPI` namespace added to one MUST be manually mirrored to the other (same ES5 format, same `_bridge()` calls)
     - Failing to do this means shared-app users get `undefined is not an object` for new APIs
 
+23. **`expo-image-picker` requires a plugin entry in `app.json` for iOS**
+    - Without `["expo-image-picker", { "photosPermission": "..." }]` in `app.json` plugins, `NSPhotoLibraryUsageDescription` is absent from `Info.plist`
+    - iOS silently denies photo access without showing a permission dialog — `requestMediaLibraryPermissionsAsync()` returns `denied` immediately
+    - Any new native capability that needs an iOS permission string needs a corresponding plugin entry. Rebuild required after adding it.
+
 21. **`expo-document-picker` vs `expo-image-picker` — not interchangeable**
     - `DocumentPicker.getDocumentAsync()` opens the iOS **Files app** (iCloud Drive, Downloads, On My iPhone) — not the Photos library
     - `ImagePicker.launchImageLibraryAsync()` opens the native **Photos picker**

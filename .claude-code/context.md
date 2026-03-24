@@ -86,7 +86,7 @@ Cottix is a personal app OS that lets users install web apps from URLs or ZIPs, 
 3. Uploads to Supabase Storage `user-media` bucket at path `{appId}/{userId}/{timestamp}.{ext}`
 4. Returns storage path to mini-app; `VaultAPI.storage.getUrl(path)` returns 1-hour signed URL
 
-**⚠️ Partially working (Session 11):** Image picker and upload code implemented. Upload failing — likely Supabase `user-media` bucket RLS policies not yet set up.
+**✅ Working (Session 11):** Image picker, upload, and signed URL confirmed end-to-end. Supabase `user-media` bucket RLS policies added. `expo-image-picker` plugin added to `app.json`.
 
 ### App Installation (URL)
 1. Fetch HTML from URL
