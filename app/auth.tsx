@@ -2,6 +2,7 @@ import { router } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Image,
   KeyboardAvoidingView,
   Platform,
   Text,
@@ -222,17 +223,12 @@ export default function AuthScreen() {
           }}
         >
           {/* Logo / name */}
-          <Text style={{ fontSize: 52, marginBottom: 12 }}>📱</Text>
-          <Text
-            style={{
-              fontSize: 28,
-              fontWeight: '700',
-              color: '#1C1C1E',
-              marginBottom: 6,
-            }}
-          >
-            Cottix
-          </Text>
+          <Image
+            source={require('../assets/images/logo.png')}
+            resizeMode="contain"
+            accessibilityLabel="Cottix logo"
+            style={{ width: 104, height: 104, marginBottom: 12 }}
+          />
           <Text
             style={{
               fontSize: 15,

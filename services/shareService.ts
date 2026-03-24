@@ -10,8 +10,9 @@
  */
 
 import { Share } from 'react-native';
+import { log } from '@/lib/logger';
 import { supabase } from './supabase';
-import type { InstalledApp } from '@/hooks/useInstalledApps';
+import type { InstalledApp } from '@/types';
 
 export type ShareError = 'not_signed_in' | 'no_source_url' | 'unknown';
 
@@ -72,7 +73,7 @@ export async function shareApp(app: InstalledApp): Promise<ShareResult> {
       share_code: shareCode,
     });
     if (error) {
-      console.error('[shareApp] insert error:', error);
+      log.error('[shareApp] insert error:', error);
       return { success: false, error: 'unknown' };
     }
   }

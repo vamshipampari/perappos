@@ -3,6 +3,7 @@ import {
   PowerSyncBackendConnector,
   UpdateType,
 } from "@powersync/react-native";
+import { log } from "@/lib/logger";
 import { supabase } from "../supabase";
 
 export class SupabaseConnector implements PowerSyncBackendConnector {
@@ -25,7 +26,7 @@ export class SupabaseConnector implements PowerSyncBackendConnector {
     const transaction = await database.getNextCrudTransaction();
     if (!transaction) return;
 
-    console.log("[PowerSync] uploading...", transaction.crud.length, "op(s)");
+    log.info("[PowerSync] uploading...", transaction.crud.length, "op(s)");
 
     const {
       data: { session },
@@ -52,7 +53,7 @@ export class SupabaseConnector implements PowerSyncBackendConnector {
         const { table, opData, id } = op;
         const record = { ...opData, id };
 
-        console.log(
+        log.info(
           "[PowerSync] upload op:",
           op.op,
           "table:",
@@ -144,9 +145,9 @@ export class SupabaseConnector implements PowerSyncBackendConnector {
         }
       }
       await transaction.complete();
-      console.log("[PowerSync] upload complete");
+      log.info("[PowerSync] upload complete");
     } catch (error) {
-      console.error("[PowerSync] upload error:", error);
+      log.error("[PowerSync] upload error:", error);
       throw error;
     }
   }

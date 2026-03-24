@@ -10,6 +10,7 @@
  */
 
 import * as Haptics from 'expo-haptics';
+import * as ImagePicker from 'expo-image-picker';
 import * as Notifications from 'expo-notifications';
 import * as Sharing from 'expo-sharing';
 import type { SQLiteDatabase } from 'expo-sqlite';
@@ -20,43 +21,36 @@ import type { AbstractPowerSyncDatabase } from '@powersync/react-native';
 import { handleSharedWrite } from '@/services/sync/bridge-merge-handler';
 import type { SharedWriteMessage } from '@/services/sync/bridge-merge-handler';
 import { supabase } from '../services/supabase';
+import { setSecret, getSecret, deleteSecret } from '@/services/secretsService';
+import { uploadMedia, getSignedUrl } from '@/services/mediaService';
+import type { AppManifest, RawMessage } from '@/types';
+
+export type { AppManifest };
 
 type WebViewRef = RefObject<WebView | null>;
 
-// ── Types ─────────────────────────────────────────────────────────────────────
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
-export interface AppManifest {
-  app_id: string;
-  name: string;
-  source_url: string | null;
-  installed_at: string;
-  open_count: number;
-  instance_id: string | null;
+async function getUserId(): Promise<string> {
+  const { data: { session } } = await supabase.auth.getSession();
+  return session?.user?.id ?? '';
 }
 
-interface RawMessage {
-  type: string;
-  id?: string;       // present for VaultAPI calls and ls_set_sync, absent for ls_* fire-and-forget
-  appId: string;
-  _callbackId?: number;
-  app_id?: string;
-  key?: string;
-  value?: string;
-  baseVersion?: number;
-  baseHash?: string | null;
-  baseValue?: string | null;
-  clientWriteId?: string;
-  pageAge?: number;
-  hadInteraction?: boolean;
-  timestamp?: number;
-  style?: string;
-  title?: string;
-  body?: string;
-  url?: string;
-  text?: string;     // plain-text content for device_share
-  message?: string;
-  delay_seconds?: number;
-  [k: string]: unknown;
+function buildSharedWriteMessage(
+  msg: RawMessage,
+  prefix: string
+): SharedWriteMessage {
+  return {
+    key: msg.key!,
+    value: msg.value!,
+    baseVersion: msg.baseVersion ?? 0,
+    baseHash: msg.baseHash ?? null,
+    baseValue: msg.baseValue ?? null,
+    clientWriteId: msg.clientWriteId ?? `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    pageAge: msg.pageAge ?? 0,
+    hadInteraction: msg.hadInteraction ?? false,
+    timestamp: msg.timestamp ?? Date.now(),
+  };
 }
 
 // ── Main handler ──────────────────────────────────────────────────────────────
@@ -109,19 +103,8 @@ export async function handleVaultMessage(
           return;
         }
 
-        const { data: { session } } = await supabase.auth.getSession();
-        const userId = session?.user?.id ?? '';
-        const sharedMsg: SharedWriteMessage = {
-          key: msg.key,
-          value: msg.value,
-          baseVersion: msg.baseVersion ?? 0,
-          baseHash: msg.baseHash ?? null,
-          baseValue: msg.baseValue ?? null,
-          clientWriteId: msg.clientWriteId ?? '',
-          pageAge: msg.pageAge ?? 0,
-          hadInteraction: msg.hadInteraction ?? false,
-          timestamp: msg.timestamp ?? Date.now(),
-        };
+        const userId = await getUserId();
+        const sharedMsg = buildSharedWriteMessage(msg, 'ls_set_sync');
 
         const result = await handleSharedWrite(
           syncDb as unknown as Parameters<typeof handleSharedWrite>[0],
@@ -162,8 +145,7 @@ export async function handleVaultMessage(
           // Fallback: if the sync shim didn't load (race condition during
           // WebView reload after creating a shared instance), route through
           // the merge handler so the write is never silently lost.
-          const { data: { session: lsSharedSession } } = await supabase.auth.getSession();
-          const lsSharedUserId = lsSharedSession?.user?.id ?? '';
+          const lsSharedUserId = await getUserId();
           const lsSharedMsg: SharedWriteMessage = {
             key: msg.key!,
             value: msg.value!,
@@ -184,11 +166,11 @@ export async function handleVaultMessage(
           );
           break;
         }
-        const { data: { session: lsSession } } = await supabase.auth.getSession();
+        const lsUserId = await getUserId();
         await syncDb.execute(
           `INSERT OR REPLACE INTO app_data (id, user_id, app_id, key, value, updated_at)
            VALUES (?, ?, ?, ?, ?, datetime('now'))`,
-          [`${effectiveAppId}/${msg.key!}`, lsSession?.user?.id ?? null, effectiveAppId, msg.key!, msg.value!]
+          [`${effectiveAppId}/${msg.key!}`, lsUserId || null, effectiveAppId, msg.key!, msg.value!]
         );
         break;
       }
@@ -222,11 +204,10 @@ export async function handleVaultMessage(
       // These come from window.VaultAPI.db.* and carry an `id` for the response.
 
       case 'db_set': {
-        const { data: { session: dbSession } } = await supabase.auth.getSession();
+        const dbUserId = await getUserId();
         if (isShared && instanceId) {
           // Route shared VaultAPI.db.set through the merge handler so writes
           // get proper version tracking and merge metadata.
-          const dbUserId = dbSession?.user?.id ?? '';
           const sharedDbMsg: SharedWriteMessage = {
             key: msg.key!,
             value: msg.value!,
@@ -250,7 +231,7 @@ export async function handleVaultMessage(
           await syncDb.execute(
             `INSERT OR REPLACE INTO app_data (id, user_id, app_id, key, value, updated_at)
              VALUES (?, ?, ?, ?, ?, datetime('now'))`,
-            [`${effectiveAppId}/${msg.key!}`, dbSession?.user?.id ?? null, effectiveAppId, msg.key!, msg.value!]
+            [`${effectiveAppId}/${msg.key!}`, dbUserId || null, effectiveAppId, msg.key!, msg.value!]
           );
           respond(true);
         }
@@ -379,6 +360,155 @@ export async function handleVaultMessage(
       case 'app_get_info':
         respond(manifest);
         break;
+
+      // ── VaultAPI.secrets ──────────────────────────────────────────────────
+
+      case 'secrets_set': {
+        if (!msg.name || typeof msg.name !== 'string' || !msg.value || typeof msg.value !== 'string') {
+          respond(null, 'secrets_set requires name and value strings');
+          break;
+        }
+        await setSecret(effectiveAppId, msg.name, msg.value);
+        respond({ success: true });
+        break;
+      }
+
+      case 'secrets_get': {
+        if (!msg.name || typeof msg.name !== 'string') {
+          respond(null, 'secrets_get requires a name string');
+          break;
+        }
+        const secretValue = await getSecret(effectiveAppId, msg.name);
+        respond({ value: secretValue });
+        break;
+      }
+
+      case 'secrets_fetch': {
+        // Gated: only Pro/Beta/Team plans may use secrets_fetch.
+        // The secret value is injected server-side and never returned to the WebView.
+        try {
+          const { data: profileData } = await supabase.rpc('get_user_profile');
+          if (profileData) {
+            const plan = (profileData as { plan: string }).plan;
+            if (plan === 'free') {
+              respond({ error: 'pro_required', message: 'Upgrade to Pro to use VaultAPI.secrets.fetch' });
+              break;
+            }
+          }
+        } catch {
+          // Fail-open on network errors — don't block the request
+        }
+
+        if (!msg.name || typeof msg.name !== 'string') {
+          respond(null, 'secrets_fetch requires a name string');
+          break;
+        }
+        const req = msg.request as {
+          url?: string;
+          method?: string;
+          headers?: Record<string, string>;
+          body?: string;
+        } | undefined;
+        if (!req?.url) {
+          respond(null, 'secrets_fetch requires a request.url');
+          break;
+        }
+
+        const resolvedValue = await getSecret(effectiveAppId, msg.name);
+        if (!resolvedValue) {
+          respond(null, `Secret "${msg.name}" not found`);
+          break;
+        }
+
+        // Replace {{secret}} in url, all header values, and body.
+        // The resolved value never leaves this function.
+        const replace = (s: string) => s.split('{{secret}}').join(resolvedValue);
+
+        const fetchUrl = replace(req.url);
+        const fetchMethod = req.method ?? 'GET';
+        const fetchHeaders: Record<string, string> = {};
+        if (req.headers) {
+          for (const [k, v] of Object.entries(req.headers)) {
+            fetchHeaders[k] = replace(v);
+          }
+        }
+        const fetchBody = req.body ? replace(req.body) : undefined;
+
+        const fetchRes = await fetch(fetchUrl, {
+          method: fetchMethod,
+          headers: fetchHeaders,
+          body: fetchBody,
+        });
+
+        const resHeaders: Record<string, string> = {};
+        fetchRes.headers.forEach((v, k) => { resHeaders[k] = v; });
+        const resBody = await fetchRes.text();
+
+        respond({ status: fetchRes.status, headers: resHeaders, body: resBody });
+        break;
+      }
+
+      // ── VaultAPI.storage ──────────────────────────────────────────────────
+
+      case 'storage_upload': {
+        const source = (msg.options as { source?: string } | undefined)?.source ?? 'gallery';
+
+        // Request permissions
+        const permResult = source === 'camera'
+          ? await ImagePicker.requestCameraPermissionsAsync()
+          : await ImagePicker.requestMediaLibraryPermissionsAsync();
+
+        if (!permResult.granted) {
+          respond({ error: 'permission_denied', message: 'Media access permission was denied' });
+          break;
+        }
+
+        const pickerResult = source === 'camera'
+          ? await ImagePicker.launchCameraAsync({
+              mediaTypes: ['images'],
+              quality: 0.8,
+              allowsEditing: true,
+            })
+          : await ImagePicker.launchImageLibraryAsync({
+              mediaTypes: ['images'],
+              quality: 0.8,
+              allowsEditing: true,
+            });
+
+        if (pickerResult.canceled) {
+          respond({ cancelled: true });
+          break;
+        }
+
+        const asset = pickerResult.assets[0];
+        if (!asset) {
+          respond(null, 'No asset returned from picker');
+          break;
+        }
+
+        const uploadUserId = await getUserId();
+        const mimeType = asset.mimeType ?? 'image/jpeg';
+        const mediaUri = await uploadMedia(
+          effectiveAppId,
+          uploadUserId,
+          instanceId ?? null,
+          asset.uri,
+          mimeType
+        );
+
+        respond({ uri: mediaUri });
+        break;
+      }
+
+      case 'storage_get_url': {
+        if (!msg.uri || typeof msg.uri !== 'string') {
+          respond(null, 'storage_get_url requires a uri string');
+          break;
+        }
+        const signedUrl = await getSignedUrl(msg.uri);
+        respond({ url: signedUrl });
+        break;
+      }
 
       default:
         // Unknown message types are silently ignored.

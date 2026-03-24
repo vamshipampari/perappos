@@ -22,7 +22,7 @@ export type ShapeClassification =
  * If confidence < 0.8, the bridge should fall back to LWW.
  */
 export function classifyShape(value: string): ShapeClassification {
-  let parsed: any;
+  let parsed: unknown;
   try {
     parsed = JSON.parse(value);
   } catch {
@@ -41,22 +41,24 @@ export function classifyShape(value: string): ShapeClassification {
     return { type: 'other', confidence: 1.0 };
   }
 
-  const objectItems = parsed.filter(
-    (x: any) => x !== null && typeof x === 'object' && !Array.isArray(x)
+  const parsedArr = parsed as unknown[];
+  const objectItems = parsedArr.filter(
+    (x): x is Record<string, unknown> =>
+      x !== null && typeof x === 'object' && !Array.isArray(x)
   );
-  const objectRatio = objectItems.length / parsed.length;
+  const objectRatio = objectItems.length / parsedArr.length;
   if (objectRatio < 0.8) {
     return { type: 'other', confidence: 0.8 };
   }
 
   for (const candidate of ID_CANDIDATES) {
     const withField = objectItems.filter(
-      (x: any) => x[candidate] != null && x[candidate] !== ''
+      (x) => x[candidate] != null && x[candidate] !== ''
     );
     const fieldRatio = withField.length / objectItems.length;
 
     if (fieldRatio >= 0.9) {
-      const ids = withField.map((x: any) => String(x[candidate]));
+      const ids = withField.map((x) => String(x[candidate]));
       const uniqueIds = new Set(ids);
 
       if (uniqueIds.size === ids.length) {

@@ -7,6 +7,9 @@
     "android": "expo run:android",
     "ios": "expo run:ios",
     "web": "expo start --web",
+    "test": "jest",
+    "lint": "eslint . --ext .ts,.tsx",
+    "format": "prettier --write \"**/*.{ts,tsx}\" --ignore-path .gitignore",
     "build:ios:testflight": "eas build --platform ios --profile testflight",
     "submit:ios:testflight": "eas submit --platform ios --profile testflight"
   },
@@ -15,25 +18,28 @@
     "@expo/vector-icons": "^15.0.2",
     "@journeyapps/react-native-quick-sqlite": "^2.5.1",
     "@powersync/react-native": "^1.31.0",
-    "@react-native-async-storage/async-storage": "2.2.0",
     "@react-navigation/native": "^7.1.28",
     "@supabase/supabase-js": "^2.98.0",
     "expo": "~55.0.4",
-    "expo-constants": "~55.0.7",
-    "expo-crypto": "~55.0.9",
-    "expo-dev-client": "~55.0.16",
-    "expo-document-picker": "~55.0.8",
-    "expo-file-system": "~55.0.9",
+    "expo-constants": "~55.0.9",
+    "expo-crypto": "~55.0.10",
+    "expo-dev-client": "~55.0.18",
+    "expo-document-picker": "~55.0.9",
+    "expo-file-system": "~55.0.11",
     "expo-font": "~55.0.4",
-    "expo-haptics": "~55.0.8",
-    "expo-local-authentication": "~55.0.8",
-    "expo-notifications": "~55.0.12",
-    "expo-router": "~55.0.5",
-    "expo-sharing": "~55.0.10",
-    "expo-splash-screen": "~55.0.10",
-    "expo-sqlite": "~55.0.10",
+    "expo-haptics": "~55.0.9",
+    "expo-image-picker": "~55.0.13",
+    "expo-linking": "~55.0.8",
+    "expo-local-authentication": "~55.0.9",
+    "expo-notifications": "~55.0.13",
+    "expo-router": "~55.0.7",
+    "expo-secure-store": "~55.0.9",
+    "expo-sharing": "~55.0.14",
+    "expo-splash-screen": "~55.0.12",
+    "expo-sqlite": "~55.0.11",
     "expo-status-bar": "~55.0.4",
-    "expo-system-ui": "~55.0.9",
+    "expo-system-ui": "~55.0.10",
+    "expo-web-browser": "~55.0.10",
     "jszip": "^3.10.1",
     "nativewind": "^4.2.2",
     "react": "19.2.0",
@@ -50,14 +56,27 @@
   },
   "devDependencies": {
     "@babel/plugin-transform-async-generator-functions": "^7.29.0",
+    "@types/jest": "^30.0.0",
     "@types/jszip": "^3.4.1",
     "@types/react": "~19.2.2",
-    "expo-linking": "^55.0.7",
-    "expo-web-browser": "^55.0.9",
-    "typescript": "~5.9.2",
-    "wrangler": "^4.75.0"
+    "@typescript-eslint/eslint-plugin": "^7.18.0",
+    "@typescript-eslint/parser": "^7.18.0",
+    "babel-jest": "^30.3.0",
+    "eslint": "8",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-react-hooks": "4",
+    "jest": "^30.3.0",
+    "prettier": "^3.8.1",
+    "typescript": "~5.9.2"
   },
   "expo": {
+    "install": {
+      "exclude": [
+        "jest",
+        "@types/jest",
+        "babel-jest"
+      ]
+    },
     "doctor": {
       "reactNativeDirectoryCheck": {
         "exclude": [
@@ -67,5 +86,5 @@
     }
   },
   "private": true,
-  "packageManager": "yarn@1.22.22+sha512.a6b2f7906b721bba3d67d4aff083df04dad64c399707841b7acf00f6b133b7ac24255f2652fa22ae3534329dc6180534e98d17432037ff6fd140556e2bb3137e"
+  "packageManager": "npm"
 }

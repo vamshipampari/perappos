@@ -4,6 +4,7 @@ import { PowerSyncSchema } from './schema';
 import { SupabaseConnector } from './SupabaseConnector';
 import { supabase } from '../supabase';
 import '@azure/core-asynciterator-polyfill';
+import { log } from '@/lib/logger';
 
 export const powerSyncDb = new PowerSyncDatabase({
   schema: PowerSyncSchema,
@@ -33,12 +34,12 @@ export const usePowerSync = () => useContext(SyncContext);
  */
 export async function reconnectPowerSync(): Promise<void> {
   try {
-    console.log('[PowerSync] reconnecting to refresh sync buckets...');
+    log.info('[PowerSync] reconnecting to refresh sync buckets...');
     await powerSyncDb.disconnect();
     await powerSyncDb.connect(connector);
-    console.log('[PowerSync] reconnected');
+    log.info('[PowerSync] reconnected');
   } catch (err) {
-    console.error('[PowerSync] reconnect error:', err);
+    log.error('[PowerSync] reconnect error:', err);
   }
 }
 
@@ -52,17 +53,17 @@ export function PowerSyncProvider({ children }: { children: React.ReactNode }) {
       async (event, session) => {
         if (session) {
           try {
-            console.log('[PowerSync] connecting...');
+            log.info('[PowerSync] connecting...');
             await powerSyncDb.connect(connector);
             setIsConnected(true);
-            console.log('[PowerSync] connected');
+            log.info('[PowerSync] connected');
           } catch (error) {
-            console.error('[PowerSync] error:', error);
+            log.error('[PowerSync] error:', error);
           }
         } else {
           await powerSyncDb.disconnect();
           setIsConnected(false);
-          console.log('[PowerSync] disconnected');
+          log.info('[PowerSync] disconnected');
         }
       }
     );
@@ -70,14 +71,14 @@ export function PowerSyncProvider({ children }: { children: React.ReactNode }) {
     // Check existing session on mount
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session) {
-        console.log('[PowerSync] connecting (existing session)...');
+        log.info('[PowerSync] connecting (existing session)...');
         powerSyncDb.connect(connector)
           .then(async () => {
             setIsConnected(true);
-            console.log('[PowerSync] connected (existing session)');
+            log.info('[PowerSync] connected (existing session)');
           })
           .catch((error) => {
-            console.error('[PowerSync] error (existing session):', error);
+            log.error('[PowerSync] error (existing session):', error);
           });
       }
     });

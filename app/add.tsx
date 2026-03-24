@@ -1,6 +1,5 @@
 import * as Crypto from 'expo-crypto';
 import * as DocumentPicker from 'expo-document-picker';
-import * as FileSystem from 'expo-file-system/legacy';
 import { Stack, router, useLocalSearchParams } from 'expo-router';
 import { Component, type ErrorInfo, type ReactNode, useEffect, useState } from 'react';
 import {
@@ -17,12 +16,17 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { ColorPicker } from '@/components/ColorPicker';
+import { EmojiPicker } from '@/components/EmojiPicker';
 import { useToast } from '@/components/Toast';
 import { useDatabase } from '@/hooks/useDatabase';
 import { useGatekeeper } from '@/hooks/useGatekeeper';
 import { useInstalledApps } from '@/hooks/useInstalledApps';
 import { Haptics, safeNotificationAsync } from '@/lib/haptics';
+import { log } from '@/lib/logger';
 import { supabase } from '@/services/supabase';
+import { detectPlatform, fetchUrlMetadata } from '@/services/urlFetcher';
+import { type ParsedBundle, extractAndBundle } from '@/services/zipInstaller';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -39,242 +43,9 @@ const BG_COLOR_OPTIONS = [
   '#E5E7EB', // gray
 ];
 
-const BUNDLE_SIZE_LIMIT = 10 * 1024 * 1024; // 10 MB
-
-const PLATFORM_PATTERNS: Array<{ pattern: RegExp; label: string; color: string }> = [
-  { pattern: /\.lovable\.(dev|app)(\/|$)/i, label: 'Lovable', color: '#7C3AED' },
-  { pattern: /\.bolt\.host(\/|$)/i, label: 'Bolt', color: '#F97316' },
-  { pattern: /\.vercel\.app(\/|$)/i, label: 'Vercel', color: '#000000' },
-  { pattern: /\.netlify\.app(\/|$)/i, label: 'Netlify', color: '#00BFA5' },
-  { pattern: /\.replit\.dev(\/|$)/i, label: 'Replit', color: '#0A6BEF' },
-];
-
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 type Step = 'input' | 'processing' | 'details' | 'installing';
-
-interface ParsedBundle {
-  appId: string;
-  html: string | null;
-  name: string;
-  hash: string | null;
-  size: number;
-  sourceType: 'url' | 'zip';
-  sourceUrl?: string;
-  /** Filesystem path WITHOUT file:// prefix and WITHOUT trailing slash. */
-  bundlePath: string;
-}
-
-// ── Platform detection ────────────────────────────────────────────────────────
-
-function detectPlatform(url: string): { label: string; color: string } | null {
-  for (const p of PLATFORM_PATTERNS) {
-    if (p.pattern.test(url)) return { label: p.label, color: p.color };
-  }
-  if (url.startsWith('http://') || url.startsWith('https://')) {
-    return { label: 'Web App', color: '#8E8E93' };
-  }
-  return null;
-}
-
-// ── URL / asset helpers ───────────────────────────────────────────────────────
-
-function extractTitle(html: string): string {
-  const m = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
-  return m ? m[1].replace(/<[^>]+>/g, '').trim() : '';
-}
-
-/** Returns true for file types that should be written as Base64 (binary). */
-function isBinaryExt(path: string): boolean {
-  return /\.(png|jpe?g|gif|webp|ico|woff2?|ttf|eot|otf|pdf|avif)(\?.*)?$/i.test(path);
-}
-
-function extractFaviconUrl(html: string, baseUrl: string): string | null {
-  const iconLinks: string[] = [];
-  const linkRe = /<link\b[^>]*>/gi;
-  let m: RegExpExecArray | null;
-
-  while ((m = linkRe.exec(html)) !== null) {
-    const tag = m[0];
-    const rel = tag.match(/\brel=["']([^"']+)["']/i)?.[1] ?? '';
-    if (!/\bicon\b/i.test(rel)) continue;
-    const href = tag.match(/\bhref=["']([^"']+)["']/i)?.[1];
-    if (href) iconLinks.push(href);
-  }
-
-  const candidates = iconLinks.length > 0 ? iconLinks : ['/favicon.ico'];
-  for (const href of candidates) {
-    try {
-      return new URL(href, baseUrl).toString();
-    } catch {
-      // keep trying fallback candidates
-    }
-  }
-  return null;
-}
-
-// ── Fetch helper ──────────────────────────────────────────────────────────────
-
-async function fetchWithTimeout(url: string, ms = 30_000): Promise<Response> {
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), ms);
-  try {
-    return await fetch(url, { signal: ctrl.signal });
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-async function fetchUrlMetadata(
-  pageUrl: string,
-  onStatus: (s: string) => void
-): Promise<{ name: string; faviconUrl: string | null; hash: string; size: number }> {
-  onStatus('Fetching app metadata…');
-
-  let res: Response;
-  try {
-    res = await fetchWithTimeout(pageUrl, 30_000);
-  } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : 'Network error';
-    throw new Error(
-      msg.toLowerCase().includes('abort')
-        ? 'Request timed out after 30 seconds'
-        : `Cannot reach app: ${msg}`
-    );
-  }
-  if (!res.ok) throw new Error(`Server returned ${res.status} ${res.statusText}`);
-
-  onStatus('Extracting title and icon…');
-  const rawHtml = await res.text();
-  const name = extractTitle(rawHtml) || new URL(pageUrl).hostname;
-  const faviconUrl = extractFaviconUrl(rawHtml, pageUrl);
-  const hash = await Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, rawHtml);
-
-  return {
-    name,
-    faviconUrl,
-    hash,
-    size: rawHtml.length,
-  };
-}
-
-// ── ZIP → local bundle ────────────────────────────────────────────────────────
-
-async function extractAndBundle(
-  fileUri: string,
-  appId: string,
-  onStatus: (s: string) => void
-): Promise<ParsedBundle> {
-  const JSZip = (await import('jszip')).default;
-
-  onStatus('Reading ZIP…');
-  const b64 = await FileSystem.readAsStringAsync(fileUri, {
-    encoding: FileSystem.EncodingType.Base64,
-  });
-
-  onStatus('Extracting…');
-  const zip = await JSZip.loadAsync(b64, { base64: true });
-
-  // Locate index.html (root or one directory level deep)
-  let indexEntry = zip.file('index.html') as import('jszip').JSZipObject | null;
-  if (!indexEntry) {
-    zip.forEach((path, file) => {
-      if (!indexEntry && !file.dir && /^[^/]+\/index\.html$/i.test(path)) {
-        indexEntry = file;
-      }
-    });
-  }
-  if (!indexEntry) throw new Error('No index.html found in this ZIP');
-
-  const rawIndex = await (indexEntry as import('jszip').JSZipObject).async('string');
-  const detectedName = extractTitle(rawIndex) || 'My App';
-
-  // If ZIP nests everything inside a single directory (e.g. myapp/index.html),
-  // strip that prefix so {appDir}/index.html is at the root.
-  const indexPath: string = (indexEntry as any).name ?? 'index.html';
-  const indexDir = indexPath.includes('/')
-    ? indexPath.slice(0, indexPath.lastIndexOf('/') + 1)
-    : '';
-
-  const appDir = `${FileSystem.documentDirectory}apps/${appId}/`;
-  await FileSystem.makeDirectoryAsync(appDir, { intermediates: true });
-
-  // Write all ZIP entries to filesystem
-  let totalSize = rawIndex.length;
-  const writeTasks: Promise<void>[] = [];
-
-  zip.forEach((relativePath, file) => {
-    if (file.dir) return;
-
-    // Normalise path — strip the indexDir prefix if present
-    const normalised =
-      indexDir && relativePath.startsWith(indexDir)
-        ? relativePath.slice(indexDir.length)
-        : relativePath;
-
-    if (!normalised) return;
-
-    const isBin = isBinaryExt(normalised);
-    const localPath = `${appDir}${normalised}`;
-    const dir = localPath.slice(0, localPath.lastIndexOf('/') + 1);
-
-    writeTasks.push(
-      (isBin
-        ? file.async('base64' as any)
-        : file.async('string' as any)
-      )
-        .then(async (content: string) => {
-          totalSize += content.length;
-          await FileSystem.makeDirectoryAsync(dir, { intermediates: true });
-          await FileSystem.writeAsStringAsync(localPath, content, {
-            encoding: isBin
-              ? FileSystem.EncodingType.Base64
-              : FileSystem.EncodingType.UTF8,
-          });
-        })
-        .catch(() => {})
-    );
-  });
-
-  onStatus('Writing files…');
-  await Promise.all(writeTasks);
-
-  // Rewrite absolute paths in index.html so they resolve against file://
-  //   src="/assets/x.js"  →  src="./assets/x.js"
-  //   href="/assets/x.css" → href="./assets/x.css"
-  let modifiedHtml = rawIndex
-    .replace(/\bsrc="\/(?!\/)/g, 'src="./')
-    .replace(/\bsrc='\/(?!\/)/g, "src='./")
-    .replace(/\bhref="\/(?!\/)/g, 'href="./')
-    .replace(/\bhref='\/(?!\/)/g, "href='./");
-
-  await FileSystem.writeAsStringAsync(`${appDir}index.html`, modifiedHtml, {
-    encoding: FileSystem.EncodingType.UTF8,
-  });
-
-  if (totalSize > BUNDLE_SIZE_LIMIT) {
-    Alert.alert(
-      'Large ZIP',
-      `This ZIP is ${(totalSize / 1024 / 1024).toFixed(1)} MB. App installed but performance may be affected.`,
-      [{ text: 'OK' }]
-    );
-  }
-
-  const hash = await Crypto.digestStringAsync(
-    Crypto.CryptoDigestAlgorithm.SHA256,
-    rawIndex
-  );
-
-  return {
-    appId,
-    html: modifiedHtml,
-    name: detectedName,
-    hash,
-    size: totalSize,
-    sourceType: 'zip',
-    bundlePath: appDir.replace(/^file:\/\//, '').replace(/\/$/, ''),
-  };
-}
 
 // ── Screen ────────────────────────────────────────────────────────────────────
 
@@ -305,7 +76,7 @@ class AddScreenErrorBoundary extends Component<
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
-    console.error('[AddScreen] Unhandled render error:', error, info);
+    log.error('[AddScreen] Unhandled render error:', error, info);
   }
 
   render() {
@@ -447,26 +218,22 @@ function AddScreenContent() {
       setStep('processing');
       const appId = replaceAppId ?? Crypto.randomUUID();
 
-      try {
-        const metadata = await fetchUrlMetadata(trimmedUrl, setProcessingMsg);
-        setBundle({
-          appId,
-          html: null,
-          name: metadata.name,
-          hash: metadata.hash,
-          size: metadata.size,
-          sourceType: 'url',
-          sourceUrl: trimmedUrl,
-          bundlePath: '',
-        });
-        setAppName(metadata.name);
-        if (metadata.faviconUrl) setSelectedEmoji('🌐');
-        setStep('details');
-      } catch (metadataError) {
-        throw metadataError;
-      }
+      const metadata = await fetchUrlMetadata(trimmedUrl, setProcessingMsg);
+      setBundle({
+        appId,
+        html: null,
+        name: metadata.name,
+        hash: metadata.hash,
+        size: metadata.size,
+        sourceType: 'url',
+        sourceUrl: trimmedUrl,
+        bundlePath: '',
+      });
+      setAppName(metadata.name);
+      if (metadata.faviconUrl) setSelectedEmoji('🌐');
+      setStep('details');
     } catch (e) {
-      console.error('[AddScreen] URL import flow failed:', e);
+      log.error('[AddScreen] URL import flow failed:', e);
       setError(e instanceof Error ? e.message : 'Failed to read app metadata');
       setStep('input');
     }
@@ -567,7 +334,7 @@ function AddScreenContent() {
         try {
           router.back();
         } catch (navErr) {
-          console.error('[AddScreen] router.back() failed after install:', navErr);
+          log.error('[AddScreen] router.back() failed after install:', navErr);
           router.push('/(tabs)');
         }
       }, 300);
@@ -765,41 +532,22 @@ function AddScreenContent() {
                     {/* Icon picker */}
                     <View style={[styles.fieldGroup, styles.fieldGroupBorder]}>
                       <Text style={styles.fieldLabel}>Icon</Text>
-                      <View style={styles.emojiGrid}>
-                        {EMOJI_OPTIONS.map((emoji) => (
-                          <TouchableOpacity
-                            key={emoji}
-                            onPress={() => setSelectedEmoji(emoji)}
-                            style={[
-                              styles.emojiCell,
-                              { backgroundColor: selectedBg },
-                              selectedEmoji === emoji && styles.emojiCellSelected,
-                            ]}
-                          >
-                            <Text style={styles.emojiChar}>{emoji}</Text>
-                          </TouchableOpacity>
-                        ))}
-                      </View>
+                      <EmojiPicker
+                        options={EMOJI_OPTIONS}
+                        selected={selectedEmoji}
+                        bgColor={selectedBg}
+                        onSelect={setSelectedEmoji}
+                      />
                     </View>
 
                     {/* Color picker */}
                     <View style={[styles.fieldGroup, styles.fieldGroupBorder]}>
                       <Text style={styles.fieldLabel}>Background</Text>
-                      <View style={styles.colorRow}>
-                        {BG_COLOR_OPTIONS.map((color) => (
-                          <TouchableOpacity
-                            key={color}
-                            onPress={() => setSelectedBg(color)}
-                            style={[
-                              styles.colorSwatch,
-                              { backgroundColor: color },
-                              selectedBg === color
-                                ? styles.colorSwatchSelected
-                                : styles.colorSwatchUnselected,
-                            ]}
-                          />
-                        ))}
-                      </View>
+                      <ColorPicker
+                        options={BG_COLOR_OPTIONS}
+                        selected={selectedBg}
+                        onSelect={setSelectedBg}
+                      />
                     </View>
 
                     {/* Preview */}
@@ -1073,46 +821,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 10,
     backgroundColor: '#F9F9F9',
-  },
-
-  emojiGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  emojiCell: {
-    width: 48,
-    height: 48,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 2,
-    borderColor: 'transparent',
-  },
-  emojiCellSelected: {
-    borderColor: '#007AFF',
-  },
-  emojiChar: {
-    fontSize: 24,
-  },
-
-  colorRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 10,
-  },
-  colorSwatch: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-  },
-  colorSwatchSelected: {
-    borderWidth: 3,
-    borderColor: '#007AFF',
-  },
-  colorSwatchUnselected: {
-    borderWidth: 1.5,
-    borderColor: '#E5E5EA',
   },
 
   previewRow: {

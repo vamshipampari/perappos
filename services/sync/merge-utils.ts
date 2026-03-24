@@ -7,7 +7,7 @@
 /**
  * Fast deep equality check for JSON-serializable values.
  */
-export function deepEqual(a: any, b: any): boolean {
+export function deepEqual(a: unknown, b: unknown): boolean {
   if (a === b) return true;
   if (a === null || b === null) return false;
   if (a === undefined || b === undefined) return false;
@@ -19,20 +19,24 @@ export function deepEqual(a: any, b: any): boolean {
     if (isArrayA !== isArrayB) return false;
 
     if (isArrayA) {
-      if (a.length !== b.length) return false;
-      for (let i = 0; i < a.length; i++) {
-        if (!deepEqual(a[i], b[i])) return false;
+      const arrA = a as unknown[];
+      const arrB = b as unknown[];
+      if (arrA.length !== arrB.length) return false;
+      for (let i = 0; i < arrA.length; i++) {
+        if (!deepEqual(arrA[i], arrB[i])) return false;
       }
       return true;
     }
 
-    const keysA = Object.keys(a);
-    const keysB = Object.keys(b);
+    const objA = a as Record<string, unknown>;
+    const objB = b as Record<string, unknown>;
+    const keysA = Object.keys(objA);
+    const keysB = Object.keys(objB);
     if (keysA.length !== keysB.length) return false;
 
     for (const key of keysA) {
-      if (!Object.prototype.hasOwnProperty.call(b, key)) return false;
-      if (!deepEqual(a[key], b[key])) return false;
+      if (!Object.prototype.hasOwnProperty.call(objB, key)) return false;
+      if (!deepEqual(objA[key], objB[key])) return false;
     }
     return true;
   }
@@ -43,7 +47,7 @@ export function deepEqual(a: any, b: any): boolean {
 /**
  * Check if a value is a plain object (not array, not null, not Date, etc.)
  */
-export function isPlainObject(val: any): val is Record<string, any> {
+export function isPlainObject(val: unknown): val is Record<string, unknown> {
   return (
     val !== null &&
     typeof val === 'object' &&
