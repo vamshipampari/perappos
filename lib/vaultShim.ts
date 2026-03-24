@@ -22,13 +22,13 @@ export function buildVaultShim(
   const safeData = JSON.stringify(initialData);
 
   return `
+/* ── Node.js globals polyfill — top-level, before any page script ─────── */
+if (typeof process === 'undefined') {
+  window.process = { env: { NODE_ENV: 'production' }, browser: true, version: '', versions: {} };
+}
+
 (function() {
   "use strict";
-
-  /* ── Node.js globals polyfill ─────────────────────────────────────────── */
-  if (typeof process === 'undefined') {
-    window.process = { env: { NODE_ENV: 'production' }, browser: true, version: '', versions: {} };
-  }
 
   /* ── In-memory cache, pre-populated from SQLite ──────────────────────── */
   var _cache = ${safeData};

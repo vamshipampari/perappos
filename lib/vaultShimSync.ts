@@ -35,13 +35,13 @@ export function buildSyncShim(
   const safeVersions = JSON.stringify(preloadedVersions);
 
   return `
+/* ── Node.js globals polyfill — top-level, before any page script ─────── */
+if (typeof process === 'undefined') {
+  window.process = { env: { NODE_ENV: 'production' }, browser: true, version: '', versions: {} };
+}
+
 (function() {
   "use strict";
-
-  /* ── Node.js globals polyfill ─────────────────────────────────────────── */
-  if (typeof process === 'undefined') {
-    window.process = { env: { NODE_ENV: 'production' }, browser: true, version: '', versions: {} };
-  }
 
   /* ── State ───────────────────────────────────────────────────────────── */
   // Check if we have saved state from a _VaultSyncPush reload.
