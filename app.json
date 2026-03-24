@@ -29,7 +29,10 @@
       "softwareKeyboardLayoutMode": "pan",
       "predictiveBackGestureEnabled": false,
       "package": "com.cottix.app",
-      "permissions": ["NOTIFICATIONS", "VIBRATE"]
+      "permissions": [
+        "NOTIFICATIONS",
+        "VIBRATE"
+      ]
     },
     "web": {
       "bundler": "metro",
@@ -47,7 +50,15 @@
         }
       ],
       "@journeyapps/react-native-quick-sqlite",
-      "expo-web-browser"
+      "expo-web-browser",
+      "expo-secure-store",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Cottix needs access to your photo library so mini-apps can upload images.",
+          "cameraPermission": "Cottix needs access to your camera so mini-apps can take photos."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true

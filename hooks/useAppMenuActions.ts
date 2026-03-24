@@ -21,6 +21,7 @@ import {
 import { log } from '@/lib/logger';
 import { createSharedInstanceForApp } from '@/services/collaborationService';
 import { supabase } from '@/services/supabase';
+import { deleteAllSecrets } from '@/services/secretsService';
 import type { InstalledApp } from '@/types';
 
 interface UseAppMenuActionsInput {
@@ -40,6 +41,7 @@ interface UseAppMenuActionsResult {
   handleManageGroup: () => void;
   handleCheckUpdate: () => Promise<void>;
   handleAppInfo: () => Promise<void>;
+  handleSecrets: () => void;
   handleDelete: () => void;
 }
 
@@ -320,6 +322,12 @@ export function useAppMenuActions({
     }
   }, [app, db, setApp, setMenuVisible, syncDb]);
 
+  const handleSecrets = useCallback(() => {
+    if (!app) return;
+    setMenuVisible(false);
+    router.push(`/app-secrets/${app.app_id}`);
+  }, [app, setMenuVisible]);
+
   const handleDelete = useCallback(() => {
     if (!app) return;
     setMenuVisible(false);
@@ -337,6 +345,8 @@ export function useAppMenuActions({
               await syncDb.execute('DELETE FROM app_data WHERE app_id = ?', [app.app_id]);
               await db.runAsync('DELETE FROM apps WHERE app_id = ?', app.app_id);
               void supabase.rpc('increment_app_count', { delta: -1 }).then(undefined, () => {});
+              // Clean up secrets from the secure enclave
+              void deleteAllSecrets(app.app_id).catch(() => {});
             } catch {
               // ignore
             }
@@ -353,6 +363,7 @@ export function useAppMenuActions({
     handleManageGroup,
     handleCheckUpdate,
     handleAppInfo,
+    handleSecrets,
     handleDelete,
   };
 }

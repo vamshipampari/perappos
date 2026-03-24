@@ -268,7 +268,7 @@ export default function SettingsScreen() {
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [promoSheetVisible, setPromoSheetVisible] = useState(false);
 
-  const { profile, redeemPromoCode, refresh: refreshProfile } = useUserProfile();
+  const { profile, limits, redeemPromoCode, refresh: refreshProfile } = useUserProfile();
 
   // Refresh auth state + profile whenever this screen comes into focus.
   useFocusEffect(
@@ -609,6 +609,28 @@ export default function SettingsScreen() {
                     Edit Profile
                   </Text>
                 </TouchableOpacity>
+              </View>
+
+              {/* App limit */}
+              <View style={{ marginTop: 12 }}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                  <Text style={{ fontSize: 13, color: '#8E8E93' }}>Apps installed</Text>
+                  <Text style={{ fontSize: 13, fontWeight: '600', color: '#1C1C1E' }}>
+                    {profile.app_install_count} / {limits.maxApps === Infinity ? '∞' : limits.maxApps}
+                  </Text>
+                </View>
+                {limits.maxApps !== Infinity && (
+                  <View style={{ height: 4, backgroundColor: '#E5E5EA', borderRadius: 2, overflow: 'hidden' }}>
+                    <View
+                      style={{
+                        height: 4,
+                        borderRadius: 2,
+                        backgroundColor: profile.app_install_count >= limits.maxApps ? '#FF3B30' : '#007AFF',
+                        width: `${Math.min((profile.app_install_count / limits.maxApps) * 100, 100)}%`,
+                      }}
+                    />
+                  </View>
+                )}
               </View>
             </View>
           </View>

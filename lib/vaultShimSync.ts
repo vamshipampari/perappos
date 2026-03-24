@@ -38,6 +38,11 @@ export function buildSyncShim(
 (function() {
   "use strict";
 
+  /* ── Node.js globals polyfill ─────────────────────────────────────────── */
+  if (typeof process === 'undefined') {
+    window.process = { env: { NODE_ENV: 'production' }, browser: true, version: '', versions: {} };
+  }
+
   /* ── State ───────────────────────────────────────────────────────────── */
   // Check if we have saved state from a _VaultSyncPush reload.
   // window.name survives location.reload() — we use it to carry updated
@@ -301,6 +306,15 @@ export function buildSyncShim(
     },
     app: {
       getInfo: function() { return _bridge("app_get_info", {}); }
+    },
+    secrets: {
+      set: function(name, value) { return _bridge("secrets_set", { name: name, value: value }); },
+      get: function(name) { return _bridge("secrets_get", { name: name }); },
+      fetch: function(name, requestConfig) { return _bridge("secrets_fetch", { name: name, request: requestConfig }); }
+    },
+    storage: {
+      upload: function(options) { return _bridge("storage_upload", { options: options || {} }); },
+      getUrl: function(uri) { return _bridge("storage_get_url", { uri: uri }); }
     }
   };
 

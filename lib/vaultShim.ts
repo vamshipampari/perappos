@@ -25,6 +25,11 @@ export function buildVaultShim(
 (function() {
   "use strict";
 
+  /* ── Node.js globals polyfill ─────────────────────────────────────────── */
+  if (typeof process === 'undefined') {
+    window.process = { env: { NODE_ENV: 'production' }, browser: true, version: '', versions: {} };
+  }
+
   /* ── In-memory cache, pre-populated from SQLite ──────────────────────── */
   var _cache = ${safeData};
   var _appId = ${safeId};
@@ -201,6 +206,59 @@ export function buildVaultShim(
         return _bridge("app_get_info", {});
       },
     },
+
+    /**
+     * Per-app secret storage backed by the device secure enclave (Keychain / Keystore).
+     * Secret values are never exposed to JS memory via secrets.fetch — only set/get cross the bridge.
+     */
+    secrets: {
+      /** Store a named secret value in the secure enclave. */
+      set: function(name, value) {
+        return _bridge("secrets_set", { name: name, value: value });
+      },
+      /**
+       * Retrieve a secret by name. The value crosses the bridge into JS memory —
+       * prefer secrets.fetch for keeping credentials out of WebView memory.
+       */
+      get: function(name) {
+        return _bridge("secrets_get", { name: name });
+      },
+      /**
+       * Execute an HTTP request with a secret injected server-side.
+       * Replace {{secret}} in the url, headers, and body before the request is sent.
+       * The resolved secret value is never returned to the WebView.
+       * Requires Pro plan or higher.
+       *
+       * @param {string} name - The secret name to resolve
+       * @param {{ url: string, method?: string, headers?: object, body?: string }} requestConfig
+       */
+      fetch: function(name, requestConfig) {
+        return _bridge("secrets_fetch", { name: name, request: requestConfig });
+      },
+    },
+
+    /**
+     * Native media storage — pick images from the gallery or camera and upload
+     * them to Supabase Storage. Returns stable cottix-media:// URIs for cross-device sharing.
+     */
+    storage: {
+      /**
+       * Open the native image picker and upload the selected image.
+       * @param {{ source?: 'gallery' | 'camera' }} [options]
+       * @returns {{ uri: string } | { cancelled: true } | { error: string }}
+       */
+      upload: function(options) {
+        return _bridge("storage_upload", { options: options || {} });
+      },
+      /**
+       * Resolve a cottix-media:// URI to a time-limited signed HTTPS URL (~1 hour).
+       * @param {string} uri - A URI previously returned by storage.upload()
+       * @returns {{ url: string }}
+       */
+      getUrl: function(uri) {
+        return _bridge("storage_get_url", { uri: uri });
+      },
+    },
   };
 
 })();
@@ -232,6 +290,25 @@ export interface VaultAPI {
       installed_at: string;
       open_count: number;
     }>;
+  };
+  secrets: {
+    set(name: string, value: string): Promise<{ success: true }>;
+    get(name: string): Promise<{ value: string | null }>;
+    fetch(
+      name: string,
+      requestConfig: {
+        url: string;
+        method?: string;
+        headers?: Record<string, string>;
+        body?: string;
+      }
+    ): Promise<{ status: number; headers: Record<string, string>; body: string } | { error: string; message?: string }>;
+  };
+  storage: {
+    upload(options?: { source?: 'gallery' | 'camera' }): Promise<
+      { uri: string } | { cancelled: true } | { error: string; message?: string }
+    >;
+    getUrl(uri: string): Promise<{ url: string }>;
   };
 }
 

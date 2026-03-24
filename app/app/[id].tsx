@@ -110,6 +110,7 @@ export default function AppScreen() {
     handleManageGroup,
     handleCheckUpdate,
     handleAppInfo,
+    handleSecrets,
     handleDelete,
   } = useAppMenuActions({
     app,
@@ -366,6 +367,7 @@ export default function AppScreen() {
             disabled: checkingUpdate,
           },
           { label: 'App Info', onPress: handleAppInfo },
+          { label: 'Secrets', onPress: handleSecrets },
         ]}
         destructiveActions={[
           { label: 'Delete App', onPress: handleDelete },
