@@ -1,6 +1,24 @@
 # Cottix — Status
 
-**Last Updated**: 2026-03-19 (Session 10)
+**Last Updated**: 2026-03-24 (Session 11)
+
+## Current Sprint: VaultAPI Secrets + Storage
+
+### ✅ Session 11 — VaultAPI.secrets + VaultAPI.storage (2026-03-24)
+- **`VaultAPI.secrets` — fully working ✅**
+  - `secrets.set(name, value)` persists API keys to `expo-secure-store` globally (one save works across all mini-apps)
+  - `secrets.fetch(name, opts)` reads the key natively, substitutes `{{secret}}` in headers, makes the HTTP call from the native layer, returns `{ status, body }`
+  - Secret values never reach WebView JS — only the native bridge injects them at request time
+  - SecureStore key: `vault_secret__global__${name}`
+- **`VaultAPI.storage` — image upload not yet working ⚠️**
+  - Implementation complete: `expo-image-picker` opens native Photos picker, reads as base64 via `expo-file-system`, converts to `Uint8Array`, uploads to Supabase Storage `user-media` bucket
+  - Upload step returning error — likely Supabase `user-media` bucket RLS policy not yet configured
+  - `storage.getUrl(uri)` → signed URL path implemented but not tested end-to-end yet
+- **`vaultShimSync.ts` patched** — shared apps (instance_id set) now have `VaultAPI.secrets` and `VaultAPI.storage` (previously missing; personal-only shim was the only one with these APIs)
+- **`expo-image-picker` installed** — replaces `expo-document-picker`; opens native Photos picker instead of Files app
+- **Bug fixed**: backtick inside shim template literal in `vaultShim.ts` was breaking TypeScript compilation
+- **Bug fixed**: `fetch(file://).blob()` replaced with `FileSystem.readAsStringAsync('base64')` + `Uint8Array` — the only reliable upload path for Supabase in RN native context
+- **`MINIAPP_API.md` updated** — full `secrets` documentation; users can now build AI-powered mini-apps that call any LLM API
 
 ## Current Sprint: UX Polish + Sync Reliability
 
@@ -165,6 +183,12 @@
   - **Known limitation**: Complex apps (>8k tokens) may time out; simple apps (counter, todo, etc.) work reliably; streaming gives real-time feedback
 
 ### 🔜 Next Up
+- [ ] **Fix `VaultAPI.storage` image upload** — add RLS policies to Supabase `user-media` bucket:
+  ```sql
+  CREATE POLICY "auth users upload" ON storage.objects FOR INSERT TO authenticated WITH CHECK (bucket_id = 'user-media');
+  CREATE POLICY "auth users read"   ON storage.objects FOR SELECT TO authenticated USING  (bucket_id = 'user-media');
+  ```
+  Then re-test `storage_upload` → `storage_get_url` end-to-end
 - [ ] **UPDATE POWERSYNC SYNC RULES**: Add `is_frozen`, `frozen_at`, `frozen_reason` to `shared_instances` SELECT projection in PowerSync dashboard (required for freeze to work on client)
 - [ ] Complete `npx expo prebuild --clean` (downloading NDK, ~5-15 min)
 - [ ] Run `npx expo run:android` to test build with new Cottix app name

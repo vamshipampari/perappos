@@ -209,11 +209,16 @@ The bridge handler (`handleVaultMessage`) routes by `type`:
 | `device_share` | request/response | Native share sheet (URL or text) |
 | `auth_get_user` | request/response | Returns `{ id, email }` for signed-in user |
 | `app_get_info` | request/response | Returns app manifest (includes `instance_id` for shared-mode detection) |
+| `secrets_set` | request/response | Stores named secret in `expo-secure-store`; global scope (`vault_secret__global__${name}`) — one save per key name works across all mini-apps. Returns `true`. |
+| `secrets_fetch` | request/response | Reads stored secret, substitutes `{{secret}}` in request headers, makes native HTTP call, returns `{ status: number, body: string }`. Never exposes secret to WebView JS. Returns `{ error: 'secret_not_found' }` (resolved, not rejected) when key is absent. |
+| `storage_upload` | request/response | Opens native Photos picker (`expo-image-picker`), reads file as base64 via `expo-file-system`, converts to `Uint8Array`, uploads to Supabase Storage `user-media`. Returns `{ uri: storagePath, cancelled: false }` or `{ cancelled: true }`. Requires `user-media` bucket INSERT RLS policy. |
+| `storage_get_url` | request/response | Creates a 1-hour signed URL from Supabase Storage for a path returned by `storage_upload`. Returns `{ url: string }`. |
 
 The shim (`lib/vaultShim.ts`) is injected via `injectedJavaScriptBeforeContentLoaded` and:
 - Intercepts `localStorage.setItem/getItem/removeItem/clear` and routes them to the bridge
-- Exposes `window.VaultAPI.db`, `window.VaultAPI.device`, `window.VaultAPI.auth`, `window.VaultAPI.app`
+- Exposes `window.VaultAPI.db`, `window.VaultAPI.device`, `window.VaultAPI.auth`, `window.VaultAPI.app`, `window.VaultAPI.secrets`, `window.VaultAPI.storage`
 - Pre-populates KV data read at load time so initial reads are synchronous
+- **Critical**: `vaultShim.ts` (personal apps) and `vaultShimSync.ts` (shared apps) are completely separate files. Any new VaultAPI namespace must be added to BOTH.
 
 For shared apps, `lib/vaultShimSync.ts` is used instead of the basic shim. It adds:
 - Per-key base version tracking
@@ -321,6 +326,29 @@ auth is re-enabled (e.g., OAuth providers). Handles both hash-token and PKCE cod
   - member-add result + error
   - install result
 - A 10-second timeout reports stuck state in an alert.
+
+## Supabase Storage
+
+Mini-apps can upload files via `VaultAPI.storage`. Files land in the `user-media` bucket.
+
+**Storage path format:** `{appId}/{userId}/{timestamp}.{ext}`
+
+**Required RLS policies on `user-media`:**
+```sql
+-- Allow authenticated users to upload
+CREATE POLICY "auth users upload"
+ON storage.objects FOR INSERT TO authenticated
+WITH CHECK (bucket_id = 'user-media');
+
+-- Allow authenticated users to read (needed for signed URL creation)
+CREATE POLICY "auth users read"
+ON storage.objects FOR SELECT TO authenticated
+USING (bucket_id = 'user-media');
+```
+
+**Upload implementation note:** `fetch(file://).blob()` is unreliable in the React Native native context for Supabase uploads. The correct approach is `FileSystem.readAsStringAsync(uri, { encoding: 'base64' })` → `atob()` → `Uint8Array` → `supabase.storage.upload()`. See `lib/vaultBridge.ts` `storage_upload` case.
+
+**Signed URLs:** `storage_get_url` creates 1-hour signed URLs via `supabase.storage.createSignedUrl()`. These are publicly readable within the signing window — suitable for passing directly to external APIs (e.g., Anthropic vision API).
 
 ## Supabase Requirements
 

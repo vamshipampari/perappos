@@ -301,6 +301,28 @@ export function buildSyncShim(
     },
     app: {
       getInfo: function() { return _bridge("app_get_info", {}); }
+    },
+    secrets: {
+      set: function(name, value) {
+        return _bridge("secrets_set", { name: String(name), value: String(value) });
+      },
+      fetch: function(name, opts) {
+        return _bridge("secrets_fetch", {
+          name:    String(name),
+          url:     opts.url,
+          method:  opts.method  || "POST",
+          headers: opts.headers || {},
+          body:    opts.body    || null,
+        });
+      }
+    },
+    storage: {
+      upload: function(opts) {
+        return _bridge("storage_upload", { source: (opts && opts.source) || "gallery" });
+      },
+      getUrl: function(uri) {
+        return _bridge("storage_get_url", { uri: String(uri) });
+      }
     }
   };
 

@@ -1,6 +1,6 @@
 # Cottix — Architecture & Context
 
-**Last Updated**: 2026-03-17 (Session 7)
+**Last Updated**: 2026-03-24 (Session 11)
 
 ## System Overview
 
@@ -70,6 +70,23 @@ Cottix is a personal app OS that lets users install web apps from URLs or ZIPs, 
 **✅ Fixed (Session 4):** Writes from the current device now reliably reach Supabase and persist correctly. Four bugs were fixed: (1) `ls_set` was silently dropped for shared apps, (2) PowerSync post-upload local clear caused `readCurrentRow` to return null → version=1 → versioned RPC rejected all writes (fixed with `_versionCache`), (3) `loadShimPayload`'s `useCallback` dep on `syncDb` caused the initial load `useEffect` to re-fire on every sync → WebView reloaded with wrong data (fixed with `syncDbRef` pattern), (4) personal-fallback loaded version=0 for all keys → all writes rejected (fixed with Supabase direct-query fallback).
 
 **✅ Fixed (Session 6):** Remote updates from other devices now appear in the live WebView. A PowerSync `db.watch()` watcher in `app/app/[id].tsx` detects `shared_app_data` changes, filters own-write echoes via `ownWriteIds` ref, and injects `_VaultSyncPush(updates)` into the WebView. The shim saves state to `window.name` and calls `location.reload()` (800ms debounce) — this is the only universal approach that works across all frameworks since most vibe-coded apps use `useState(() => localStorage.getItem(...))` which only reads on mount. Trade-off: the app navigates to its landing screen on reload. See `learning.md` entries #17 and #18.
+
+### Secrets (Session 11)
+1. Mini-app calls `VaultAPI.secrets.set('KEY_NAME', 'value')` once
+2. Shim sends `secrets_set` message; bridge stores in `expo-secure-store` as `vault_secret__global__KEY_NAME`
+3. Mini-app calls `VaultAPI.secrets.fetch('KEY_NAME', { url, method, headers: { 'x-api-key': '{{secret}}' }, body })`
+4. Bridge reads secret from SecureStore, substitutes `{{secret}}` in headers, calls `fetch()` natively
+5. Returns `{ status, body }` to WebView — secret value never touches JS context
+
+**✅ Working (Session 11):** Confirmed end-to-end with Anthropic API call.
+
+### Storage (Session 11)
+1. Mini-app calls `VaultAPI.storage.upload()` → bridge opens native Photos picker
+2. Bridge reads selected file as base64 via `expo-file-system`, converts to `Uint8Array`
+3. Uploads to Supabase Storage `user-media` bucket at path `{appId}/{userId}/{timestamp}.{ext}`
+4. Returns storage path to mini-app; `VaultAPI.storage.getUrl(path)` returns 1-hour signed URL
+
+**⚠️ Partially working (Session 11):** Image picker and upload code implemented. Upload failing — likely Supabase `user-media` bucket RLS policies not yet set up.
 
 ### App Installation (URL)
 1. Fetch HTML from URL

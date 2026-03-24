@@ -3,6 +3,28 @@
 **Last Updated**: 2026-03-19
 **Session Count**: 10
 
+## VaultAPI Bridge — Secrets & Storage (2026-03-24)
+
+19. **`fetch(file://).blob()` is unreliable for Supabase Storage uploads in the RN native context**
+    - `fetch(localUri).blob()` produces a Blob that supabase-js cannot reliably serialize for multipart upload in React Native
+    - **Fix**: Use `FileSystem.readAsStringAsync(uri, { encoding: Base64 })` → convert to `Uint8Array` via `atob()` → pass `Uint8Array` to `supabase.storage.upload()`
+    - `atob` is available globally in Expo 48+; no extra package needed
+
+20. **Both shims must be updated together — `vaultShim.ts` and `vaultShimSync.ts` are completely separate files**
+    - `vaultShim.ts` is used for personal apps; `vaultShimSync.ts` is used for shared apps (instance_id set)
+    - They share NO common base. Any new `VaultAPI` namespace added to one MUST be manually mirrored to the other (same ES5 format, same `_bridge()` calls)
+    - Failing to do this means shared-app users get `undefined is not an object` for new APIs
+
+21. **`expo-document-picker` vs `expo-image-picker` — not interchangeable**
+    - `DocumentPicker.getDocumentAsync()` opens the iOS **Files app** (iCloud Drive, Downloads, On My iPhone) — not the Photos library
+    - `ImagePicker.launchImageLibraryAsync()` opens the native **Photos picker**
+    - For any image/photo workflow, always use `expo-image-picker`
+
+22. **`VaultAPI.secrets` save-before-use requirement and error shape**
+    - Mini-apps must call `secrets.set(name, value)` once before `secrets.fetch()` works
+    - If the secret has never been saved, `secrets_fetch` calls `respond({ error: 'secret_not_found' })` — this **resolves** the Promise (does NOT reject), so callers must check `'error' in result`
+    - Secrets are stored globally (key: `vault_secret__global__${name}`) — one save works across all mini-apps
+
 ## Architecture Insights
 
 - **Supabase Edge Functions + AI generation**: Edge functions run in Deno with a 150s max timeout. For LLM calls that can take 30-60s, always stream the response (SSE) rather than waiting for a single JSON reply — this also gives the client live progress feedback.

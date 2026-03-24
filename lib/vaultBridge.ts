@@ -12,6 +12,9 @@
 import * as Haptics from 'expo-haptics';
 import * as Notifications from 'expo-notifications';
 import * as Sharing from 'expo-sharing';
+import * as SecureStore from 'expo-secure-store';
+import * as ImagePicker from 'expo-image-picker';
+import * as FileSystem from 'expo-file-system';
 import type { SQLiteDatabase } from 'expo-sqlite';
 import type { RefObject } from 'react';
 import { Share } from 'react-native';
@@ -21,6 +24,9 @@ import { handleSharedWrite } from '@/services/sync/bridge-merge-handler';
 import type { SharedWriteMessage } from '@/services/sync/bridge-merge-handler';
 import { supabase } from '../services/supabase';
 import type { AppManifest, RawMessage } from '@/types';
+
+/** Supabase Storage bucket used for mini-app user file uploads. */
+const STORAGE_BUCKET = 'user-media';
 
 export type { AppManifest };
 
@@ -357,6 +363,145 @@ export async function handleVaultMessage(
       case 'app_get_info':
         respond(manifest);
         break;
+
+      // ── VaultAPI.secrets ──────────────────────────────────────────────────
+      // Secrets are stored in expo-secure-store, namespaced to this app.
+      // The secret value never leaves the native layer — only the bridge
+      // substitutes it into outgoing HTTP requests.
+
+      case 'secrets_set': {
+        const secretName = msg.name;
+        const secretValue = msg.value;
+        if (!secretName || typeof secretValue !== 'string') {
+          respond(false, 'secrets_set requires a name and value');
+          break;
+        }
+        await SecureStore.setItemAsync(
+          `vault_secret__global__${secretName}`,
+          secretValue
+        );
+        respond(true);
+        break;
+      }
+
+      case 'secrets_fetch': {
+        const sfName = msg.name;
+        const sfUrl = msg.url;
+        const sfMethod = msg.method ?? 'POST';
+        const sfHeaders = (msg.headers ?? {}) as Record<string, string>;
+        const sfBody = (msg.body ?? null) as string | null;
+
+        if (!sfName || !sfUrl) {
+          respond(null, 'secrets_fetch requires name and url');
+          break;
+        }
+
+        const secretValue = await SecureStore.getItemAsync(
+          `vault_secret__global__${sfName}`
+        );
+        if (!secretValue) {
+          // Return a structured error so the mini-app can prompt the user.
+          respond({ error: 'secret_not_found' });
+          break;
+        }
+
+        // Substitute {{secret}} placeholder in every header value.
+        const resolvedHeaders: Record<string, string> = {};
+        for (const [k, v] of Object.entries(sfHeaders)) {
+          resolvedHeaders[k] = typeof v === 'string' ? v.replace('{{secret}}', secretValue) : v;
+        }
+
+        const fetchInit: RequestInit = { method: sfMethod, headers: resolvedHeaders };
+        if (sfBody !== null && sfMethod !== 'GET' && sfMethod !== 'HEAD') {
+          fetchInit.body = sfBody;
+        }
+
+        const httpRes = await fetch(sfUrl, fetchInit);
+        const responseBody = await httpRes.text();
+        respond({ status: httpRes.status, body: responseBody });
+        break;
+      }
+
+      // ── VaultAPI.storage ──────────────────────────────────────────────────
+      // Images are uploaded to Supabase Storage so the WebView never holds
+      // raw binary data. The mini-app works with opaque storage paths only.
+
+      case 'storage_upload': {
+        // Request photo library permission (no-op on Android; required on iOS).
+        const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (status !== 'granted') {
+          respond(null, 'Photo library permission denied');
+          break;
+        }
+
+        const pickerResult = await ImagePicker.launchImageLibraryAsync({
+          mediaTypes: ['images'],
+          quality: 0.85,
+          allowsEditing: false,
+        });
+
+        if (pickerResult.canceled || !pickerResult.assets?.[0]) {
+          respond({ cancelled: true });
+          break;
+        }
+
+        const asset = pickerResult.assets[0];
+        const uploadUserId = await getUserId();
+
+        // Derive file extension from URI or fallback to jpeg.
+        const uriParts = asset.uri.split('.');
+        const ext = (uriParts.length > 1 ? uriParts[uriParts.length - 1] : 'jpg')
+          .toLowerCase()
+          .split('?')[0]; // strip query strings on Android URIs
+        const storagePath = `${effectiveAppId}/${uploadUserId || 'anon'}/${Date.now()}.${ext}`;
+
+        // Read as base64 via expo-file-system (reliable in RN native context),
+        // then convert to Uint8Array — the only upload format supabase-js handles
+        // correctly in React Native (fetch().blob() is unreliable here).
+        const base64 = await FileSystem.readAsStringAsync(asset.uri, {
+          encoding: 'base64',
+        });
+        const binaryStr = atob(base64);
+        const bytes = new Uint8Array(binaryStr.length);
+        for (let i = 0; i < binaryStr.length; i++) {
+          bytes[i] = binaryStr.charCodeAt(i);
+        }
+
+        const { error: uploadError } = await supabase.storage
+          .from(STORAGE_BUCKET)
+          .upload(storagePath, bytes, {
+            contentType: asset.mimeType ?? 'image/jpeg',
+            upsert: false,
+          });
+
+        if (uploadError) {
+          respond(null, uploadError.message);
+          break;
+        }
+
+        respond({ uri: storagePath, cancelled: false });
+        break;
+      }
+
+      case 'storage_get_url': {
+        const storageUri = msg.uri;
+        if (!storageUri) {
+          respond(null, 'storage_get_url requires a uri');
+          break;
+        }
+
+        const { data: urlData, error: urlError } = await supabase.storage
+          .from(STORAGE_BUCKET)
+          .createSignedUrl(storageUri, 3600); // 1-hour signed URL
+
+        if (urlError ?? !urlData) {
+          respond(null, urlError?.message ?? 'Failed to create signed URL');
+          break;
+        }
+
+        respond({ url: urlData.signedUrl });
+        break;
+      }
 
       default:
         // Unknown message types are silently ignored.

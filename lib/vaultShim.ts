@@ -201,6 +201,55 @@ export function buildVaultShim(
         return _bridge("app_get_info", {});
       },
     },
+
+    /**
+     * Secrets — secure per-app key store backed by native SecureStore.
+     * Secret values are never exposed to WebView JS; only the native layer
+     * can read them and inject them into outgoing HTTP requests.
+     */
+    secrets: {
+      /** Persist a named secret for this app (e.g. an API key). */
+      set: function(name, value) {
+        return _bridge("secrets_set", { name: String(name), value: String(value) });
+      },
+      /**
+       * Make an HTTP request with a stored secret injected into the headers.
+       * Use the literal string "{{secret}}" as the value of any header —
+       * the native layer will replace it with the actual secret before sending.
+       * Returns { status, body } where body is the raw response text.
+       */
+      fetch: function(name, opts) {
+        return _bridge("secrets_fetch", {
+          name:    String(name),
+          url:     opts.url,
+          method:  opts.method  || "POST",
+          headers: opts.headers || {},
+          body:    opts.body    || null,
+        });
+      },
+    },
+
+    /**
+     * Storage — native file picker + Supabase Storage upload.
+     * Images are stored server-side; the WebView never holds raw binary data.
+     */
+    storage: {
+      /**
+       * Open a native file picker, upload the chosen image to cloud storage,
+       * and return { uri, cancelled }.
+       * "uri" is the Supabase Storage path; pass it to getUrl() for a preview URL.
+       */
+      upload: function(opts) {
+        return _bridge("storage_upload", { source: (opts && opts.source) || "gallery" });
+      },
+      /**
+       * Create a short-lived signed URL for a storage path returned by upload().
+       * Returns { url }.
+       */
+      getUrl: function(uri) {
+        return _bridge("storage_get_url", { uri: String(uri) });
+      },
+    },
   };
 
 })();
@@ -232,6 +281,31 @@ export interface VaultAPI {
       installed_at: string;
       open_count: number;
     }>;
+  };
+  secrets: {
+    /** Store a named secret in native SecureStore for this app. */
+    set(name: string, value: string): Promise<boolean>;
+    /**
+     * Make an HTTP request natively with the stored secret injected
+     * into any header value containing "{{secret}}".
+     * Returns { status: number; body: string } or { error: string } if the
+     * secret is not found.
+     */
+    fetch(
+      name: string,
+      opts: {
+        url: string;
+        method?: string;
+        headers?: Record<string, string>;
+        body?: string | null;
+      }
+    ): Promise<{ status: number; body: string } | { error: string }>;
+  };
+  storage: {
+    /** Open native file picker and upload to Supabase Storage. Returns { uri, cancelled }. */
+    upload(opts?: { source?: 'gallery' | 'files' }): Promise<{ uri: string; cancelled: false } | { cancelled: true }>;
+    /** Create a 1-hour signed URL for a storage path from upload(). Returns { url }. */
+    getUrl(uri: string): Promise<{ url: string }>;
   };
 }
 

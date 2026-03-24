@@ -60,9 +60,14 @@ export interface RawMessage {
   title?: string;
   body?: string;
   url?: string;
+  uri?: string;      // storage path returned by storage_upload / passed to storage_get_url
   text?: string;     // plain-text content for device_share
   message?: string;
   delay_seconds?: number;
+  name?: string;     // secret name for secrets_* messages
+  method?: string;   // HTTP method for secrets_fetch
+  headers?: Record<string, string>; // HTTP headers for secrets_fetch
+  source?: string;   // picker source for storage_upload ('gallery' | 'files')
   [k: string]: unknown;
 }
 
