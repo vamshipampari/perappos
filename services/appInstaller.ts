@@ -8,6 +8,7 @@ import * as Crypto from 'expo-crypto';
 import type { SQLiteDatabase } from 'expo-sqlite';
 
 import { supabase } from './supabase';
+import { powerSyncDb } from './sync/PowerSyncProvider';
 
 export interface InstallUrlOptions {
   url: string;
@@ -40,6 +41,15 @@ export async function installUrlApp(
     options.iconBgColor,
     options.url
   );
+
+  // Mirror to PowerSync installed_apps so the app list syncs cross-device
+  void powerSyncDb.execute(
+    `INSERT OR REPLACE INTO installed_apps
+       (id, app_id, name, icon_emoji, icon_bg_color, source_type, source_url,
+        bundle_hash, installed_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, 'url', ?, NULL, datetime('now'), datetime('now'))`,
+    [appId, appId, options.name, options.iconEmoji, options.iconBgColor, options.url]
+  ).catch(() => {}); // fire-and-forget, non-critical
 
   // Increment app count (fire-and-forget)
   void supabase.rpc('increment_app_count', { delta: 1 }).then(undefined, () => {});

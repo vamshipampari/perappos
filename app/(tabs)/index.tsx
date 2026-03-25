@@ -1,3 +1,5 @@
+import { ActionSheet } from '@/components/ActionSheet';
+import { AppIcon } from '@/components/AppIcon';
 import * as FileSystem from 'expo-file-system/legacy';
 import { router, useFocusEffect } from 'expo-router';
 import * as Sharing from 'expo-sharing';
@@ -11,9 +13,6 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { ActionSheet } from '@/components/ActionSheet';
-import { AppIcon } from '@/components/AppIcon';
 import Animated, {
   Extrapolation,
   interpolate,
@@ -22,13 +21,15 @@ import Animated, {
   useSharedValue,
   withSpring,
 } from 'react-native-reanimated';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useToast } from '@/components/Toast';
 import { useAppContextMenu } from '@/hooks/useAppContextMenu';
 import { useDatabase } from '@/hooks/useDatabase';
+import { useInstalledApps } from '@/hooks/useInstalledApps';
+import { useRestoreApps } from '@/hooks/useRestoreApps';
 import { useUpdateScanner } from '@/hooks/useUpdateScanner';
 import type { InstalledApp } from '@/types';
-import { useInstalledApps } from '@/hooks/useInstalledApps';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -45,10 +46,7 @@ const AnimatedFlatList = Animated.createAnimatedComponent(
 
 // ── Data export helper ────────────────────────────────────────────────────────
 
-async function exportAppData(
-  db: ReturnType<typeof useDatabase>,
-  app: InstalledApp
-): Promise<void> {
+async function exportAppData(db: ReturnType<typeof useDatabase>, app: InstalledApp): Promise<void> {
   const rows = await db.getAllAsync<{ key: string; value: string; updated_at: string }>(
     'SELECT key, value, updated_at FROM app_data WHERE app_id = ? ORDER BY key ASC',
     app.app_id
@@ -106,8 +104,8 @@ function AppListCard({
   const subtitle = app.source_url
     ? app.source_url.replace(/^https?:\/\//, '').split('/')[0]
     : app.source_type === 'bundle'
-    ? 'Local bundle'
-    : 'Installed app';
+      ? 'Local bundle'
+      : 'Installed app';
 
   return (
     <>
@@ -149,16 +147,10 @@ function AppListCard({
 
           {/* Text */}
           <View style={{ flex: 1 }}>
-            <Text
-              numberOfLines={1}
-              style={{ fontSize: 16, fontWeight: '600', color: '#1C1C1E' }}
-            >
+            <Text numberOfLines={1} style={{ fontSize: 16, fontWeight: '600', color: '#1C1C1E' }}>
               {app.name}
             </Text>
-            <Text
-              numberOfLines={1}
-              style={{ fontSize: 13, color: '#8E8E93', marginTop: 2 }}
-            >
+            <Text numberOfLines={1} style={{ fontSize: 13, color: '#8E8E93', marginTop: 2 }}>
               {subtitle}
             </Text>
           </View>
@@ -175,7 +167,14 @@ function AppListCard({
 
 function EmptyState() {
   return (
-    <View style={{ alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32, paddingTop: 60 }}>
+    <View
+      style={{
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingHorizontal: 32,
+        paddingTop: 60,
+      }}
+    >
       <View
         style={{
           width: 72,
@@ -269,6 +268,9 @@ export default function HomeScreen() {
   const { showToast } = useToast();
   const [isRefreshing, setIsRefreshing] = useState(false);
 
+  // Restore apps from PowerSync on a fresh device (no non-demo apps locally)
+  useRestoreApps();
+
   // ── Collapsing large-title header ──────────────────────────────────────────
   const scrollY = useSharedValue(0);
 
@@ -279,7 +281,12 @@ export default function HomeScreen() {
   });
 
   const navBarTitleStyle = useAnimatedStyle(() => ({
-    opacity: interpolate(scrollY.value, [COLLAPSE_START, COLLAPSE_END], [0, 1], Extrapolation.CLAMP),
+    opacity: interpolate(
+      scrollY.value,
+      [COLLAPSE_START, COLLAPSE_END],
+      [0, 1],
+      Extrapolation.CLAMP
+    ),
   }));
 
   const largeTitleStyle = useAnimatedStyle(() => ({
@@ -352,19 +359,21 @@ export default function HomeScreen() {
   const keyExtractor = useCallback((item: InstalledApp) => item.app_id, []);
 
   const listHeader = (
-    <View style={{ paddingTop: 4, paddingBottom: apps.length > 0 ? 12 : 0 }}>
-      <Animated.Text
-        style={[
-          { fontSize: 34, fontWeight: '700', color: '#1C1C1E', letterSpacing: 0.3 },
-          largeTitleStyle,
-        ]}
-      >
-        Cottix
-      </Animated.Text>
+    <View
+      style={{
+        paddingTop: 4,
+        paddingBottom: apps.length > 0 ? 12 : 0,
+        alignItems: 'center',
+      }}
+    >
+      <Animated.Image
+        source={require('../../assets/images/Cottix.png')}
+        resizeMode="contain"
+        style={[{ width: 132, height: 40, marginBottom: 2 }, largeTitleStyle]}
+        accessibilityLabel="Cottix"
+      />
       {!loading && (
-        <Animated.Text
-          style={[{ fontSize: 13, color: '#8E8E93', marginTop: 3 }, largeTitleStyle]}
-        >
+        <Animated.Text style={[{ fontSize: 13, color: '#8E8E93', marginTop: 3 }, largeTitleStyle]}>
           {apps.length} app{apps.length !== 1 ? 's' : ''} installed
         </Animated.Text>
       )}
@@ -386,14 +395,12 @@ export default function HomeScreen() {
           paddingHorizontal: 16,
         }}
       >
-        <Animated.Text
-          style={[
-            { fontSize: 17, fontWeight: '600', color: '#1C1C1E' },
-            navBarTitleStyle,
-          ]}
-        >
-          Cottix
-        </Animated.Text>
+        <Animated.Image
+          source={require('../../assets/images/Cottix.png')}
+          resizeMode="contain"
+          style={[{ width: 74, height: 22 }, navBarTitleStyle]}
+          accessibilityLabel="Cottix"
+        />
         {scanRunning && (
           <View style={{ position: 'absolute', right: 16 }}>
             <ActivityIndicator size="small" color="#007AFF" />
@@ -442,18 +449,21 @@ export default function HomeScreen() {
             onPress: () => menuTargetApp && router.push(`/app/${menuTargetApp.app_id}`),
           },
           ...(menuTargetApp?.instance_id
-            ? [{
-                label: '👥 Manage Group',
-                onPress: () => {
-                  closeContextMenu();
-                  router.push(`/shared-instance/${menuTargetApp.instance_id}`);
+            ? [
+                {
+                  label: '👥 Manage Group',
+                  onPress: () => {
+                    closeContextMenu();
+                    router.push(`/shared-instance/${menuTargetApp.instance_id}`);
+                  },
                 },
-              }]
+              ]
             : []),
           {
-            label: menuTargetApp && updatesAvailable[menuTargetApp.app_id]
-              ? 'Check for Update (Available!)'
-              : 'Check for Update',
+            label:
+              menuTargetApp && updatesAvailable[menuTargetApp.app_id]
+                ? 'Check for Update (Available!)'
+                : 'Check for Update',
             onPress: performMenuCheckUpdate,
             loading: menuBusy,
             disabled: menuBusy,
@@ -471,9 +481,7 @@ export default function HomeScreen() {
             disabled: menuBusy,
           },
         ]}
-        destructiveActions={[
-          { label: 'Delete', onPress: performMenuDelete },
-        ]}
+        destructiveActions={[{ label: 'Delete', onPress: performMenuDelete }]}
       />
     </SafeAreaView>
   );

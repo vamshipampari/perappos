@@ -14,6 +14,7 @@ import * as Haptics from 'expo-haptics';
 import { applyUrlAppUpdate, checkForUpdates } from '@/lib/appUpdates';
 import { safeImpactAsync } from '@/lib/haptics';
 import { supabase } from '@/services/supabase';
+import { powerSyncDb } from '@/services/sync/PowerSyncProvider';
 import { shareApp } from '@/services/shareService';
 import type { InstalledApp } from '@/types';
 
@@ -189,6 +190,7 @@ export function useAppContextMenu({
             try {
               await db.runAsync('DELETE FROM app_data WHERE app_id = ?', menuTargetApp.app_id);
               await db.runAsync('DELETE FROM apps WHERE app_id = ?', menuTargetApp.app_id);
+              void powerSyncDb.execute('DELETE FROM installed_apps WHERE id = ?', [menuTargetApp.app_id]);
               void supabase.rpc('increment_app_count', { delta: -1 }).then(undefined, () => {});
               setUpdatesAvailable((prev) => {
                 const next = { ...prev };

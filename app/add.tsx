@@ -27,6 +27,7 @@ import { HTML_SIZE_LIMIT, deployHtml, parseHtmlMeta } from '@/services/htmlDeplo
 import { Haptics, safeNotificationAsync } from '@/lib/haptics';
 import { log } from '@/lib/logger';
 import { supabase } from '@/services/supabase';
+import { powerSyncDb } from '@/services/sync/PowerSyncProvider';
 import { detectPlatform, fetchUrlMetadata } from '@/services/urlFetcher';
 import { type ParsedBundle, extractAndBundle } from '@/services/zipInstaller';
 
@@ -422,6 +423,19 @@ function AddScreenContent() {
       }
 
       await refresh();
+
+      // Mirror metadata to PowerSync installed_apps for cross-device sync.
+      // Use INSERT OR REPLACE so updates (replaceAppId flow) overwrite the existing row.
+      void powerSyncDb.execute(
+        `INSERT OR REPLACE INTO installed_apps
+           (id, app_id, name, icon_emoji, icon_bg_color, source_type, source_url,
+            bundle_hash, installed_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
+        [
+          finalBundle.appId, finalBundle.appId, finalName, selectedEmoji, selectedBg,
+          finalBundle.sourceType, finalBundle.sourceUrl ?? null, finalBundle.hash ?? null,
+        ]
+      ).catch(() => {}); // fire-and-forget, non-critical
 
       // Increment app count for new installs (fire-and-forget)
       if (!replaceAppId) {
