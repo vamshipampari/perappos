@@ -1,6 +1,29 @@
 # Cottix — Status
 
-**Last Updated**: 2026-03-24 (Session 11)
+**Last Updated**: 2026-03-25 (Session 12)
+
+## Current Sprint: Bug Fixes + HTML App Import + WebView Polish
+
+### ✅ Session 12 — Auth Lifecycle Fixes + HTML Add Flow + WebView UX (2026-03-25)
+
+**Auth / data-lifecycle bug fixes:**
+- **Tab auth guard**: `app/(tabs)/_layout.tsx` now redirects immediately to `/login` via `<Redirect>` if no session — eliminates the flash of home screen that appeared before the root layout's `useEffect` auth check fired
+- **User-change wipe modal — demo exclusion**: `checkUserChange()` in `hooks/useUserChangeGuard.ts` now counts only non-demo apps (`source_type != 'demo'`). Previously demo apps triggered the "will erase your data" modal even when the user had no real data.
+- **User-change wipe — re-seed after wipe**: `confirmWipe()` now calls `seedDemoApps(db)` after deleting all rows, so the new user starts with the standard 3 demo apps (mirrors fresh install)
+- **App limit drift fix**: `useGatekeeper.gateAppInstall()` accepts an optional `localCount` param. `app/add.tsx` passes the local non-demo SQLite count, bypassing the stale Supabase `app_install_count` counter that drifts after device wipes / user-switch wipes
+
+**Add from HTML feature (`supabase/functions/deploy-html/`, `services/htmlDeployer.ts`, `app/add.tsx`):**
+- New Supabase edge function `deploy-html` — POST `{ appId, html }` with JWT auth (same local-decode pattern as `generate-app`); validates size ≤ 5 MB + HTML presence; PUTs to Cloudflare KV at `app:{appId}`; returns `{ url }`
+- New client service `services/htmlDeployer.ts` — `parseHtmlMeta(html)` extracts title/icon/color from `<title>` and `cottix-meta`/`perappos-meta` tags; `deployHtml(appId, html)` posts to edge function with session Bearer token
+- `services/zipInstaller.ts` `sourceType` union extended to `'url' | 'zip' | 'html'`
+- `app/add.tsx` — new "FROM HTML" section (between URL and AI card): file picker (`.html` files), paste textarea with monospace font, "Next" button → details step → Install deploys to Cloudflare then writes to SQLite (`bundle_html` + `source_url`). On Cloudflare deploy failure: graceful degradation to local-only (bundle still loads offline via `bundle_html`)
+
+**WebView UX fixes (`app/app/[id].tsx`):**
+- Replaced `ANDROID_KEYBOARD_FIX_JS` (Android-only, modifies existing meta only) with universal `VIEWPORT_FIX_JS` that: creates meta if missing, sets `maximum-scale=1.0, user-scalable=no, viewport-fit=cover` (prevents iOS auto-zoom on input focus), adds `interactive-widget=resizes-content` on Android only
+- Injection now unconditional (`shimJS + VIEWPORT_FIX_JS` on both iOS and Android)
+- Added `automaticallyAdjustKeyboardInsets` → iOS WKWebView resizes viewport instead of panning when keyboard appears; keeps fixed-bottom elements visible
+- Added `contentInsetAdjustmentBehavior="never"` → prevents WKWebView extra scroll insets
+- Added `overScrollMode="never"` → disables Android over-scroll bounce
 
 ## Current Sprint: VaultAPI Secrets + Storage
 
@@ -185,6 +208,7 @@
 
 ### 🔜 Next Up
 - [ ] **UPDATE POWERSYNC SYNC RULES**: Add `is_frozen`, `frozen_at`, `frozen_reason` to `shared_instances` SELECT projection in PowerSync dashboard (required for freeze to work on client)
+- [ ] Deploy `deploy-html` edge function: `supabase functions deploy deploy-html`
 - [ ] Complete `npx expo prebuild --clean` (downloading NDK, ~5-15 min)
 - [ ] Run `npx expo run:android` to test build with new Cottix app name
 - [ ] **Create with AI — optimizations**:

@@ -16,8 +16,18 @@ import { useUserProfile } from './useUserProfile';
 export function useGatekeeper() {
   const { profile, limits, canInstallMoreApps, canCreateSharedInstance } = useUserProfile();
 
-  const gateAppInstall = (): boolean => {
-    if (canInstallMoreApps) return true;
+  /**
+   * @param localCount - Pass the current local (non-demo) app count from SQLite.
+   *   When provided it is used as the source of truth, preventing false "limit
+   *   reached" errors caused by the Supabase counter drifting out of sync
+   *   (e.g. after a device wipe or user-switch wipe).
+   */
+  const gateAppInstall = (localCount?: number): boolean => {
+    const atLimit = localCount !== undefined
+      ? (limits.maxApps !== Infinity && localCount >= limits.maxApps)
+      : !canInstallMoreApps;
+
+    if (!atLimit) return true;
 
     Alert.alert(
       'App Limit Reached',

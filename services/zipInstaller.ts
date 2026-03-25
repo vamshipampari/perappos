@@ -20,7 +20,7 @@ export interface ParsedBundle {
   name: string;
   hash: string | null;
   size: number;
-  sourceType: 'url' | 'zip';
+  sourceType: 'url' | 'zip' | 'html';
   sourceUrl?: string;
   /** Filesystem path WITHOUT file:// prefix and WITHOUT trailing slash. */
   bundlePath: string;

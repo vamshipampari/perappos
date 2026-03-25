@@ -5,6 +5,7 @@ import { useCallback, useState } from 'react';
 
 import { connector, powerSyncDb } from '../services/sync/PowerSyncProvider';
 import { supabase } from '../services/supabase';
+import { seedDemoApps } from '@/utils/createDemoApp';
 
 const LAST_USER_KEY = 'lastUserId';
 
@@ -48,10 +49,11 @@ export function useUserChangeGuard(): UserChangeGuard {
         return false;
       }
 
-      // Different user — skip modal if there are no local apps to lose.
+      // Different user — skip modal if there are no user-installed apps to lose.
+      // Demo apps (source_type='demo') are generic and don't count as user data.
       try {
         const row = await db.getFirstAsync<{ count: number }>(
-          'SELECT COUNT(*) as count FROM apps'
+          "SELECT COUNT(*) as count FROM apps WHERE source_type != 'demo'"
         );
         if ((row?.count ?? 0) === 0) {
           return false;
@@ -90,6 +92,9 @@ export function useUserChangeGuard(): UserChangeGuard {
 
       // 2. Wipe all app data from the local SQLite database.
       await db.execAsync('DELETE FROM apps; DELETE FROM app_data; DELETE FROM shared_data;');
+
+      // 2b. Re-seed demo apps so the new user starts with content (mirrors fresh install).
+      await seedDemoApps(db);
 
       // 3. Delete cached app bundles from disk.
       const appsDir = `${FileSystem.documentDirectory}apps/`;

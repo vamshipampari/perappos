@@ -1,6 +1,8 @@
-import { Tabs } from 'expo-router';
+import { Redirect, Tabs } from 'expo-router';
+import { useEffect, useState } from 'react';
 import { Text } from 'react-native';
 import { Haptics, safeImpactAsync } from '@/lib/haptics';
+import { supabase } from '../../services/supabase';
 
 function TabIcon({ symbol, focused }: { symbol: string; focused: boolean }) {
   return (
@@ -9,6 +11,23 @@ function TabIcon({ symbol, focused }: { symbol: string; focused: boolean }) {
 }
 
 export default function TabLayout() {
+  const [sessionChecked, setSessionChecked] = useState(false);
+  const [hasSession, setHasSession] = useState(false);
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setHasSession(!!session);
+      setSessionChecked(true);
+    });
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_, session) => {
+      setHasSession(!!session);
+    });
+    return () => subscription.unsubscribe();
+  }, []);
+
+  if (!sessionChecked) return null;
+  if (!hasSession) return <Redirect href="/login" />;
+
   return (
     <Tabs
       screenListeners={{

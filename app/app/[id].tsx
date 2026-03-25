@@ -29,17 +29,26 @@ import { usePowerSync } from '@/services/sync/PowerSyncProvider';
 import { handleVaultMessage } from '@/lib/vaultBridge';
 import { log } from '@/lib/logger';
 
-// ── Android keyboard fix ──────────────────────────────────────────────────────
-// Sets interactive-widget=resizes-content so the WebView viewport shrinks
-// (rather than panning or doing nothing) when the software keyboard appears.
-const ANDROID_KEYBOARD_FIX_JS = `
-  (function() {
-    var meta = document.querySelector('meta[name="viewport"]');
-    if (meta) {
-      meta.content = 'width=device-width, initial-scale=1, interactive-widget=resizes-content';
-    }
-  })();
-`;
+// ── Viewport fix (all platforms) ─────────────────────────────────────────────
+// • Creates the viewport meta if missing (external apps often omit it)
+// • maximum-scale=1.0 + user-scalable=no → prevents iOS auto-zoom on input focus
+// • viewport-fit=cover → respects safe areas
+// • Android only: interactive-widget=resizes-content → keyboard shrinks WebView
+//   instead of panning the viewport
+const VIEWPORT_FIX_JS = (() => {
+  const base =
+    'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover';
+  const content =
+    Platform.OS === 'android' ? `${base}, interactive-widget=resizes-content` : base;
+  return (
+    `(function(){` +
+    `var m=document.querySelector('meta[name="viewport"]');` +
+    `if(!m){m=document.createElement('meta');m.setAttribute('name','viewport');` +
+    `document.head&&document.head.appendChild(m);}` +
+    `m&&m.setAttribute('content','${content}');` +
+    `})();`
+  );
+})();
 
 // ── Screen ────────────────────────────────────────────────────────────────────
 
@@ -272,9 +281,7 @@ export default function AppScreen() {
               ref={webViewRef}
               source={webViewSource}
               style={styles.webView}
-              injectedJavaScriptBeforeContentLoaded={
-                Platform.OS === 'android' ? shimJS + ANDROID_KEYBOARD_FIX_JS : shimJS
-              }
+              injectedJavaScriptBeforeContentLoaded={shimJS + VIEWPORT_FIX_JS}
               injectedJavaScript={`
                 window.onerror = function(msg, url, line, col, error) {
                   window.ReactNativeWebView.postMessage(JSON.stringify({
@@ -300,6 +307,9 @@ export default function AppScreen() {
               originWhitelist={['*']}
               allowsInlineMediaPlayback
               mediaPlaybackRequiresUserAction={false}
+              automaticallyAdjustKeyboardInsets
+              contentInsetAdjustmentBehavior="never"
+              overScrollMode="never"
               onNavigationStateChange={(navState) => setWebCanGoBack(navState.canGoBack)}
               onLoadStart={() => {
                 if (!hasLoadedOnceRef.current) setWebLoading(true);
