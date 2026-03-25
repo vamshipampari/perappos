@@ -10,15 +10,39 @@ Cottix runs your web app (built with Lovable, Bolt, Replit, Vercel, or any URL) 
 
 ---
 
+## How to Add Your App to Cottix
+
+| Method | How |
+|---|---|
+| **URL** | Paste any public URL (Lovable, Bolt, Vercel, Replit, etc.) — Cottix loads it in a WebView |
+| **HTML paste / file** | Tap `+` → **FROM HTML** — paste your HTML code or pick a `.html` file. The app is deployed to Cottix's CDN and stored offline-first on device. |
+| **Create with AI** | Describe what you want — Cottix generates a full single-file app (coming soon) |
+
+---
+
 ## App Structure Requirements
 
 | Rule | Detail |
 |---|---|
 | **Self-contained** | No server required at runtime. All assets must load from the bundle. |
-| **Single HTML entry** | One `index.html` with relative asset paths |
+| **Single HTML entry** | One `index.html` (or standalone `.html` file) with relative asset paths |
 | **No backend calls at startup** | If your app hits an API on load, it must handle offline gracefully |
 | **External fetches** | `fetch()` works normally during runtime — only the initial bundle must be self-contained |
 | **Frameworks** | React, Vue, Svelte, vanilla JS — all work. Just make sure the build output is static HTML/JS/CSS |
+
+### Optional: app metadata tag
+
+Add this `<meta>` tag to the `<head>` of your HTML to pre-fill the Cottix icon, color, and description when the app is imported:
+
+```html
+<meta name="cottix-meta" content='{"icon":"🏋️","color":"#D1FAE5","description":"Track your workouts"}' />
+```
+
+| Field | Type | Default | Detail |
+|---|---|---|---|
+| `icon` | emoji string | `✨` | Icon shown on home screen |
+| `color` | hex color | `#E0E7FF` | Background color of app icon |
+| `description` | string | `''` | Short description (shown during import) |
 
 ---
 
@@ -170,7 +194,7 @@ Returns:
 {
   app_id: 'abc123',          // unique ID assigned by Cottix
   name: 'My Habit Tracker',  // display name user gave the app
-  source_url: 'https://...', // original URL (null for ZIPs)
+  source_url: 'https://...', // hosted URL (null for ZIPs; Cloudflare URL for HTML apps)
   installed_at: '2026-03-01T10:00:00Z',
   open_count: 42,
   instance_id: 'xyz...'      // non-null if the app is in collaborative mode

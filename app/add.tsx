@@ -1,5 +1,6 @@
 import * as Crypto from 'expo-crypto';
 import * as DocumentPicker from 'expo-document-picker';
+import * as FileSystem from 'expo-file-system/legacy';
 import { Stack, router, useLocalSearchParams } from 'expo-router';
 import { Component, type ErrorInfo, type ReactNode, useEffect, useState } from 'react';
 import {
@@ -22,6 +23,7 @@ import { useToast } from '@/components/Toast';
 import { useDatabase } from '@/hooks/useDatabase';
 import { useGatekeeper } from '@/hooks/useGatekeeper';
 import { useInstalledApps } from '@/hooks/useInstalledApps';
+import { HTML_SIZE_LIMIT, deployHtml, parseHtmlMeta } from '@/services/htmlDeployer';
 import { Haptics, safeNotificationAsync } from '@/lib/haptics';
 import { log } from '@/lib/logger';
 import { supabase } from '@/services/supabase';
@@ -114,7 +116,7 @@ function AddScreenContent() {
     prefillColor?: string;
   }>();
   const db = useDatabase();
-  const { refresh } = useInstalledApps();
+  const { refresh, apps } = useInstalledApps();
   const { showToast } = useToast();
   const { gateAppInstall } = useGatekeeper();
   const replaceAppId =
@@ -136,6 +138,10 @@ function AddScreenContent() {
   const [appName, setAppName] = useState('');
   const [selectedEmoji, setSelectedEmoji] = useState('📱');
   const [selectedBg, setSelectedBg] = useState('#DBEAFE');
+
+  // HTML add flow
+  const [htmlContent, setHtmlContent] = useState('');
+  const [htmlFileName, setHtmlFileName] = useState<string | null>(null);
 
   const platform = detectPlatform(url);
 
@@ -273,16 +279,110 @@ function AddScreenContent() {
     }
   };
 
+  const handleSelectHtml = async () => {
+    let picked: DocumentPicker.DocumentPickerResult;
+    try {
+      picked = await DocumentPicker.getDocumentAsync({
+        type: ['text/html', 'application/octet-stream'],
+        copyToCacheDirectory: true,
+      });
+    } catch {
+      return;
+    }
+
+    if (picked.canceled || !picked.assets?.[0]) return;
+
+    const asset = picked.assets[0];
+    if (asset.name && !asset.name.toLowerCase().endsWith('.html')) {
+      Alert.alert('Wrong File Type', 'Please select a .html file.');
+      return;
+    }
+
+    try {
+      const content = await FileSystem.readAsStringAsync(asset.uri, {
+        encoding: FileSystem.EncodingType.UTF8,
+      });
+      setHtmlContent(content);
+      setHtmlFileName(asset.name ?? 'file.html');
+    } catch {
+      Alert.alert('Read Error', 'Could not read the selected file.');
+    }
+  };
+
+  const handleHtmlNext = async () => {
+    const trimmed = htmlContent.trim();
+
+    if (trimmed.length === 0) {
+      Alert.alert('No HTML', 'Please paste HTML code or select a .html file.');
+      return;
+    }
+
+    const htmlBytes = new TextEncoder().encode(trimmed).length;
+    if (htmlBytes > HTML_SIZE_LIMIT) {
+      Alert.alert(
+        'File Too Large',
+        `HTML must be under 5 MB. This file is ${(htmlBytes / 1024 / 1024).toFixed(1)} MB.`
+      );
+      return;
+    }
+
+    if (!trimmed.includes('<html') && !trimmed.includes('<!DOCTYPE')) {
+      Alert.alert('Invalid HTML', 'The content does not look like a valid HTML document.');
+      return;
+    }
+
+    setError(null);
+
+    const meta = parseHtmlMeta(trimmed);
+    const appId = replaceAppId ?? Crypto.randomUUID();
+    const hash = await Crypto.digestStringAsync(
+      Crypto.CryptoDigestAlgorithm.SHA256,
+      trimmed
+    );
+
+    setBundle({
+      appId,
+      html: trimmed,
+      name: meta.title,
+      hash,
+      size: htmlBytes,
+      sourceType: 'html',
+      sourceUrl: undefined,
+      bundlePath: '',
+    });
+    setAppName(meta.title);
+    if (meta.icon !== '✨') setSelectedEmoji(meta.icon);
+    if (meta.color !== '#E0E7FF') setSelectedBg(meta.color);
+
+    setStep('details');
+  };
+
   const handleInstall = async () => {
     if (!bundle || step === 'installing') return;
 
-    // Gate new installs (skip for replacements/updates)
-    if (!replaceAppId && !gateAppInstall()) return;
+    // Gate new installs (skip for replacements/updates).
+    // Pass local non-demo count as source of truth to avoid false "limit reached"
+    // errors caused by the Supabase counter drifting after a device/user-switch wipe.
+    const nonDemoCount = apps.filter(a => a.source_type !== 'demo').length;
+    if (!replaceAppId && !gateAppInstall(nonDemoCount)) return;
 
     setStep('installing');
 
     try {
       const finalName = appName.trim() || bundle.name || 'My App';
+
+      // For HTML apps, deploy to Cloudflare before writing to SQLite so the
+      // source_url is available. On deploy failure, we fall back to local-only
+      // (bundle_html still loads the app in the WebView without a network URL).
+      let finalBundle = bundle;
+      if (bundle.sourceType === 'html' && bundle.html) {
+        try {
+          const { url: cfUrl } = await deployHtml(bundle.appId, bundle.html);
+          finalBundle = { ...bundle, sourceUrl: cfUrl };
+        } catch (deployErr) {
+          log.warn('[AddScreen] Cloudflare deploy failed, installing locally only:', deployErr);
+        }
+      }
 
       if (replaceAppId) {
         await db.runAsync(
@@ -294,12 +394,12 @@ function AddScreenContent() {
           finalName,
           selectedEmoji,
           selectedBg,
-          bundle.bundlePath,
-          bundle.html,     // local-mode HTML payload (null for URL apps)
-          bundle.sourceType,
-          bundle.sourceUrl ?? null,
-          bundle.hash,
-          bundle.size,
+          finalBundle.bundlePath,
+          finalBundle.html,
+          finalBundle.sourceType,
+          finalBundle.sourceUrl ?? null,
+          finalBundle.hash,
+          finalBundle.size,
           replaceAppId
         );
       } else {
@@ -308,16 +408,16 @@ function AddScreenContent() {
              (app_id, name, icon_emoji, icon_bg_color, bundle_path, bundle_html,
               source_type, source_url, bundle_hash, bundle_size, installed_at, updated_at)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
-          bundle.appId,
+          finalBundle.appId,
           finalName,
           selectedEmoji,
           selectedBg,
-          bundle.bundlePath,
-          bundle.html,     // local-mode HTML payload (null for URL apps)
-          bundle.sourceType,
-          bundle.sourceUrl ?? null,
-          bundle.hash,
-          bundle.size
+          finalBundle.bundlePath,
+          finalBundle.html,
+          finalBundle.sourceType,
+          finalBundle.sourceUrl ?? null,
+          finalBundle.hash,
+          finalBundle.size
         );
       }
 
@@ -476,6 +576,64 @@ function AddScreenContent() {
                         </Text>
                       </TouchableOpacity>
                     )}
+                  </View>
+                </View>
+              )}
+
+              {/* ── Section 2: From HTML ─────────────────────────────────── */}
+              {step === 'input' && (
+                <View style={styles.section}>
+                  <View style={styles.dividerRow}>
+                    <View style={styles.dividerLine} />
+                    <Text style={styles.dividerText}>or</Text>
+                    <View style={styles.dividerLine} />
+                  </View>
+
+                  <Text style={styles.sectionHeader}>FROM HTML</Text>
+                  <View style={styles.card}>
+                    {/* File picker row */}
+                    <View style={styles.htmlFileRow}>
+                      <Text style={styles.htmlFileName} numberOfLines={1}>
+                        {htmlFileName ?? 'No file selected'}
+                      </Text>
+                      <TouchableOpacity
+                        onPress={handleSelectHtml}
+                        activeOpacity={0.8}
+                        style={styles.htmlFileBtn}
+                      >
+                        <Text style={styles.htmlFileBtnText}>Select .html file</Text>
+                      </TouchableOpacity>
+                    </View>
+
+                    <View style={styles.htmlInnerDivider} />
+
+                    {/* Paste area */}
+                    <TextInput
+                      value={htmlContent}
+                      onChangeText={(text) => {
+                        setHtmlContent(text);
+                        if (htmlFileName) setHtmlFileName(null);
+                      }}
+                      placeholder={'Or paste HTML code here…\n\n<!DOCTYPE html>\n<html>…'}
+                      placeholderTextColor="#C7C7CC"
+                      style={styles.htmlInput}
+                      multiline
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      spellCheck={false}
+                    />
+
+                    <TouchableOpacity
+                      onPress={handleHtmlNext}
+                      disabled={htmlContent.trim().length === 0}
+                      activeOpacity={0.8}
+                      style={[
+                        styles.primaryBtn,
+                        htmlContent.trim().length === 0 && styles.primaryBtnDisabled,
+                      ]}
+                    >
+                      <Text style={styles.primaryBtnText}>Next</Text>
+                    </TouchableOpacity>
                   </View>
                 </View>
               )}
@@ -896,5 +1054,47 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
     color: '#6366F1',
+  },
+  // ── HTML add flow ─────────────────────────────────────────────────────────
+  htmlFileRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    gap: 8,
+  },
+  htmlFileName: {
+    flex: 1,
+    fontSize: 13,
+    color: '#8E8E93',
+  },
+  htmlFileBtn: {
+    backgroundColor: '#F2F2F7',
+    borderRadius: 8,
+    paddingVertical: 7,
+    paddingHorizontal: 12,
+    borderWidth: 0.5,
+    borderColor: '#E5E5EA',
+  },
+  htmlFileBtnText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#007AFF',
+  },
+  htmlInnerDivider: {
+    height: 0.5,
+    backgroundColor: '#E5E5EA',
+    marginHorizontal: 16,
+  },
+  htmlInput: {
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    fontSize: 13,
+    color: '#1C1C1E',
+    lineHeight: 20,
+    minHeight: 120,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    textAlignVertical: 'top',
   },
 });

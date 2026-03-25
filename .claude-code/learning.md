@@ -576,9 +576,38 @@ After adding freeze columns, update the PowerSync sync rules dashboard to includ
     - The `[DONE]` sentinel is a bare string (not JSON) — skip it with `if (raw === "[DONE]") continue` before `JSON.parse`.
     - Buffer incoming chunks and split by `\n`; keep the last partial line in a buffer for the next chunk.
 
+37. **User-change guard: exclude demo apps from the count check**
+    - **Symptom**: User with only demo apps (source_type='demo') saw the "Different Account Detected — will erase your data" modal when a new user signed in. Demo apps are generic seeded content, not user data.
+    - **Fix**: `checkUserChange()` in `hooks/useUserChangeGuard.ts` counts only `source_type != 'demo'` rows. If count = 0, skip the modal.
+    - **Pattern**: `SELECT COUNT(*) as count FROM apps WHERE source_type != 'demo'`
+
+38. **`confirmWipe()` must explicitly re-seed demo apps after DELETE**
+    - **Symptom**: After user-switch wipe, new user sees an empty home screen (0 apps). `seedDemoApps` runs in `onInit` which only fires when the SQLite database file is first created, not on subsequent opens.
+    - **Fix**: Call `await seedDemoApps(db)` explicitly in `confirmWipe()` after the DELETE statements.
+    - **Pattern**: Delete → re-seed → persist new userId → reconnect PowerSync.
+
+39. **Use local SQLite count as source of truth for install gating (not Supabase counter)**
+    - **Symptom**: After a device wipe or user-switch wipe, `app_install_count` in Supabase stays elevated (never decremented during wipe). New user sees "App Limit Reached" with 0 local apps.
+    - **Root cause**: `app_install_count` is incremented on install but not decremented on wipe. Cross-device decrement requires knowing the *previous* user's count, which the new user's session can't safely access.
+    - **Fix (pragmatic)**: Pass local non-demo count to `gateAppInstall(localCount)`. When `localCount` is provided, use it instead of `canInstallMoreApps` (which reads stale Supabase data).
+    - **Pattern**: `const nonDemoCount = apps.filter(a => a.source_type !== 'demo').length; gateAppInstall(nonDemoCount)`
+
+40. **Universal WebView viewport fix: create meta if missing, always set `user-scalable=no`**
+    - **Symptom**: Tapping buttons or focusing inputs zooms/pans the page in WebView, especially for external apps (Lovable, Bolt) that omit viewport meta or use `user-scalable=yes`.
+    - **Cause**: iOS WKWebView auto-zooms on inputs with font-size < 16px if `maximum-scale` is not set. `ANDROID_KEYBOARD_FIX_JS` only ran on Android, only modified *existing* meta, and never set `user-scalable=no`.
+    - **Fix**: Replace with `VIEWPORT_FIX_JS` — run on all platforms, create meta if missing, set `maximum-scale=1.0, user-scalable=no, viewport-fit=cover`, Android only adds `interactive-widget=resizes-content`.
+    - **Injection**: `injectedJavaScriptBeforeContentLoaded={shimJS + VIEWPORT_FIX_JS}` (unconditional, no platform check).
+
+41. **`automaticallyAdjustKeyboardInsets` is essential for fixed-bottom UI in WebView**
+    - **Symptom**: Fixed-position buttons at the bottom of mini-apps are hidden behind the keyboard when it appears on iOS.
+    - **Cause**: Default WKWebView behavior on iOS is to *pan* the viewport (scroll the page) when the keyboard opens, pushing fixed-bottom elements behind it. Without `automaticallyAdjustKeyboardInsets`, this cannot be overridden from JS.
+    - **Fix**: Add `automaticallyAdjustKeyboardInsets` (boolean prop, no `={true}` needed) to the `<WebView>` component. WKWebView resizes the viewport instead of panning — fixed elements stay above the keyboard.
+    - **Pair with**: `contentInsetAdjustmentBehavior="never"` (stops extra scroll insets) + `overScrollMode="never"` (Android, disables bounce glitches).
+
 ## To-Do for Next Session
 
 - [ ] Update PowerSync sync rules dashboard to include `is_frozen`, `frozen_at`, `frozen_reason` in `shared_instances` projection
+- [ ] Deploy `deploy-html` edge function: `supabase functions deploy deploy-html`
 - [ ] Remove one-time CRUD queue flush from `PowerSyncProvider.tsx` after confirming clean CRUD queues on all devices
 - [ ] Show explicit PowerSync connection error in Settings
 - [ ] Add clipboard copy for invite codes
