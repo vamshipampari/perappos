@@ -604,10 +604,32 @@ After adding freeze columns, update the PowerSync sync rules dashboard to includ
     - **Fix**: Add `automaticallyAdjustKeyboardInsets` (boolean prop, no `={true}` needed) to the `<WebView>` component. WKWebView resizes the viewport instead of panning — fixed elements stay above the keyboard.
     - **Pair with**: `contentInsetAdjustmentBehavior="never"` (stops extra scroll insets) + `overScrollMode="never"` (Android, disables bounce glitches).
 
+42. **Settings count vs home screen count mismatch after cross-device login**
+    - **Symptom**: Settings shows "10 / 5 apps" but home screen shows 3 (demo only). Causes confusion — user thinks their data is there but the home screen is empty.
+    - **Root cause**: Settings read `profile.app_install_count` from Supabase (global, drift-prone counter); home screen reads local SQLite `apps` table. They're different data sources that diverge on any new device.
+    - **Fix**: Settings should always use local non-demo count (`apps.filter(a => a.source_type !== 'demo').length`) for display. Only use `profile.app_install_count` for server-side gating/quota checks.
+
+43. **PowerSync `installed_apps` table was defined but never written to**
+    - **Symptom**: The PowerSync schema had `installed_apps` table, the `SupabaseConnector` handled it, the sync rule existed — but apps never appeared cross-device because nothing ever inserted rows.
+    - **Root cause**: Every install path wrote only to the local expo-sqlite `apps` table. The PowerSync table was dead code.
+    - **Fix**: Add `powerSyncDb.execute('INSERT OR REPLACE INTO installed_apps ...')` (fire-and-forget) in every install path: `app/add.tsx` `handleInstall()` and `services/appInstaller.ts` `installUrlApp()`.
+    - **Pattern**: PowerSync execute is fire-and-forget (non-critical) — wrap in `.catch(() => {})`. Use `INSERT OR REPLACE` so updates (replace flow) overwrite existing rows without errors.
+
+44. **Cross-device restore: use `db.watch()` not a one-shot `getAll()` for reactive restore**
+    - **Problem**: On a new device, PowerSync may not have finished syncing when the home screen first renders. A one-shot `getAll('installed_apps')` at mount time returns 0 rows, so restore never happens.
+    - **Fix**: Use `for await (const result of db.watch('SELECT * FROM installed_apps', [], { signal }))` — fires immediately with current data AND again when PowerSync downloads rows. Stop after first non-empty result via `controller.abort()`.
+    - **Guard**: `restoredRef.current` prevents double-restore if the effect re-runs.
+
+45. **`source_type` CHECK constraint in Supabase blocks new source types**
+    - **Symptom**: Adding a new `source_type` value (e.g. `'html'`) to the app causes PowerSync upserts to fail with a Postgres CHECK constraint violation.
+    - **Fix**: `ALTER TABLE installed_apps DROP CONSTRAINT installed_apps_source_type_check; ALTER TABLE installed_apps ADD CONSTRAINT ... CHECK (source_type = ANY (ARRAY['url','zip','demo','html']))`.
+    - **Prevention**: When adding a new `sourceType` to `ParsedBundle`, always check for corresponding CHECK constraints in Supabase tables that store `source_type`.
+
 ## To-Do for Next Session
 
 - [ ] Update PowerSync sync rules dashboard to include `is_frozen`, `frozen_at`, `frozen_reason` in `shared_instances` projection
 - [ ] Deploy `deploy-html` edge function: `supabase functions deploy deploy-html`
+- [ ] HTML/ZIP apps cross-device: show "Re-install required" tile overlay when `bundle_html` is NULL after restore
 - [ ] Remove one-time CRUD queue flush from `PowerSyncProvider.tsx` after confirming clean CRUD queues on all devices
 - [ ] Show explicit PowerSync connection error in Settings
 - [ ] Add clipboard copy for invite codes

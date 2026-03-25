@@ -1,6 +1,27 @@
 # Cottix — Status
 
-**Last Updated**: 2026-03-25 (Session 12)
+**Last Updated**: 2026-03-25 (Session 13)
+
+## Current Sprint: Cross-Device App Sync
+
+### ✅ Session 13 — Cross-Device App List Sync + Settings Count Fix (2026-03-25)
+
+**Settings count consistency fix:**
+- `app/(tabs)/settings.tsx`: "Apps installed" now reads local non-demo SQLite count (`apps.filter(a => a.source_type !== 'demo').length`) instead of `profile.app_install_count` from Supabase. The Supabase counter drifts after device wipes and multi-device use — local count always matches the home screen.
+
+**Cross-device app list sync (activates dormant `installed_apps` PowerSync table):**
+- `app/add.tsx` `handleInstall()`: after local SQLite INSERT/UPDATE, fire-and-forget write to PowerSync `installed_apps` (id, app_id, name, icon, color, source_type, source_url, bundle_hash)
+- `services/appInstaller.ts` `installUrlApp()`: same — ensures join-flow auto-installs also sync
+- `hooks/useAppMenuActions.ts` `handleDelete()`: `DELETE FROM installed_apps WHERE id = ?` via `syncDb.execute` alongside existing app_data delete
+- `hooks/useAppContextMenu.ts` (home screen long-press delete): same via `powerSyncDb.execute` (direct import)
+- `app/(tabs)/settings.tsx` "Clear All Data": `DELETE FROM installed_apps` via `syncDb.execute`
+- New `hooks/useRestoreApps.ts`: watches PowerSync `installed_apps` via `db.watch()` with `AbortController`; when local non-demo count = 0 but PowerSync has rows, inserts them into local SQLite `apps` (URL apps restore fully; HTML/ZIP apps restore tile metadata only — bundle re-import needed to open); shows "X apps restored" toast; called from home screen
+- `app/(tabs)/index.tsx`: `useRestoreApps()` called on home screen mount
+
+**Supabase `installed_apps` table (already existed):**
+- RLS policies confirmed correct (SELECT/INSERT/UPDATE/DELETE scoped to `auth.uid() = user_id`)
+- `source_type` CHECK constraint updated: added `'html'` to allowed values (`url | zip | demo | html`)
+- PowerSync sync rule `user_installed_apps` already present with `auto_subscribe: true`
 
 ## Current Sprint: Bug Fixes + HTML App Import + WebView Polish
 
@@ -209,6 +230,7 @@
 ### 🔜 Next Up
 - [ ] **UPDATE POWERSYNC SYNC RULES**: Add `is_frozen`, `frozen_at`, `frozen_reason` to `shared_instances` SELECT projection in PowerSync dashboard (required for freeze to work on client)
 - [ ] Deploy `deploy-html` edge function: `supabase functions deploy deploy-html`
+- [ ] HTML/ZIP apps cross-device: show "Re-install required" overlay on tile when `bundle_html` is NULL after restore (currently opens with error)
 - [ ] Complete `npx expo prebuild --clean` (downloading NDK, ~5-15 min)
 - [ ] Run `npx expo run:android` to test build with new Cottix app name
 - [ ] **Create with AI — optimizations**:
