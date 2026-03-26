@@ -1,6 +1,22 @@
 # Cottix — Status
 
-**Last Updated**: 2026-03-26 (Session 14)
+**Last Updated**: 2026-03-26 (Session 15)
+
+## Current Sprint: API Keys UI + Version Tracking
+
+### ✅ Session 15 — API Keys Management + Version Display (2026-03-26)
+
+**API Keys section in Settings:**
+- New "API Keys" section always visible in Settings (previously didn't exist at all).
+- "Add API Key" button opens a `formSheet` modal with name + masked value fields.
+- Keys saved to `expo-secure-store` (native SecureStore) + name tracked in SQLite (`shared_data` category `vault_secrets`) so they can be listed.
+- Existing keys show with source label (`manual` vs `from app`); tap any key to delete it (removes from SecureStore + SQLite).
+- Bridge (`vaultBridge.ts` `secrets_set`) also writes to SQLite so keys set by mini-apps appear in the list.
+
+**Version tracking:**
+- Bumped `app.json` version `0.1.0` → `0.2.0`.
+- Settings "Version" row now reads dynamically from `Constants.expoConfig.version` instead of hardcoded string.
+- EAS `testflight`/`production` profiles already have `autoIncrement: true` for build number.
 
 ## Current Sprint: Sharing Fix + Native Module Resilience
 

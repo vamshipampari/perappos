@@ -640,6 +640,23 @@ After adding freeze columns, update the PowerSync sync rules dashboard to includ
     - **Pattern**: Always lazy-import native modules that aren't needed at startup. Use `lazyModule(() => import('expo-foo'))` + `const Foo = await getFoo()` at the call site.
     - **Affected modules**: expo-haptics, expo-notifications, expo-sharing, expo-secure-store, expo-image-picker, expo-file-system.
 
+## Session 15 — API Keys UI + Version Tracking (2026-03-26)
+
+48. **SecureStore has no "list all keys" API — must track names separately**
+    - **Problem**: `expo-secure-store` has no way to enumerate stored keys. You can only get/set/delete by exact key name. So a "manage secrets" UI can't list what's stored.
+    - **Fix**: When a secret is saved (both from mini-apps via bridge and from the manual Settings UI), record the name in SQLite `shared_data (category='vault_secrets', key=secretName)`. Settings queries this table to show the list. Deletion removes from both SecureStore and SQLite.
+    - **Pattern**: Native secure storage → store names in SQLite, values in SecureStore.
+
+49. **Hardcoded version strings in Settings go stale — use `Constants.expoConfig.version`**
+    - **Problem**: `"Version"` row in Settings was `value="0.1.0"` — a hardcoded string. After bumping `app.json`, Settings would still show the old version until manually updated.
+    - **Fix**: `import Constants from 'expo-constants'` and use `Constants.expoConfig?.version` for the display value. Single source of truth: `app.json`.
+    - **Note**: EAS `autoIncrement: true` handles build numbers automatically for testflight/production. For the human-readable version, bump `app.json` manually when cutting a release.
+
+50. **`await import()` of lazy modules returns the full module namespace — `EncodingType` lives on the named export, not `.default`**
+    - **Problem**: After converting `import * as FileSystem from 'expo-file-system'` to a lazy `await import(...)`, referencing `FileSystem.EncodingType.Base64` failed because the dynamic import wraps the module object differently in some Expo packages.
+    - **Fix**: Use the string literal `'base64' as const` directly — it's what `EncodingType.Base64` resolves to anyway, and avoids the namespace lookup entirely.
+    - **Pattern**: For Expo module enum values used in `await import()` contexts, prefer string literals over enum references.
+
 ## To-Do for Next Session
 
 - [ ] Update PowerSync sync rules dashboard to include `is_frozen`, `frozen_at`, `frozen_reason` in `shared_instances` projection
