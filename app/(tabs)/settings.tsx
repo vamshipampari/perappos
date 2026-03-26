@@ -759,23 +759,29 @@ export default function SettingsScreen() {
         </Section>
 
         {/* API Keys */}
-        {storedSecrets.length > 0 && (
-          <Section
-            title="API Keys"
-            footer="Stored securely on-device. Mini-apps use these for authenticated API calls."
-          >
-            {storedSecrets.map((s, i) => (
+        <Section
+          title="API Keys"
+          footer="API keys are stored securely on-device. Mini-apps use these for authenticated API calls — your secrets are never exposed to the web."
+        >
+          {storedSecrets.length === 0 ? (
+            <Row
+              kind="info"
+              label="No API keys stored yet. Mini-apps can save keys via VaultAPI.secrets.set()."
+              isLast
+            />
+          ) : (
+            storedSecrets.map((s, i) => (
               <Row
                 key={s.name}
                 kind="chevron"
                 label={s.name}
-                value={s.sourceApp ? `via ${s.sourceApp.slice(0, 8)}…` : undefined}
+                value="Tap to delete"
                 onPress={() => handleDeleteSecret(s.name)}
                 isLast={i === storedSecrets.length - 1}
               />
-            ))}
-          </Section>
-        )}
+            ))
+          )}
+        </Section>
 
         {/* About */}
         <Section title="About">
