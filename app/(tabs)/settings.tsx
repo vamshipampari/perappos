@@ -7,9 +7,11 @@ import * as Sharing from 'expo-sharing';
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   Alert,
+  Modal,
   ScrollView,
   Switch,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
@@ -270,6 +272,9 @@ export default function SettingsScreen() {
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [promoSheetVisible, setPromoSheetVisible] = useState(false);
   const [storedSecrets, setStoredSecrets] = useState<{ name: string; sourceApp: string }[]>([]);
+  const [addKeyVisible, setAddKeyVisible] = useState(false);
+  const [newKeyName, setNewKeyName] = useState('');
+  const [newKeyValue, setNewKeyValue] = useState('');
 
   const { profile, limits, redeemPromoCode, refresh: refreshProfile } = useUserProfile();
   const { apps } = useInstalledApps();
@@ -322,6 +327,30 @@ export default function SettingsScreen() {
         },
       },
     ]);
+  };
+
+  const handleSaveNewKey = async () => {
+    const name = newKeyName.trim();
+    const value = newKeyValue.trim();
+    if (!name || !value) {
+      Alert.alert('Missing fields', 'Both a name and a value are required.');
+      return;
+    }
+    try {
+      const SecureStore = await import('expo-secure-store');
+      await SecureStore.setItemAsync(`vault_secret__global__${name}`, value);
+      await db.runAsync(
+        `INSERT OR REPLACE INTO shared_data (category, key, value, source_app, updated_at)
+         VALUES ('vault_secrets', ?, 'stored', 'manual', datetime('now'))`,
+        name
+      );
+      setNewKeyName('');
+      setNewKeyValue('');
+      setAddKeyVisible(false);
+      await loadSecrets();
+    } catch {
+      Alert.alert('Error', 'Failed to save the API key.');
+    }
   };
 
   // Also keep a live subscription so sign-out updates instantly.
@@ -761,27 +790,102 @@ export default function SettingsScreen() {
         {/* API Keys */}
         <Section
           title="API Keys"
-          footer="API keys are stored securely on-device. Mini-apps use these for authenticated API calls — your secrets are never exposed to the web."
+          footer="Stored securely on-device. Mini-apps inject these into API requests — values are never exposed to the web."
         >
-          {storedSecrets.length === 0 ? (
+          {storedSecrets.map((s, i) => (
             <Row
-              kind="info"
-              label="No API keys stored yet. Mini-apps can save keys via VaultAPI.secrets.set()."
-              isLast
+              key={s.name}
+              kind="chevron"
+              label={s.name}
+              value={s.sourceApp === 'manual' ? 'manual' : 'from app'}
+              onPress={() => handleDeleteSecret(s.name)}
+              isLast={false}
             />
-          ) : (
-            storedSecrets.map((s, i) => (
-              <Row
-                key={s.name}
-                kind="chevron"
-                label={s.name}
-                value="Tap to delete"
-                onPress={() => handleDeleteSecret(s.name)}
-                isLast={i === storedSecrets.length - 1}
-              />
-            ))
-          )}
+          ))}
+          <Row
+            kind="chevron"
+            label="Add API Key"
+            labelColor="#007AFF"
+            onPress={() => setAddKeyVisible(true)}
+            isLast
+          />
         </Section>
+
+        {/* Add API Key modal */}
+        <Modal
+          visible={addKeyVisible}
+          animationType="slide"
+          presentationStyle="formSheet"
+          onRequestClose={() => setAddKeyVisible(false)}
+        >
+          <View style={{ flex: 1, backgroundColor: '#F2F2F7' }}>
+            <View style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              paddingHorizontal: 20,
+              paddingTop: 20,
+              paddingBottom: 12,
+            }}>
+              <TouchableOpacity onPress={() => { setAddKeyVisible(false); setNewKeyName(''); setNewKeyValue(''); }}>
+                <Text style={{ fontSize: 16, color: '#007AFF' }}>Cancel</Text>
+              </TouchableOpacity>
+              <Text style={{ fontSize: 17, fontWeight: '600', color: '#1C1C1E' }}>Add API Key</Text>
+              <TouchableOpacity onPress={handleSaveNewKey}>
+                <Text style={{ fontSize: 16, fontWeight: '600', color: '#007AFF' }}>Save</Text>
+              </TouchableOpacity>
+            </View>
+
+            <View style={{ marginHorizontal: 16, marginTop: 8, gap: 12 }}>
+              <View style={{
+                backgroundColor: '#FFFFFF',
+                borderRadius: 10,
+                borderWidth: 0.5,
+                borderColor: '#E5E5EA',
+                overflow: 'hidden',
+              }}>
+                <View style={{ paddingHorizontal: 16, paddingVertical: 4 }}>
+                  <Text style={{ fontSize: 12, color: '#8E8E93', marginBottom: 2, marginTop: 8 }}>KEY NAME</Text>
+                  <TextInput
+                    value={newKeyName}
+                    onChangeText={setNewKeyName}
+                    placeholder="e.g. openai, anthropic"
+                    placeholderTextColor="#C7C7CC"
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    style={{ fontSize: 16, color: '#1C1C1E', paddingVertical: 8 }}
+                  />
+                </View>
+              </View>
+
+              <View style={{
+                backgroundColor: '#FFFFFF',
+                borderRadius: 10,
+                borderWidth: 0.5,
+                borderColor: '#E5E5EA',
+                overflow: 'hidden',
+              }}>
+                <View style={{ paddingHorizontal: 16, paddingVertical: 4 }}>
+                  <Text style={{ fontSize: 12, color: '#8E8E93', marginBottom: 2, marginTop: 8 }}>VALUE</Text>
+                  <TextInput
+                    value={newKeyValue}
+                    onChangeText={setNewKeyValue}
+                    placeholder="sk-..."
+                    placeholderTextColor="#C7C7CC"
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    secureTextEntry
+                    style={{ fontSize: 16, color: '#1C1C1E', paddingVertical: 8 }}
+                  />
+                </View>
+              </View>
+
+              <Text style={{ fontSize: 13, color: '#8E8E93', paddingHorizontal: 4, lineHeight: 18 }}>
+                The key name is what mini-apps reference (e.g. "openai"). The value is never displayed again after saving.
+              </Text>
+            </View>
+          </View>
+        </Modal>
 
         {/* About */}
         <Section title="About">
