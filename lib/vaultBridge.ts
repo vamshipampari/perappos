@@ -21,6 +21,8 @@ const getSharing = lazyModule(() => import('expo-sharing'));
 const getSecureStore = lazyModule(() => import('expo-secure-store'));
 const getImagePicker = lazyModule(() => import('expo-image-picker'));
 const getFileSystem = lazyModule(() => import('expo-file-system'));
+// Type-only imports for namespace types used in type annotations.
+import type * as HapticsTypes from 'expo-haptics';
 import type { SQLiteDatabase } from 'expo-sqlite';
 import type { RefObject } from 'react';
 import { Share } from 'react-native';
@@ -296,14 +298,14 @@ export async function handleVaultMessage(
         const Haptics = await getHaptics();
         const style = msg.style ?? 'medium';
         if (style === 'success' || style === 'warning' || style === 'error') {
-          const notifType: Record<string, Haptics.NotificationFeedbackType> = {
+          const notifType: Record<string, HapticsTypes.NotificationFeedbackType> = {
             success: Haptics.NotificationFeedbackType.Success,
             warning: Haptics.NotificationFeedbackType.Warning,
             error: Haptics.NotificationFeedbackType.Error,
           };
           await Haptics.notificationAsync(notifType[style]);
         } else {
-          const impactType: Record<string, Haptics.ImpactFeedbackStyle> = {
+          const impactType: Record<string, HapticsTypes.ImpactFeedbackStyle> = {
             light: Haptics.ImpactFeedbackStyle.Light,
             medium: Haptics.ImpactFeedbackStyle.Medium,
             heavy: Haptics.ImpactFeedbackStyle.Heavy,
@@ -390,6 +392,14 @@ export async function handleVaultMessage(
           `vault_secret__global__${secretName}`,
           secretValue
         );
+        // Track the secret name in SQLite so Settings can list stored keys.
+        await db.runAsync(
+          `INSERT OR REPLACE INTO shared_data (category, key, value, source_app, updated_at)
+           VALUES ('vault_secrets', ?, ?, ?, datetime('now'))`,
+          secretName,
+          'stored',
+          effectiveAppId
+        );
         respond(true);
         break;
       }
@@ -472,7 +482,7 @@ export async function handleVaultMessage(
         // correctly in React Native (fetch().blob() is unreliable here).
         const FileSystem = await getFileSystem();
         const base64 = await FileSystem.readAsStringAsync(asset.uri, {
-          encoding: FileSystem.EncodingType.Base64,
+          encoding: 'base64' as const,
         });
         const binaryStr = atob(base64);
         const bytes = new Uint8Array(binaryStr.length);

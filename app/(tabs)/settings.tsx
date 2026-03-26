@@ -1,3 +1,4 @@
+import Constants from 'expo-constants';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Haptics from 'expo-haptics';
 import * as LocalAuthentication from 'expo-local-authentication';
@@ -268,6 +269,7 @@ export default function SettingsScreen() {
   const [biometricAvailable, setBiometricAvailable] = useState(false);
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [promoSheetVisible, setPromoSheetVisible] = useState(false);
+  const [storedSecrets, setStoredSecrets] = useState<{ name: string; sourceApp: string }[]>([]);
 
   const { profile, limits, redeemPromoCode, refresh: refreshProfile } = useUserProfile();
   const { apps } = useInstalledApps();
@@ -284,6 +286,43 @@ export default function SettingsScreen() {
       refreshProfile();
     }, [refreshProfile])
   );
+
+  // Load stored API key names whenever Settings is focused.
+  const loadSecrets = useCallback(async () => {
+    try {
+      const rows = await db.getAllAsync<{ key: string; source_app: string | null }>(
+        `SELECT key, source_app FROM shared_data WHERE category = 'vault_secrets' ORDER BY key`
+      );
+      setStoredSecrets(rows.map((r) => ({ name: r.key, sourceApp: r.source_app ?? '' })));
+    } catch {
+      // non-critical
+    }
+  }, [db]);
+
+  useFocusEffect(useCallback(() => { void loadSecrets(); }, [loadSecrets]));
+
+  const handleDeleteSecret = async (secretName: string) => {
+    Alert.alert('Delete API Key', `Remove "${secretName}"? Any mini-app using it will lose access.`, [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            const SecureStore = await import('expo-secure-store');
+            await SecureStore.deleteItemAsync(`vault_secret__global__${secretName}`);
+            await db.runAsync(
+              `DELETE FROM shared_data WHERE category = 'vault_secrets' AND key = ?`,
+              secretName
+            );
+            await loadSecrets();
+          } catch {
+            Alert.alert('Error', 'Failed to delete secret.');
+          }
+        },
+      },
+    ]);
+  };
 
   // Also keep a live subscription so sign-out updates instantly.
   useEffect(() => {
@@ -719,9 +758,32 @@ export default function SettingsScreen() {
           />
         </Section>
 
+        {/* API Keys */}
+        {storedSecrets.length > 0 && (
+          <Section
+            title="API Keys"
+            footer="Stored securely on-device. Mini-apps use these for authenticated API calls."
+          >
+            {storedSecrets.map((s, i) => (
+              <Row
+                key={s.name}
+                kind="chevron"
+                label={s.name}
+                value={s.sourceApp ? `via ${s.sourceApp.slice(0, 8)}…` : undefined}
+                onPress={() => handleDeleteSecret(s.name)}
+                isLast={i === storedSecrets.length - 1}
+              />
+            ))}
+          </Section>
+        )}
+
         {/* About */}
         <Section title="About">
-          <Row kind="value" label="Version" value="0.1.0" />
+          <Row
+            kind="value"
+            label="Version"
+            value={`${Constants.expoConfig?.version ?? '0.0.0'} (${Constants.expoConfig?.extra?.eas?.projectId ? 'EAS' : 'dev'})`}
+          />
           <Row kind="info" label="Built with ❤️ in Hyderabad" centered />
           <Row kind="info" label="Cottix — Personal App OS" centered isLast />
         </Section>
