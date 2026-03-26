@@ -9,12 +9,18 @@
  *  - "db_*" / "device_*" / "auth_*" / "app_*" : VaultAPI calls with `id`, need response
  */
 
-import * as Haptics from 'expo-haptics';
-import * as Notifications from 'expo-notifications';
-import * as Sharing from 'expo-sharing';
-import * as SecureStore from 'expo-secure-store';
-import * as ImagePicker from 'expo-image-picker';
-import * as FileSystem from 'expo-file-system';
+// Lazy-load native modules to avoid crashing the bridge at import time
+// if any native module isn't linked (e.g. Expo Go, stale dev-client build).
+function lazyModule<T>(loader: () => Promise<T>): () => Promise<T> {
+  let cached: T | null = null;
+  return async () => (cached ??= await loader());
+}
+const getHaptics = lazyModule(() => import('expo-haptics'));
+const getNotifications = lazyModule(() => import('expo-notifications'));
+const getSharing = lazyModule(() => import('expo-sharing'));
+const getSecureStore = lazyModule(() => import('expo-secure-store'));
+const getImagePicker = lazyModule(() => import('expo-image-picker'));
+const getFileSystem = lazyModule(() => import('expo-file-system'));
 import type { SQLiteDatabase } from 'expo-sqlite';
 import type { RefObject } from 'react';
 import { Share } from 'react-native';
@@ -287,6 +293,7 @@ export async function handleVaultMessage(
       // ── VaultAPI.device ───────────────────────────────────────────────────
 
       case 'device_haptic': {
+        const Haptics = await getHaptics();
         const style = msg.style ?? 'medium';
         if (style === 'success' || style === 'warning' || style === 'error') {
           const notifType: Record<string, Haptics.NotificationFeedbackType> = {
@@ -310,6 +317,7 @@ export async function handleVaultMessage(
       }
 
       case 'device_notify': {
+        const Notifications = await getNotifications();
         // Request permission if not already granted
         const { granted } = await Notifications.getPermissionsAsync();
         if (!granted) {
@@ -340,6 +348,7 @@ export async function handleVaultMessage(
         const shareText = msg.text ? String(msg.text) : (msg.message ? String(msg.message) : null);
         if (shareUrl) {
           // Share a file / URL via expo-sharing sheet
+          const Sharing = await getSharing();
           const canShare = await Sharing.isAvailableAsync();
           if (canShare) {
             await Sharing.shareAsync(shareUrl, { dialogTitle: shareText ?? undefined });
@@ -376,7 +385,8 @@ export async function handleVaultMessage(
           respond(false, 'secrets_set requires a name and value');
           break;
         }
-        await SecureStore.setItemAsync(
+        const ss = await getSecureStore();
+        await ss.setItemAsync(
           `vault_secret__global__${secretName}`,
           secretValue
         );
@@ -396,7 +406,8 @@ export async function handleVaultMessage(
           break;
         }
 
-        const secretValue = await SecureStore.getItemAsync(
+        const ss2 = await getSecureStore();
+        const secretValue = await ss2.getItemAsync(
           `vault_secret__global__${sfName}`
         );
         if (!secretValue) {
@@ -428,6 +439,7 @@ export async function handleVaultMessage(
 
       case 'storage_upload': {
         // Request photo library permission (no-op on Android; required on iOS).
+        const ImagePicker = await getImagePicker();
         const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
         if (status !== 'granted') {
           respond(null, 'Photo library permission denied');
@@ -458,8 +470,9 @@ export async function handleVaultMessage(
         // Read as base64 via expo-file-system (reliable in RN native context),
         // then convert to Uint8Array — the only upload format supabase-js handles
         // correctly in React Native (fetch().blob() is unreliable here).
+        const FileSystem = await getFileSystem();
         const base64 = await FileSystem.readAsStringAsync(asset.uri, {
-          encoding: 'base64',
+          encoding: FileSystem.EncodingType.Base64,
         });
         const binaryStr = atob(base64);
         const bytes = new Uint8Array(binaryStr.length);

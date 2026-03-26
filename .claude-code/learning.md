@@ -625,6 +625,21 @@ After adding freeze columns, update the PowerSync sync rules dashboard to includ
     - **Fix**: `ALTER TABLE installed_apps DROP CONSTRAINT installed_apps_source_type_check; ALTER TABLE installed_apps ADD CONSTRAINT ... CHECK (source_type = ANY (ARRAY['url','zip','demo','html']))`.
     - **Prevention**: When adding a new `sourceType` to `ParsedBundle`, always check for corresponding CHECK constraints in Supabase tables that store `source_type`.
 
+## Session 14 — Sharing Fix + Lazy Native Modules (2026-03-26)
+
+46. **`installed_apps` Supabase PK conflict when multiple users install the same shared app**
+    - **Symptom**: User B joins a shared app → PowerSync upload fails with `new row violates row-level security policy (USING expression) for table "installed_apps"`.
+    - **Root cause**: `installUrlApp()` uses `app_id` as both the local PowerSync `id` and the Supabase PK. User A already has `installed_apps.id = "some-uuid"`. User B's upsert conflicts on the same PK → PostgreSQL tries to UPDATE user A's row → RLS USING check (`user_id = auth.uid()`) fails because user A ≠ user B.
+    - **Fix**: In `SupabaseConnector.ts`, scope the Supabase `id` for `installed_apps` to `${userId}/${appId}`. Each user gets their own row; same user across devices still converges. Applied to PUT (via `withWriteActor`), PATCH, and DELETE (via `supabaseRowId()` helper).
+    - **Supabase side**: `ALTER TABLE installed_apps ALTER COLUMN id TYPE TEXT;` required — the composite `userId/appId` string is not a valid UUID.
+
+47. **Top-level `import *` of Expo native modules crashes the entire importing module if any native module is missing**
+    - **Symptom**: `Cannot find native module 'ExpoSecureStore'` → entire `vaultBridge.ts` fails to load → ALL bridge functionality (localStorage, db, device, auth, secrets, storage) is dead.
+    - **Root cause**: `import * as SecureStore from 'expo-secure-store'` triggers `requireNativeModule('ExpoSecureStore')` at module evaluation time. If the native module isn't linked (stale dev-client, Expo Go, missing prebuild), the throw propagates and kills the whole module.
+    - **Fix**: Replace static imports with lazy `await import(...)` wrappers using a `lazyModule()` helper. Each native module is loaded on first use inside its specific message handler. The bridge loads cleanly even if modules are missing — only the specific feature that needs the module will fail.
+    - **Pattern**: Always lazy-import native modules that aren't needed at startup. Use `lazyModule(() => import('expo-foo'))` + `const Foo = await getFoo()` at the call site.
+    - **Affected modules**: expo-haptics, expo-notifications, expo-sharing, expo-secure-store, expo-image-picker, expo-file-system.
+
 ## To-Do for Next Session
 
 - [ ] Update PowerSync sync rules dashboard to include `is_frozen`, `frozen_at`, `frozen_reason` in `shared_instances` projection

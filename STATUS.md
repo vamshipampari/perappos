@@ -1,6 +1,19 @@
 # Cottix — Status
 
-**Last Updated**: 2026-03-25 (Session 13)
+**Last Updated**: 2026-03-26 (Session 14)
+
+## Current Sprint: Sharing Fix + Native Module Resilience
+
+### ✅ Session 14 — Shared App RLS Fix + Lazy Native Modules (2026-03-26)
+
+**Shared app join RLS fix (`installed_apps` PK conflict):**
+- **Bug**: When user B joined a shared app, PowerSync tried to upsert `installed_apps` with the same `id` (= `app_id`) as user A's row in Supabase. The upsert's UPDATE path failed the RLS `USING (user_id = auth.uid())` check since the existing row belonged to user A.
+- **Fix** (`services/sync/SupabaseConnector.ts`): Scoped the Supabase `installed_apps.id` to `${userId}/${appId}` so each user gets a unique row. Added `supabaseRowId()` helper used in PUT, PATCH, and DELETE paths.
+- **Supabase migration required**: `ALTER TABLE installed_apps ALTER COLUMN id TYPE TEXT;` (was UUID, now needs to hold `userId/appId` composite strings).
+
+**Lazy native module imports (`lib/vaultBridge.ts`):**
+- **Bug**: Top-level `import * as SecureStore from 'expo-secure-store'` (and Haptics, Notifications, Sharing, ImagePicker, FileSystem) crashed the entire WebView bridge at import time if any native module wasn't linked — blocking ALL bridge functionality.
+- **Fix**: Replaced all 6 native module static imports with a `lazyModule()` helper that uses `await import(...)` on first use. Each module is loaded only when its specific bridge message type is handled. The bridge now loads cleanly even if native modules are missing.
 
 ## Current Sprint: Cross-Device App Sync
 

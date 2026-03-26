@@ -38,14 +38,26 @@ export class SupabaseConnector implements PowerSyncBackendConnector {
       if (table === "shared_app_data") {
         return { ...row, updated_by: userId };
       }
-      if (
-        table === "app_data" ||
-        table === "installed_apps" ||
-        table === "session_data"
-      ) {
+      if (table === "app_data" || table === "session_data") {
         return { ...row, user_id: userId };
       }
+      if (table === "installed_apps") {
+        // Scope the Supabase PK to the user so that multiple users installing
+        // the same shared app (same app_id) don't conflict on the Supabase PK.
+        // Local PowerSync id stays as app_id; Supabase id is ${userId}/${app_id}.
+        const appId = (row.app_id as string) ?? (row.id as string);
+        return { ...row, user_id: userId, id: `${userId}/${appId}` };
+      }
       return row;
+    };
+
+    // Returns the Supabase-side row ID for a given table + local PowerSync id.
+    // For installed_apps the Supabase PK is user-scoped; everything else is 1:1.
+    const supabaseRowId = (table: string, localId: string): string => {
+      if (table === "installed_apps" && userId) {
+        return `${userId}/${localId}`;
+      }
+      return localId;
     };
 
     try {
@@ -118,7 +130,7 @@ export class SupabaseConnector implements PowerSyncBackendConnector {
               const { error } = await supabase
                 .from(table)
                 .update(withWriteActor(table, record))
-                .eq("id", id);
+                .eq("id", supabaseRowId(table, id));
               if (error) throw error;
             }
             break;
@@ -137,7 +149,7 @@ export class SupabaseConnector implements PowerSyncBackendConnector {
               const { error } = await supabase
                 .from(table)
                 .delete()
-                .eq("id", id);
+                .eq("id", supabaseRowId(table, id));
               if (error) throw error;
             }
             break;
