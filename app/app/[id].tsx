@@ -306,6 +306,7 @@ export default function AppScreen() {
               allowUniversalAccessFromFileURLs
               originWhitelist={['*']}
               allowsInlineMediaPlayback
+              webviewDebuggingEnabled={__DEV__}
               mediaPlaybackRequiresUserAction={false}
               automaticallyAdjustKeyboardInsets
               contentInsetAdjustmentBehavior="never"
