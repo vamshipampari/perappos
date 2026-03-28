@@ -17,11 +17,13 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { FeedbackSheet } from '@/components/FeedbackSheet';
 import { PromoCodeSheet } from '@/components/PromoCodeSheet';
 import { useDatabase } from '@/hooks/useDatabase';
 import { useInstalledApps } from '@/hooks/useInstalledApps';
 import { useUserProfile, type PlanType } from '@/hooks/useUserProfile';
 import { log } from '@/lib/logger';
+import { track } from '@/services/analytics';
 import { supabase } from '../../services/supabase';
 import { usePowerSync } from '../../services/sync/PowerSyncProvider';
 
@@ -271,6 +273,7 @@ export default function SettingsScreen() {
   const [biometricAvailable, setBiometricAvailable] = useState(false);
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [promoSheetVisible, setPromoSheetVisible] = useState(false);
+  const [feedbackVisible, setFeedbackVisible] = useState(false);
   const [storedSecrets, setStoredSecrets] = useState<{ name: string; sourceApp: string }[]>([]);
   const [addKeyVisible, setAddKeyVisible] = useState(false);
   const [newKeyName, setNewKeyName] = useState('');
@@ -890,6 +893,11 @@ export default function SettingsScreen() {
         {/* About */}
         <Section title="About">
           <Row
+            kind="chevron"
+            label="Send Feedback"
+            onPress={() => setFeedbackVisible(true)}
+          />
+          <Row
             kind="value"
             label="Version"
             value={`${Constants.expoConfig?.version ?? '0.0.0'} (${Constants.expoConfig?.extra?.eas?.projectId ? 'EAS' : 'dev'})`}
@@ -902,7 +910,17 @@ export default function SettingsScreen() {
       <PromoCodeSheet
         visible={promoSheetVisible}
         onClose={() => setPromoSheetVisible(false)}
-        onRedeem={redeemPromoCode}
+        onRedeem={async (code) => {
+          const result = await redeemPromoCode(code);
+          if (result.success) {
+            void track('promo_redeemed', { code, plan_granted: profile?.plan });
+          }
+          return result;
+        }}
+      />
+      <FeedbackSheet
+        visible={feedbackVisible}
+        onClose={() => setFeedbackVisible(false)}
       />
     </SafeAreaView>
   );

@@ -18,6 +18,7 @@ import { log } from '@/lib/logger';
 import { joinSharedAppByCode, type SharedInstance } from '@/services/collaborationService';
 import { reconnectPowerSync } from '@/services/sync/PowerSyncProvider';
 import { supabase } from '@/services/supabase';
+import { track } from '@/services/analytics';
 
 export default function JoinSharedAppScreen() {
   const db = useDatabase();
@@ -78,6 +79,7 @@ export default function JoinSharedAppScreen() {
       // other members' shared_app_data rows under the refreshed sync buckets.
       await reconnectPowerSync();
       await refresh();
+      void track('share_joined', { instance_id: result.instance.instance_id });
       setJoining(false);
       clearTimeout(timeoutId);
       router.replace(`/app/${result.appId}`);
