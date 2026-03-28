@@ -6,6 +6,7 @@ import { log } from '@/lib/logger';
 import type { InstalledApp } from '@/types';
 import { installUrlApp } from './appInstaller';
 import { supabase } from './supabase';
+import { track } from './analytics';
 
 export interface SharedInstance {
   instance_id: string;
@@ -249,6 +250,8 @@ export async function createSharedInstanceForApp(
   } catch (error) {
     throwWithStage('Failed updating local app instance_id', error);
   }
+
+  void track('share_created', { instance_id: instanceId });
 
   return { instanceId, inviteCode, created: true };
 }

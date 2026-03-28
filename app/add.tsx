@@ -27,6 +27,7 @@ import { HTML_SIZE_LIMIT, deployHtml, parseHtmlMeta } from '@/services/htmlDeplo
 import { Haptics, safeNotificationAsync } from '@/lib/haptics';
 import { log } from '@/lib/logger';
 import { supabase } from '@/services/supabase';
+import { track } from '@/services/analytics';
 import { powerSyncDb } from '@/services/sync/PowerSyncProvider';
 import { detectPlatform, fetchUrlMetadata } from '@/services/urlFetcher';
 import { type ParsedBundle, extractAndBundle } from '@/services/zipInstaller';
@@ -442,6 +443,9 @@ function AddScreenContent() {
         void supabase.rpc('increment_app_count', { delta: 1 }).then(undefined, () => {});
       }
 
+      if (!replaceAppId) {
+        void track('app_installed', { source_type: finalBundle.sourceType });
+      }
       void safeNotificationAsync(Haptics.NotificationFeedbackType.Success);
       showToast(replaceAppId ? 'App updated ✓' : 'App installed ✓', 'success');
       setTimeout(() => {

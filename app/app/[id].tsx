@@ -28,6 +28,7 @@ import { useAppMenuActions } from '@/hooks/useAppMenuActions';
 import { usePowerSync } from '@/services/sync/PowerSyncProvider';
 import { handleVaultMessage } from '@/lib/vaultBridge';
 import { log } from '@/lib/logger';
+import { track } from '@/services/analytics';
 
 // ── Viewport fix (all platforms) ─────────────────────────────────────────────
 // • Creates the viewport meta if missing (external apps often omit it)
@@ -306,6 +307,7 @@ export default function AppScreen() {
               allowUniversalAccessFromFileURLs
               originWhitelist={['*']}
               allowsInlineMediaPlayback
+              webviewDebuggingEnabled={__DEV__}
               mediaPlaybackRequiresUserAction={false}
               {...({ automaticallyAdjustKeyboardInsets: true } as object)}
               contentInsetAdjustmentBehavior="never"
@@ -319,6 +321,7 @@ export default function AppScreen() {
                 hasLoadedOnceRef.current = true;
                 setWebLoading(false);
                 webOpacity.value = withTiming(1, { duration: 380 });
+                if (app) void track('app_opened_webview', { app_id: app.app_id });
                 // Flush buffered remote updates that arrived before WebView was ready
                 if (pendingRemoteUpdates.current.length > 0 && webViewRef.current) {
                   log.info('[live-push] onLoadEnd flushing', pendingRemoteUpdates.current.length, 'buffered update(s)');

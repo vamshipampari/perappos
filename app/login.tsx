@@ -13,6 +13,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { supabase } from '../services/supabase';
+import { track } from '../services/analytics';
 
 const RESEND_COOLDOWN = 60;
 
@@ -138,6 +139,7 @@ export default function LoginScreen() {
       if (verifyError) {
         setError(verifyError.message);
       } else {
+        void track('signup_completed');
         setLoading(false);
         router.replace('/(tabs)');
         return;

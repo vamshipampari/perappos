@@ -17,6 +17,7 @@ import { log } from '@/lib/logger';
 import { seedDemoApps } from '@/utils/createDemoApp';
 import { PowerSyncProvider } from '../services/sync/PowerSyncProvider';
 import { supabase } from '../services/supabase';
+import { track } from '../services/analytics';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -239,6 +240,9 @@ export default function RootLayout() {
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       setHasSession(!!session);
+      if (event === 'SIGNED_IN') {
+        void track('login_completed');
+      }
       if (event === 'SIGNED_OUT') {
         router.replace('/login');
       }
