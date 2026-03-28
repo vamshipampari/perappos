@@ -307,7 +307,7 @@ export default function AppScreen() {
               originWhitelist={['*']}
               allowsInlineMediaPlayback
               mediaPlaybackRequiresUserAction={false}
-              automaticallyAdjustKeyboardInsets
+              {...({ automaticallyAdjustKeyboardInsets: true } as object)}
               contentInsetAdjustmentBehavior="never"
               overScrollMode="never"
               onNavigationStateChange={(navState) => setWebCanGoBack(navState.canGoBack)}

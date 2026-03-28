@@ -1,0 +1,26 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash .claude/hooks/learning-nudge.sh"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -c \"\nimport json,sys\nd=json.load(sys.stdin)\npath=d.get('tool_input',{}).get('file_path','')\nif 'miniapp_api.md' in path:\n    print('⚡ miniapp_api.md changed — run /sync-docs before shipping')\nif 'supabase/migrations' in path:\n    print('⚡ Migration detected — run /schema-update to sync backend-schema.md')\n\""
+          }
+        ]
+      }
+    ]
+  }
+}

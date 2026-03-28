@@ -4,7 +4,7 @@
     "slug": "perappos",
     "version": "0.2.0",
     "orientation": "portrait",
-    "icon": "./assets/images/icon.png",
+    "icon": "./assets/icon.png",
     "scheme": "cottix",
     "userInterfaceStyle": "light",
     "splash": {
@@ -15,24 +15,21 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.cottix.app",
+      "icon": "./assets/icon.png",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
-        "foregroundImage": "./assets/images/android-icon-foreground.png",
-        "backgroundImage": "./assets/images/android-icon-background.png",
+        "backgroundColor": "#FFFFFF",
+        "foregroundImage": "./assets/icon.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "softwareKeyboardLayoutMode": "pan",
       "predictiveBackGestureEnabled": false,
       "package": "com.cottix.app",
-      "permissions": [
-        "NOTIFICATIONS",
-        "VIBRATE"
-      ]
+      "permissions": ["NOTIFICATIONS", "VIBRATE"]
     },
     "web": {
       "bundler": "metro",

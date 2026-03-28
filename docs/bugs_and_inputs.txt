@@ -71,3 +71,16 @@ remove the debug/force resync from settings pags
 ============
 
 after clicking on create shared instance, the popup does not go away. There is no option to click COALESCE
+
+===============
+MAJOR BUG
+If an existing user(already created apps), logs in a phone where another user signed out, the app clears the local existing data. It also wiped out the list of the new user who just signed in.
+HAve to check: if a user logs out and logs in, does his data staty or wiped out
+And it now shows as his limit reached(5 apps) even though in the app there are none(mini apps), maybe they ra estilll in the db
+
+As a signed  out user, (in the sim), it still opens and shows te home screen with three prefilled apps/
+
+
+
+===========
+need to create a admin panel for testers and internal team
