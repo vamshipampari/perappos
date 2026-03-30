@@ -72,13 +72,32 @@ const sharedAppData = new Table(
     value: column.text,
     updated_by: column.text,
     updated_at: column.text,
-    // ─── NEW: merge support columns ───
+    // ─── Merge support columns ───
     version: column.integer,
     last_write_id: column.text,
     last_merge_strategy: column.text,
     last_conflict_count: column.integer,
+    // ─── Attribution columns ───
+    last_editor_user_id: column.text,
+    last_editor_display_name: column.text,
   },
   { indexes: { by_instance_app: ["instance_id", "app_id"] } },
+);
+
+// Append-only audit log — members read it offline; writes come from SupabaseConnector.
+const sharedAppDataHistory = new Table(
+  {
+    instance_id: column.text,
+    app_id: column.text,
+    key: column.text,
+    value: column.text,
+    editor_user_id: column.text,
+    editor_display_name: column.text,
+    written_at: column.text,
+    merge_strategy: column.text,
+    version: column.integer,
+  },
+  { indexes: { by_instance_time: ["instance_id", "written_at"] } },
 );
 
 export const PowerSyncSchema = new Schema({
@@ -88,4 +107,5 @@ export const PowerSyncSchema = new Schema({
   shared_instances: sharedInstances,
   instance_members: instanceMembers,
   shared_app_data: sharedAppData,
+  shared_app_data_history: sharedAppDataHistory,
 });

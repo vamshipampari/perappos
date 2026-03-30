@@ -40,11 +40,57 @@ export type { AppManifest };
 
 type WebViewRef = RefObject<WebView | null>;
 
+// ── Module-level user identity cache ─────────────────────────────────────────
+// Avoids calling getSession() on every shared write (async latency).
+// Refreshed on every auth state change. Attribution is best-effort — never
+// blocks a write if the cache hasn't populated yet.
+
+interface BridgeUser {
+  userId: string;
+  displayName: string;
+}
+
+let _bridgeUser: BridgeUser | null = null;
+
+function _extractDisplayName(user: { id: string; email?: string; user_metadata?: Record<string, unknown> }): string {
+  return (
+    (user.user_metadata?.name as string) ||
+    (user.user_metadata?.full_name as string) ||
+    user.email?.split('@')[0] ||
+    ''
+  );
+}
+
+// Warm up the cache immediately on module import; keep it fresh on auth changes.
+supabase.auth.getSession().then(({ data: { session } }) => {
+  if (session?.user) {
+    _bridgeUser = { userId: session.user.id, displayName: _extractDisplayName(session.user) };
+  }
+});
+supabase.auth.onAuthStateChange((_event, session) => {
+  if (session?.user) {
+    _bridgeUser = { userId: session.user.id, displayName: _extractDisplayName(session.user) };
+  } else {
+    _bridgeUser = null;
+  }
+});
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 async function getUserId(): Promise<string> {
   const { data: { session } } = await supabase.auth.getSession();
   return session?.user?.id ?? '';
+}
+
+/** Returns the cached user identity. Falls back to getSession() if cache is cold. */
+async function getBridgeUser(): Promise<BridgeUser> {
+  if (_bridgeUser) return _bridgeUser;
+  const { data: { session } } = await supabase.auth.getSession();
+  if (session?.user) {
+    _bridgeUser = { userId: session.user.id, displayName: _extractDisplayName(session.user) };
+    return _bridgeUser;
+  }
+  return { userId: '', displayName: '' };
 }
 
 function buildSharedWriteMessage(
@@ -114,7 +160,7 @@ export async function handleVaultMessage(
           return;
         }
 
-        const userId = await getUserId();
+        const { userId, displayName } = await getBridgeUser();
         const sharedMsg = buildSharedWriteMessage(msg, 'ls_set_sync');
 
         const result = await handleSharedWrite(
@@ -122,7 +168,8 @@ export async function handleVaultMessage(
           sharedMsg,
           instanceId,
           effectiveAppId,
-          userId
+          userId,
+          displayName
         );
 
         // If the instance is frozen, inject a notification into the WebView
@@ -156,7 +203,7 @@ export async function handleVaultMessage(
           // Fallback: if the sync shim didn't load (race condition during
           // WebView reload after creating a shared instance), route through
           // the merge handler so the write is never silently lost.
-          const lsSharedUserId = await getUserId();
+          const { userId: lsSharedUserId, displayName: lsSharedDisplayName } = await getBridgeUser();
           const lsSharedMsg: SharedWriteMessage = {
             key: msg.key!,
             value: msg.value!,
@@ -173,7 +220,8 @@ export async function handleVaultMessage(
             lsSharedMsg,
             instanceId,
             effectiveAppId,
-            lsSharedUserId
+            lsSharedUserId,
+            lsSharedDisplayName
           );
           break;
         }
@@ -215,7 +263,7 @@ export async function handleVaultMessage(
       // These come from window.VaultAPI.db.* and carry an `id` for the response.
 
       case 'db_set': {
-        const dbUserId = await getUserId();
+        const { userId: dbUserId, displayName: dbDisplayName } = await getBridgeUser();
         if (isShared && instanceId) {
           // Route shared VaultAPI.db.set through the merge handler so writes
           // get proper version tracking and merge metadata.
@@ -235,7 +283,8 @@ export async function handleVaultMessage(
             sharedDbMsg,
             instanceId,
             effectiveAppId,
-            dbUserId
+            dbUserId,
+            dbDisplayName
           );
           respond(dbResult.success, dbResult.error ?? undefined);
         } else {
@@ -523,6 +572,157 @@ export async function handleVaultMessage(
         }
 
         respond({ url: urlData.signedUrl });
+        break;
+      }
+
+      // ── VaultAPI.collaboration (attribution queries) ───────────────────────
+      // Returns attribution metadata for shared app data.
+      // Responds with null for personal apps (no instanceId).
+
+      case 'collab_get_attribution': {
+        if (!isShared || !instanceId || !msg.key) {
+          respond(null);
+          break;
+        }
+        const attrRow = await syncDb.getOptional<{
+          last_editor_user_id: string | null;
+          last_editor_display_name: string | null;
+          updated_at: string | null;
+          version: number | null;
+        }>(
+          `SELECT last_editor_user_id, last_editor_display_name, updated_at, version
+           FROM shared_app_data
+           WHERE instance_id = ? AND app_id = ? AND key = ?`,
+          [instanceId, effectiveAppId, msg.key!]
+        );
+        if (!attrRow) {
+          respond(null);
+          break;
+        }
+        respond({
+          userId: attrRow.last_editor_user_id ?? null,
+          displayName: attrRow.last_editor_display_name ?? null,
+          writtenAt: attrRow.updated_at ?? null,
+          version: attrRow.version ?? 0,
+        });
+        break;
+      }
+
+      case 'collab_get_activity': {
+        if (!isShared || !instanceId) {
+          respond([]);
+          break;
+        }
+        const activityLimit = typeof msg.limit === 'number' && msg.limit > 0
+          ? Math.min(msg.limit, 100)
+          : 20;
+
+        // Prefer the history table (richer log); fall back to shared_app_data last-write info.
+        type HistoryRow = {
+          key: string;
+          editor_user_id: string | null;
+          editor_display_name: string | null;
+          written_at: string | null;
+          merge_strategy: string | null;
+          version: number | null;
+        };
+        let historyRows: HistoryRow[] = [];
+        try {
+          historyRows = await syncDb.getAll<HistoryRow>(
+            `SELECT key, editor_user_id, editor_display_name, written_at, merge_strategy, version
+             FROM shared_app_data_history
+             WHERE instance_id = ?
+             ORDER BY written_at DESC
+             LIMIT ?`,
+            [instanceId, activityLimit]
+          );
+        } catch {
+          // History table may not be synced yet — fall back gracefully.
+        }
+
+        if (historyRows.length > 0) {
+          respond(historyRows.map((r) => ({
+            key: r.key,
+            userId: r.editor_user_id ?? null,
+            displayName: r.editor_display_name ?? null,
+            writtenAt: r.written_at ?? null,
+            mergeStrategy: r.merge_strategy ?? null,
+            version: r.version ?? 0,
+          })));
+          break;
+        }
+
+        // Fallback: recent last-write data from shared_app_data itself
+        type DataRow = {
+          key: string;
+          last_editor_user_id: string | null;
+          last_editor_display_name: string | null;
+          updated_at: string | null;
+          last_merge_strategy: string | null;
+          version: number | null;
+        };
+        const dataRows = await syncDb.getAll<DataRow>(
+          `SELECT key, last_editor_user_id, last_editor_display_name,
+                  updated_at, last_merge_strategy, version
+           FROM shared_app_data
+           WHERE instance_id = ? AND app_id = ?
+           ORDER BY updated_at DESC
+           LIMIT ?`,
+          [instanceId, effectiveAppId, activityLimit]
+        );
+        respond(dataRows.map((r) => ({
+          key: r.key,
+          userId: r.last_editor_user_id ?? null,
+          displayName: r.last_editor_display_name ?? null,
+          writtenAt: r.updated_at ?? null,
+          mergeStrategy: r.last_merge_strategy ?? null,
+          version: r.version ?? 0,
+        })));
+        break;
+      }
+
+      case 'collab_get_recent_activity': {
+        if (!isShared || !instanceId) {
+          respond([]);
+          break;
+        }
+        const recentLimit = typeof msg.limit === 'number' && msg.limit > 0
+          ? Math.min(msg.limit, 200)
+          : 50;
+
+        type RecentRow = {
+          key: string;
+          value: string;
+          editor_user_id: string | null;
+          editor_display_name: string | null;
+          written_at: string | null;
+          merge_strategy: string | null;
+          version: number | null;
+        };
+        let recentRows: RecentRow[] = [];
+        try {
+          recentRows = await syncDb.getAll<RecentRow>(
+            `SELECT key, value, editor_user_id, editor_display_name,
+                    written_at, merge_strategy, version
+             FROM shared_app_data_history
+             WHERE instance_id = ? AND app_id = ?
+             ORDER BY written_at DESC
+             LIMIT ?`,
+            [instanceId, effectiveAppId, recentLimit]
+          );
+        } catch {
+          // History table not yet synced — return empty array
+        }
+
+        respond(recentRows.map((r) => ({
+          key: r.key,
+          value: r.value,
+          userId: r.editor_user_id ?? null,
+          displayName: r.editor_display_name ?? null,
+          writtenAt: r.written_at ?? null,
+          mergeStrategy: r.merge_strategy ?? null,
+          version: r.version ?? 0,
+        })));
         break;
       }
 

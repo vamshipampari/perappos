@@ -84,6 +84,8 @@ interface SharedRow {
   updated_by: string;
   updated_at: string;
   last_write_id: string | null;
+  last_editor_user_id: string | null;
+  last_editor_display_name: string | null;
 }
 
 // ─── Telemetry ───────────────────────────────────────────────────────
@@ -123,18 +125,20 @@ const _versionCache = new Map<string, number>();
  * Call this from vaultBridge.ts instead of the direct PowerSync write
  * when the app has an instance_id (shared/collaborative mode).
  *
- * @param psDb         PowerSync database instance
- * @param message      The write message from the shim (with base tracking metadata)
- * @param instanceId   The shared instance ID (e.g., "shared_abc123")
- * @param appId        The app ID
- * @param userId       The current user's Supabase auth ID
+ * @param psDb            PowerSync database instance
+ * @param message         The write message from the shim (with base tracking metadata)
+ * @param instanceId      The shared instance ID (e.g., "shared_abc123")
+ * @param appId           The app ID
+ * @param userId          The current user's Supabase auth ID
+ * @param userDisplayName The display name to stamp on the row (best-effort, may be '')
  */
 export async function handleSharedWrite(
   psDb: PowerSyncDB,
   message: SharedWriteMessage,
   instanceId: string,
   appId: string,
-  userId: string
+  userId: string,
+  userDisplayName: string = ''
 ): Promise<SharedWriteResult> {
   const startTime = Date.now();
   let strategy: MergeStrategy = 'lww';
@@ -218,7 +222,7 @@ export async function handleSharedWrite(
       // This prevents reusing a version Supabase already has when the local row was
       // cleared by PowerSync after upload.
       const newVersion = Math.max(currentRow?.version ?? 0, cachedVersion, message.baseVersion) + 1;
-      await writeRow(psDb, instanceId, appId, message.key, message.value, newVersion, userId, message.clientWriteId, 'fast_path', 0);
+      await writeRow(psDb, instanceId, appId, message.key, message.value, newVersion, userId, userDisplayName, message.clientWriteId, 'fast_path', 0);
       _versionCache.set(cacheKey, newVersion);
       logTelemetry('fast_path', 0, [], message, appId, instanceId, startTime);
       return {
@@ -235,7 +239,7 @@ export async function handleSharedWrite(
     // Shape compatibility check (guards against app-update schema changes)
     if (!shapesCompatible(message.value, currentRow.value)) {
       const newVersion = Math.max(currentRow.version, cachedVersion) + 1;
-      await writeRow(psDb, instanceId, appId, message.key, message.value, newVersion, userId, message.clientWriteId, 'lww', 0);
+      await writeRow(psDb, instanceId, appId, message.key, message.value, newVersion, userId, userDisplayName, message.clientWriteId, 'lww', 0);
       _versionCache.set(cacheKey, newVersion);
       logTelemetry('lww', 0, ['schema_mismatch'], message, appId, instanceId, startTime);
       return { success: true, newVersion, newValue: null, strategy: 'lww', conflictCount: 0 };
@@ -247,7 +251,7 @@ export async function handleSharedWrite(
     // Low confidence → LWW
     if (shape.confidence < 0.8) {
       const newVersion = Math.max(currentRow.version, cachedVersion) + 1;
-      await writeRow(psDb, instanceId, appId, message.key, message.value, newVersion, userId, message.clientWriteId, 'lww', 0);
+      await writeRow(psDb, instanceId, appId, message.key, message.value, newVersion, userId, userDisplayName, message.clientWriteId, 'lww', 0);
       _versionCache.set(cacheKey, newVersion);
       logTelemetry('lww', 0, ['low_confidence'], message, appId, instanceId, startTime);
       return { success: true, newVersion, newValue: null, strategy: 'lww', conflictCount: 0 };
@@ -257,7 +261,7 @@ export async function handleSharedWrite(
     const baseValue = message.baseValue;
     if (baseValue === null) {
       const newVersion = Math.max(currentRow.version, cachedVersion) + 1;
-      await writeRow(psDb, instanceId, appId, message.key, message.value, newVersion, userId, message.clientWriteId, 'lww', 0);
+      await writeRow(psDb, instanceId, appId, message.key, message.value, newVersion, userId, userDisplayName, message.clientWriteId, 'lww', 0);
       _versionCache.set(cacheKey, newVersion);
       logTelemetry('lww', 0, ['no_base_value'], message, appId, instanceId, startTime);
       return { success: true, newVersion, newValue: null, strategy: 'lww', conflictCount: 0 };
@@ -273,6 +277,35 @@ export async function handleSharedWrite(
         const currentParsed = JSON.parse(currentRow.value);
 
         const result = mergeArraysById(baseParsed, incomingParsed, currentParsed, shape.idField);
+
+        // ── _addedBy ownership ──
+        // For existing items: restore _addedBy from currentParsed unconditionally
+        // so a remote LWW write on other fields never drops the stamp.
+        // For new additions: stamp with the writer's identity.
+        const currentById = new Map<string, Record<string, unknown>>(
+          (currentParsed as Record<string, unknown>[]).map((x) => [
+            String(x[shape.idField as string]),
+            x,
+          ])
+        );
+        for (const item of result.merged as Record<string, unknown>[]) {
+          const itemId = String(item[shape.idField as string]);
+          const currentItem = currentById.get(itemId);
+          if (currentItem !== undefined) {
+            if (Object.prototype.hasOwnProperty.call(currentItem, '_addedBy')) {
+              item._addedBy = currentItem._addedBy;
+            } else {
+              delete item._addedBy;
+            }
+          } else if (!item._addedBy) {
+            item._addedBy = {
+              userId: userId || 'unknown',
+              displayName: userDisplayName || 'Unknown',
+              addedAt: new Date().toISOString(),
+            };
+          }
+        }
+
         mergedValue = JSON.stringify(result.merged);
         conflictCount = result.conflicts.length;
         conflictTypes = result.conflicts.map((c) => c.type);
@@ -298,7 +331,7 @@ export async function handleSharedWrite(
     }
 
     const newVersion = Math.max(currentRow.version, cachedVersion) + 1;
-    await writeRow(psDb, instanceId, appId, message.key, mergedValue, newVersion, userId, message.clientWriteId, strategy, conflictCount);
+    await writeRow(psDb, instanceId, appId, message.key, mergedValue, newVersion, userId, userDisplayName, message.clientWriteId, strategy, conflictCount);
     _versionCache.set(cacheKey, newVersion);
     logTelemetry(strategy, conflictCount, conflictTypes, message, appId, instanceId, startTime);
 
@@ -393,6 +426,7 @@ async function writeRow(
   value: string,
   version: number,
   userId: string,
+  displayName: string,
   clientWriteId: string,
   mergeStrategy: string,
   conflictCount: number
@@ -403,11 +437,12 @@ async function writeRow(
   // Use PowerSync's execute — this gets tracked in the CRUD queue
   // and uploaded to Supabase via SupabaseConnector.uploadData()
   await psDb.execute(
-    `INSERT OR REPLACE INTO shared_app_data 
-       (id, instance_id, app_id, key, value, version, 
+    `INSERT OR REPLACE INTO shared_app_data
+       (id, instance_id, app_id, key, value, version,
         updated_by, updated_at, last_write_id,
-        last_merge_strategy, last_conflict_count)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        last_merge_strategy, last_conflict_count,
+        last_editor_user_id, last_editor_display_name)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       rowId,
       instanceId,
@@ -420,6 +455,8 @@ async function writeRow(
       clientWriteId,
       mergeStrategy,
       conflictCount,
+      userId || null,
+      displayName || null,
     ]
   );
 }

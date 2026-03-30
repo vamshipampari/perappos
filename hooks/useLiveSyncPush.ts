@@ -21,6 +21,9 @@ interface PendingUpdate {
   key: string;
   value: string;
   version: number;
+  lastEditorUserId?: string | null;
+  lastEditorDisplayName?: string | null;
+  writtenAt?: string | null;
 }
 
 export function useLiveSyncPush(
@@ -71,7 +74,8 @@ export function useLiveSyncPush(
 
       try {
         const watchQuery = `
-          SELECT key, value, COALESCE(version, 0) as version, last_write_id
+          SELECT key, value, COALESCE(version, 0) as version, last_write_id,
+                 last_editor_user_id, last_editor_display_name, updated_at
           FROM shared_app_data
           WHERE instance_id = ? AND app_id = ?
         `;
@@ -105,6 +109,9 @@ export function useLiveSyncPush(
               key: row.key,
               value: row.value,
               version: row.version,
+              lastEditorUserId: (row.last_editor_user_id as string | null) ?? null,
+              lastEditorDisplayName: (row.last_editor_display_name as string | null) ?? null,
+              writtenAt: (row.updated_at as string | null) ?? null,
             });
           }
 

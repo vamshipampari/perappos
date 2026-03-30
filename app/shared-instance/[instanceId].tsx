@@ -45,6 +45,14 @@ interface MemberRow {
   joined_at: string;
 }
 
+interface ActivityRow {
+  key: string;
+  editor_display_name: string | null;
+  editor_user_id: string | null;
+  written_at: string | null;
+  version: number | null;
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function formatCode(code: string): string {
@@ -53,6 +61,19 @@ function formatCode(code: string): string {
 
 function truncateId(id: string): string {
   return id.length > 16 ? `${id.slice(0, 8)}…${id.slice(-4)}` : id;
+}
+
+function relativeTime(iso: string | null): string {
+  if (!iso) return '';
+  const diffMs = Date.now() - new Date(iso).getTime();
+  const secs = Math.floor(diffMs / 1000);
+  if (secs < 60) return 'just now';
+  const mins = Math.floor(secs / 60);
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
 }
 
 // ── Screen ────────────────────────────────────────────────────────────────────
@@ -71,6 +92,8 @@ export default function SharedInstanceScreen() {
   const [myUserId, setMyUserId] = useState<string | null>(null);
   const [myRole, setMyRole] = useState<'owner' | 'member' | null>(null);
   const [isFrozen, setIsFrozen] = useState(false);
+  const [activityRows, setActivityRows] = useState<ActivityRow[]>([]);
+  const [activityCollapsed, setActivityCollapsed] = useState(false);
 
   // ── Load data ───────────────────────────────────────────────────────────────
 
@@ -176,11 +199,29 @@ export default function SharedInstanceScreen() {
         memberRows = [{ user_id: userId, role: myGuessedRole, joined_at: '' }];
       }
 
+      // 5. Load recent activity from shared_app_data_history (full audit log).
+      let activity: ActivityRow[] = [];
+      if (instanceRow) {
+        try {
+          activity = await syncDb.getAll<ActivityRow>(
+            `SELECT key, editor_display_name, editor_user_id, written_at, version
+             FROM shared_app_data_history
+             WHERE instance_id = ?
+             ORDER BY written_at DESC
+             LIMIT 20`,
+            [instanceId]
+          );
+        } catch (actErr) {
+          log.warn('[manage-group] activity load failed:', actErr);
+        }
+      }
+
       log.info('[manage-group] result — instance found:', !!instanceRow, 'members:', memberRows.length);
 
       setInstance(instanceRow ?? null);
       setIsFrozen(instanceRow?.is_frozen === 1);
       setMembers(memberRows);
+      setActivityRows(activity);
 
       if (userId && memberRows.length > 0) {
         const mine = memberRows.find((m) => m.user_id === userId);
@@ -440,6 +481,49 @@ export default function SharedInstanceScreen() {
             </View>
           </>
         )}
+
+        {/* ── Section 4: Recent Activity ────────────────────────────────── */}
+        <TouchableOpacity
+          onPress={() => setActivityCollapsed((c) => !c)}
+          activeOpacity={0.7}
+          style={styles.activityHeader}
+        >
+          <Text style={[styles.sectionLabel, { marginTop: 0, marginBottom: 0 }]}>
+            RECENT ACTIVITY{activityRows.length > 0 ? ` · ${activityRows.length}` : ''}
+          </Text>
+          <Text style={styles.activityChevron}>{activityCollapsed ? '›' : '⌄'}</Text>
+        </TouchableOpacity>
+        {!activityCollapsed && (
+          <View style={styles.card}>
+            {activityRows.length === 0 ? (
+              <Text style={styles.emptyText}>No activity yet.</Text>
+            ) : (
+              activityRows.map((row, i) => {
+                const editor = row.editor_display_name
+                  || (row.editor_user_id ? truncateId(row.editor_user_id) : 'Unknown');
+                const truncKey = row.key.length > 20 ? `${row.key.slice(0, 20)}…` : row.key;
+                const when = relativeTime(row.written_at);
+                return (
+                  <View key={`${row.key}-${i}`}>
+                    {i > 0 && <View style={styles.separator} />}
+                    <View style={styles.activityRow}>
+                      <View style={styles.activityDot} />
+                      <View style={styles.activityContent}>
+                        <Text style={styles.activityKey} numberOfLines={1}>{truncKey}</Text>
+                        <Text style={styles.activityMeta} numberOfLines={1}>
+                          {editor}{when ? ` · ${when}` : ''}
+                        </Text>
+                      </View>
+                      {row.version != null && (
+                        <Text style={styles.activityVersion}>v{row.version}</Text>
+                      )}
+                    </View>
+                  </View>
+                );
+              })
+            )}
+          </View>
+        )}
       </ScrollView>
     </SafeAreaView>
   );
@@ -667,5 +751,52 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#8E8E93',
     lineHeight: 18,
+  },
+
+  // Activity panel
+  activityHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 6,
+    marginTop: 12,
+  },
+  activityChevron: {
+    fontSize: 16,
+    color: '#6C6C70',
+    lineHeight: 20,
+  },
+  activityRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 10,
+    gap: 10,
+  },
+  activityDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#007AFF',
+    opacity: 0.55,
+    flexShrink: 0,
+  },
+  activityContent: {
+    flex: 1,
+    gap: 2,
+  },
+  activityKey: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#1C1C1E',
+    fontFamily: 'monospace',
+  },
+  activityMeta: {
+    fontSize: 12,
+    color: '#8E8E93',
+  },
+  activityVersion: {
+    fontSize: 11,
+    color: '#C7C7CC',
+    fontVariant: ['tabular-nums'],
   },
 });

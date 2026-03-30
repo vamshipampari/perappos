@@ -70,7 +70,14 @@ export default function AppScreen() {
   const [menuVisible, setMenuVisible] = useState(false);
 
   // Buffer for remote updates that arrive before the WebView has loaded
-  const pendingRemoteUpdates = useRef<Array<{ key: string; value: string; version: number }>>([]);
+  const pendingRemoteUpdates = useRef<Array<{
+    key: string;
+    value: string;
+    version: number;
+    lastEditorUserId?: string | null;
+    lastEditorDisplayName?: string | null;
+    writtenAt?: string | null;
+  }>>([]);
 
   // WebView fades in from 0 → 1 once the page finishes loading
   const webOpacity = useSharedValue(0);
