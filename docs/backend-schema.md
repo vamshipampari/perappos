@@ -1,6 +1,6 @@
 # Cottix — Backend Schema
 
-Last updated: 2026-03-31 | Used by: perappos + cottix-hub
+Last updated: 2026-04-01 | Used by: perappos + cottix-hub
 
 ---
 
@@ -118,8 +118,14 @@ Managed by PowerSync (`powersync.db`) — separate from expo-sqlite. All writes 
 | user_id | TEXT | auth.uid() |
 | role | TEXT | 'owner' \| 'member' |
 | joined_at | TEXT | ISO8601 |
+| status | TEXT | 'pending' \| 'active' \| 'rejected' — DEFAULT 'active' for back-compat |
+| email | TEXT | Joiner's email stored at join time; shown to owner in approval UI |
 
 > **RLS must remain DISABLED** — PowerSync sync rules handle access control. Enabling RLS here breaks sync.
+>
+> **Join approval flow**: new members insert with `status='pending'`. Owner updates to `'active'` (approve) or deletes (reject). `shared_app_data` RLS policies enforce `status='active'` so pending members cannot read/write shared data. PowerSync sync rules must include `status` column for the joiner's device to reflect approval locally.
+>
+> **⚠️ REQUIRED**: Run `supabase/migrations/20260401_join_approval.sql` and `supabase/migrations/20260401_member_email.sql`. Set `REPLICA IDENTITY FULL` on `instance_members` for Supabase Realtime approval detection: `ALTER TABLE instance_members REPLICA IDENTITY FULL;`
 
 ### shared_app_data (id = `${instanceId}/${appId}/${key}`, merge columns required)
 
@@ -276,90 +282,20 @@ USING (bucket_id = 'user-media');
 
 - `shared_app_data` UNIQUE `(instance_id, app_id, key)` — exactly ONE constraint, no duplicates (duplicate constraints cause "more than one unique constraint" error on every upsert after first insert)
 - `instance_members` RLS: **DISABLED** — PowerSync sync rules handle access
-- `shared_app_data` RLS: members-only, use `auth.uid()` — never `(auth.uid())::text`
+- `shared_app_data` RLS: active members only — policies check `status = 'active'` in `instance_members`; use `auth.uid()` — never `(auth.uid())::text`
 - `app_data.id` in Supabase: must be `TEXT` not `UUID`
 - `installed_apps.id` in Supabase: must be `TEXT` (holds `${userId}/${appId}`)
-
----
-
-## cottix-hub admin tables (Supabase-only, defined in cottix-hub)
-
-Migration: `cottix-hub/supabase/001_admin_tables.sql`
-
-### admin_users
-
-| Column | Type | Notes |
-|---|---|---|
-| id | uuid PK | gen_random_uuid() |
-| user_id | uuid UNIQUE | FK → auth.users |
-| email | text | — |
-| role | text | 'owner' \| 'editor' \| 'viewer' |
-| is_active | boolean | Default true |
-| added_by | uuid | UUID of admin who added this user |
-| created_at | timestamptz | — |
-
-RLS: `is_admin()` SECURITY DEFINER function guards all policies (avoids recursion).
-
-### bugs
-
-| Column | Type | Notes |
-|---|---|---|
-| id | uuid PK | — |
-| title | text NOT NULL | — |
-| description | text | — |
-| stack_trace | text | Repro steps / stack |
-| reporter_email | text | — |
-| status | text | 'Reported' \| 'Confirmed' \| 'In Progress' \| 'Fixed' \| 'Won\'t Fix' |
-| pr_url | text | Fix link |
-| created_at | timestamptz | — |
-| updated_at | timestamptz | — |
-
-### features
-
-| Column | Type | Notes |
-|---|---|---|
-| id | uuid PK | — |
-| title | text NOT NULL | — |
-| description | text | — |
-| status | text | 'Idea' \| 'Scoped' \| 'In Progress' \| 'Shipped' \| 'Dropped' |
-| priority | text | 'Critical' \| 'High' \| 'Medium' \| 'Low' |
-| effort | text | 'XS' \| 'S' \| 'M' \| 'L' \| 'XL' |
-| category | text | 'Core' \| 'Collaboration' \| 'Onboarding' \| 'Monetisation' \| 'Perf' \| 'Infra' |
-| votes | integer | Default 0 |
-| milestone | text | — |
-| notes | text | — |
-| created_at | timestamptz | — |
-| updated_at | timestamptz | — |
-
-### feedback
-
-| Column | Type | Notes |
-|---|---|---|
-| id | uuid PK | — |
-| user_id | uuid | FK → auth.users (nullable) |
-| type | text | 'Bug' \| 'Feature' \| 'General' \| 'Praise' |
-| body | text NOT NULL | — |
-| rating | integer | 1–5, nullable |
-| app_version | text | — |
-| platform | text | 'ios' \| 'android' |
-| status | text | 'new' \| 'reviewed' \| 'converted' \| 'archived' |
-| admin_note | text | Internal admin note |
-| created_at | timestamptz | — |
-
-### Dashboard views
-
-| View | Source | Notes |
-|---|---|---|
-| `admin_user_summary` | user_profiles | One row/user; apps_installed, shares_created |
-| `admin_daily_metrics` | auth.users + user_profiles | day, signups, installs, dau (dau=0 until events table) |
-| `admin_funnel` | user_profiles | Aggregate: total_signups, installed_app, created_share |
 
 ---
 
 ## Pending changes
 
 - **RUN MIGRATION**: `supabase/migrations/20260330_attribution.sql` — adds `last_editor_user_id`, `last_editor_display_name` to `shared_app_data`; creates `shared_app_data_history` table; recreates `upsert_shared_app_data_versioned` RPC with attribution params
+- **RUN MIGRATION**: `supabase/migrations/20260401_join_approval.sql` — adds `status TEXT DEFAULT 'active'` to `instance_members`; recreates `shared_app_data` RLS policies to require `status = 'active'`
+- **RUN MIGRATION**: `supabase/migrations/20260401_member_email.sql` — adds `email TEXT` to `instance_members`
+- **RUN SQL**: `ALTER TABLE instance_members REPLICA IDENTITY FULL;` — required for Supabase Realtime to broadcast UPDATE events (instant approval detection on joiner's device)
 - **UPDATE POWERSYNC SYNC RULES** (dashboard):
+  - Add `status`, `email` to `instance_members` SELECT projection
   - Add `last_editor_user_id`, `last_editor_display_name` to `shared_app_data` SELECT projection
   - Add `is_frozen`, `frozen_at`, `frozen_reason` to `shared_instances` SELECT projection
   - Add `shared_app_data_history` as a new synced table (SELECT projection: all columns)
