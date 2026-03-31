@@ -14,23 +14,27 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { supabase } from '../services/supabase';
 import { track } from '../services/analytics';
+import { useTheme } from '@/lib/theme';
 
 const RESEND_COOLDOWN = 60;
 
-type Step = 'credentials' | 'otp';
+type Step = 'credentials' | 'otp' | 'forgot' | 'forgot_sent';
 type Mode = 'login' | 'signup';
 
 export default function LoginScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [forgotEmail, setForgotEmail] = useState('');
   const [otp, setOtp] = useState('');
   const [step, setStep] = useState<Step>('credentials');
   const [mode, setMode] = useState<Mode>('login');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [cooldown, setCooldown] = useState(0);
+  const [showPassword, setShowPassword] = useState(false);
   const cooldownRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const passwordRef = useRef<TextInput>(null);
+  const theme = useTheme();
 
   const startCooldown = () => {
     setCooldown(RESEND_COOLDOWN);
@@ -96,12 +100,15 @@ export default function LoginScreen() {
     setError(null);
     setLoading(true);
     try {
-      const { error: authError } = await supabase.auth.signUp({
+      const { data, error: authError } = await supabase.auth.signUp({
         email: trimmed,
         password,
       });
       if (authError) {
         setError(authError.message);
+      } else if (!data.user || data.user.identities?.length === 0) {
+        // Supabase silently "succeeds" for already-registered emails — detect it
+        setError('An account with this email already exists. Try signing in instead.');
       } else {
         setStep('otp');
         startCooldown();
@@ -173,6 +180,28 @@ export default function LoginScreen() {
     }
   };
 
+  const handleForgotPassword = async () => {
+    const trimmed = forgotEmail.trim().toLowerCase();
+    if (!trimmed.includes('@')) {
+      setError('Please enter a valid email address.');
+      return;
+    }
+    setError(null);
+    setLoading(true);
+    try {
+      const { error: resetError } = await supabase.auth.resetPasswordForEmail(trimmed);
+      if (resetError) {
+        setError(resetError.message);
+      } else {
+        setStep('forgot_sent');
+      }
+    } catch {
+      setError('Something went wrong. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const toggleMode = () => {
     setMode((m) => (m === 'login' ? 'signup' : 'login'));
     setError(null);
@@ -181,7 +210,7 @@ export default function LoginScreen() {
   };
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: '#FFFFFF' }}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: theme.surface }}>
       <KeyboardAvoidingView
         style={{ flex: 1 }}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -204,7 +233,7 @@ export default function LoginScreen() {
           <Text
             style={{
               fontSize: 15,
-              color: '#8E8E93',
+              color: theme.labelSecondary,
               textAlign: 'center',
               marginBottom: 40,
               lineHeight: 20,
@@ -212,12 +241,129 @@ export default function LoginScreen() {
           >
             {step === 'otp'
               ? 'Check your email for a 6-digit confirmation code.'
-              : mode === 'login'
-                ? 'Sign in to sync your apps across devices.'
-                : 'Create an account to get started.'}
+              : step === 'forgot' || step === 'forgot_sent'
+                ? 'Reset your password'
+                : mode === 'login'
+                  ? 'Sign in to sync your apps across devices.'
+                  : 'Create an account to get started.'}
           </Text>
 
-          {step === 'credentials' ? (
+          {step === 'forgot' || step === 'forgot_sent' ? (
+            <>
+              {step === 'forgot_sent' ? (
+                <>
+                  <Text
+                    style={{
+                      fontSize: 15,
+                      color: theme.label,
+                      textAlign: 'center',
+                      marginBottom: 8,
+                      fontWeight: '500',
+                    }}
+                  >
+                    Check your email
+                  </Text>
+                  <Text
+                    style={{
+                      fontSize: 14,
+                      color: theme.labelSecondary,
+                      textAlign: 'center',
+                      marginBottom: 32,
+                      lineHeight: 20,
+                    }}
+                  >
+                    We sent a password reset link to{' '}
+                    <Text style={{ color: theme.label, fontWeight: '500' }}>{forgotEmail}</Text>.
+                  </Text>
+                </>
+              ) : (
+                <>
+                  <Text
+                    style={{
+                      fontSize: 14,
+                      color: theme.labelSecondary,
+                      alignSelf: 'flex-start',
+                      marginBottom: 12,
+                      lineHeight: 20,
+                    }}
+                  >
+                    Enter your email and we'll send you a reset link.
+                  </Text>
+                  <TextInput
+                    value={forgotEmail}
+                    onChangeText={(t) => {
+                      setForgotEmail(t);
+                      if (error) setError(null);
+                    }}
+                    placeholder="Email"
+                    placeholderTextColor={theme.labelTertiary}
+                    keyboardType="email-address"
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    returnKeyType="done"
+                    onSubmitEditing={handleForgotPassword}
+                    style={{
+                      width: '100%',
+                      height: 50,
+                      borderWidth: 1.5,
+                      borderColor: error ? theme.destructive : theme.separator,
+                      borderRadius: 12,
+                      paddingHorizontal: 16,
+                      fontSize: 16,
+                      color: theme.label,
+                      backgroundColor: theme.inputBackground,
+                      marginBottom: 8,
+                    }}
+                  />
+                  {error && (
+                    <Text
+                      style={{
+                        fontSize: 13,
+                        color: theme.destructive,
+                        alignSelf: 'flex-start',
+                        marginBottom: 8,
+                      }}
+                    >
+                      {error}
+                    </Text>
+                  )}
+                  <TouchableOpacity
+                    onPress={handleForgotPassword}
+                    disabled={loading}
+                    activeOpacity={0.8}
+                    style={{
+                      width: '100%',
+                      height: 50,
+                      backgroundColor: loading ? '#A8C8FF' : theme.primary,
+                      borderRadius: 12,
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      marginTop: 8,
+                      flexDirection: 'row',
+                      gap: 8,
+                    }}
+                  >
+                    {loading && <ActivityIndicator color="#FFFFFF" size="small" />}
+                    <Text style={{ color: '#FFFFFF', fontSize: 16, fontWeight: '600' }}>
+                      {loading ? 'Sending…' : 'Send Reset Link'}
+                    </Text>
+                  </TouchableOpacity>
+                </>
+              )}
+              <TouchableOpacity
+                onPress={() => {
+                  setStep('credentials');
+                  setError(null);
+                }}
+                activeOpacity={0.7}
+                style={{ marginTop: 20 }}
+              >
+                <Text style={{ fontSize: 15, color: theme.primary, fontWeight: '500' }}>
+                  Back to Sign In
+                </Text>
+              </TouchableOpacity>
+            </>
+          ) : step === 'credentials' ? (
             <>
               <TextInput
                 value={email}
@@ -226,7 +372,7 @@ export default function LoginScreen() {
                   if (error) setError(null);
                 }}
                 placeholder="Email"
-                placeholderTextColor="#C7C7CC"
+                placeholderTextColor={theme.labelTertiary}
                 keyboardType="email-address"
                 autoCapitalize="none"
                 autoCorrect={false}
@@ -236,49 +382,83 @@ export default function LoginScreen() {
                   width: '100%',
                   height: 50,
                   borderWidth: 1.5,
-                  borderColor: error ? '#FF3B30' : '#E5E5EA',
+                  borderColor: error ? theme.destructive : theme.separator,
                   borderRadius: 12,
                   paddingHorizontal: 16,
                   fontSize: 16,
-                  color: '#1C1C1E',
-                  backgroundColor: '#FAFAFA',
+                  color: theme.label,
+                  backgroundColor: theme.inputBackground,
                   marginBottom: 12,
                 }}
               />
 
-              <TextInput
-                ref={passwordRef}
-                value={password}
-                onChangeText={(t) => {
-                  setPassword(t);
-                  if (error) setError(null);
-                }}
-                placeholder="Password"
-                placeholderTextColor="#C7C7CC"
-                secureTextEntry
-                autoCapitalize="none"
-                autoCorrect={false}
-                returnKeyType="go"
-                onSubmitEditing={handleSubmit}
-                style={{
-                  width: '100%',
-                  height: 50,
-                  borderWidth: 1.5,
-                  borderColor: error ? '#FF3B30' : '#E5E5EA',
-                  borderRadius: 12,
-                  paddingHorizontal: 16,
-                  fontSize: 16,
-                  color: '#1C1C1E',
-                  backgroundColor: '#FAFAFA',
-                  marginBottom: 8,
-                }}
-              />
+              <View style={{ width: '100%', marginBottom: 8 }}>
+                <TextInput
+                  ref={passwordRef}
+                  value={password}
+                  onChangeText={(t) => {
+                    setPassword(t);
+                    if (error) setError(null);
+                  }}
+                  placeholder="Password"
+                  placeholderTextColor={theme.labelTertiary}
+                  secureTextEntry={!showPassword}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  returnKeyType="go"
+                  onSubmitEditing={handleSubmit}
+                  style={{
+                    width: '100%',
+                    height: 50,
+                    borderWidth: 1.5,
+                    borderColor: error ? theme.destructive : theme.separator,
+                    borderRadius: 12,
+                    paddingHorizontal: 16,
+                    paddingRight: 52,
+                    fontSize: 16,
+                    color: theme.label,
+                    backgroundColor: theme.inputBackground,
+                  }}
+                />
+                <TouchableOpacity
+                  onPress={() => setShowPassword((v) => !v)}
+                  activeOpacity={0.7}
+                  style={{
+                    position: 'absolute',
+                    right: 14,
+                    top: 0,
+                    bottom: 0,
+                    justifyContent: 'center',
+                    paddingHorizontal: 4,
+                  }}
+                >
+                  <Text style={{ fontSize: 13, color: theme.labelSecondary, fontWeight: '500' }}>
+                    {showPassword ? 'Hide' : 'Show'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              {mode === 'login' && (
+                <TouchableOpacity
+                  onPress={() => {
+                    setForgotEmail(email.trim().toLowerCase());
+                    setError(null);
+                    setStep('forgot');
+                  }}
+                  activeOpacity={0.7}
+                  style={{ alignSelf: 'flex-end', marginBottom: 8 }}
+                >
+                  <Text style={{ fontSize: 13, color: theme.primary, fontWeight: '500' }}>
+                    Forgot password?
+                  </Text>
+                </TouchableOpacity>
+              )}
 
               {error && (
                 <Text
                   style={{
                     fontSize: 13,
-                    color: '#FF3B30',
+                    color: theme.destructive,
                     alignSelf: 'flex-start',
                     marginBottom: 8,
                   }}
@@ -294,7 +474,7 @@ export default function LoginScreen() {
                 style={{
                   width: '100%',
                   height: 50,
-                  backgroundColor: loading ? '#A8C8FF' : '#007AFF',
+                  backgroundColor: loading ? '#A8C8FF' : theme.primary,
                   borderRadius: 12,
                   alignItems: 'center',
                   justifyContent: 'center',
@@ -316,7 +496,7 @@ export default function LoginScreen() {
               </TouchableOpacity>
 
               <TouchableOpacity onPress={toggleMode} activeOpacity={0.7} style={{ marginTop: 20 }}>
-                <Text style={{ fontSize: 15, color: '#007AFF', fontWeight: '500' }}>
+                <Text style={{ fontSize: 15, color: theme.primary, fontWeight: '500' }}>
                   {mode === 'login'
                     ? "Don't have an account? Sign Up"
                     : 'Already have an account? Sign In'}
@@ -328,13 +508,13 @@ export default function LoginScreen() {
               <Text
                 style={{
                   fontSize: 14,
-                  color: '#8E8E93',
+                  color: theme.labelSecondary,
                   alignSelf: 'flex-start',
                   marginBottom: 8,
                 }}
               >
                 Confirmation code sent to{' '}
-                <Text style={{ color: '#1C1C1E', fontWeight: '500' }}>{email.trim()}</Text>
+                <Text style={{ color: theme.label, fontWeight: '500' }}>{email.trim()}</Text>
               </Text>
 
               <TextInput
@@ -344,7 +524,7 @@ export default function LoginScreen() {
                   if (error) setError(null);
                 }}
                 placeholder="000000"
-                placeholderTextColor="#C7C7CC"
+                placeholderTextColor={theme.labelTertiary}
                 keyboardType="numeric"
                 autoCapitalize="none"
                 autoCorrect={false}
@@ -356,13 +536,13 @@ export default function LoginScreen() {
                   width: '100%',
                   height: 56,
                   borderWidth: 1.5,
-                  borderColor: error ? '#FF3B30' : '#E5E5EA',
+                  borderColor: error ? theme.destructive : theme.separator,
                   borderRadius: 12,
                   paddingHorizontal: 16,
                   fontSize: 24,
                   fontWeight: '600',
-                  color: '#1C1C1E',
-                  backgroundColor: '#FAFAFA',
+                  color: theme.label,
+                  backgroundColor: theme.inputBackground,
                   marginBottom: 8,
                   letterSpacing: 8,
                   textAlign: 'center',
@@ -373,7 +553,7 @@ export default function LoginScreen() {
                 <Text
                   style={{
                     fontSize: 13,
-                    color: '#FF3B30',
+                    color: theme.destructive,
                     alignSelf: 'flex-start',
                     marginBottom: 8,
                   }}
@@ -389,7 +569,7 @@ export default function LoginScreen() {
                 style={{
                   width: '100%',
                   height: 50,
-                  backgroundColor: loading ? '#A8C8FF' : '#007AFF',
+                  backgroundColor: loading ? '#A8C8FF' : theme.primary,
                   borderRadius: 12,
                   alignItems: 'center',
                   justifyContent: 'center',
@@ -413,10 +593,10 @@ export default function LoginScreen() {
                   }}
                   activeOpacity={0.7}
                 >
-                  <Text style={{ fontSize: 15, color: '#007AFF', fontWeight: '500' }}>Back</Text>
+                  <Text style={{ fontSize: 15, color: theme.primary, fontWeight: '500' }}>Back</Text>
                 </TouchableOpacity>
 
-                <Text style={{ color: '#C7C7CC' }}>·</Text>
+                <Text style={{ color: theme.labelTertiary }}>·</Text>
 
                 <TouchableOpacity
                   onPress={handleResend}
@@ -426,7 +606,7 @@ export default function LoginScreen() {
                   <Text
                     style={{
                       fontSize: 15,
-                      color: cooldown > 0 ? '#C7C7CC' : '#007AFF',
+                      color: cooldown > 0 ? theme.labelTertiary : theme.primary,
                       fontWeight: '500',
                     }}
                   >
