@@ -13,6 +13,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { supabase } from '../services/supabase';
+import { useTheme } from '@/lib/theme';
 
 const RESEND_COOLDOWN = 60;
 
@@ -30,6 +31,7 @@ export default function AuthScreen() {
   const [cooldown, setCooldown] = useState(0);
   const cooldownRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const passwordRef = useRef<TextInput>(null);
+  const theme = useTheme();
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -198,7 +200,7 @@ export default function AuthScreen() {
   };
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: '#FFFFFF' }}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: theme.surface }}>
       <KeyboardAvoidingView
         style={{ flex: 1 }}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -210,7 +212,7 @@ export default function AuthScreen() {
             hitSlop={10}
             style={{ padding: 4 }}
           >
-            <Text style={{ fontSize: 16, color: '#007AFF' }}>Close</Text>
+            <Text style={{ fontSize: 16, color: theme.primary }}>Close</Text>
           </TouchableOpacity>
         </View>
 
@@ -232,7 +234,7 @@ export default function AuthScreen() {
           <Text
             style={{
               fontSize: 15,
-              color: '#8E8E93',
+              color: theme.labelSecondary,
               textAlign: 'center',
               marginBottom: 40,
               lineHeight: 20,
@@ -254,7 +256,7 @@ export default function AuthScreen() {
                   if (error) setError(null);
                 }}
                 placeholder="Email"
-                placeholderTextColor="#C7C7CC"
+                placeholderTextColor={theme.labelTertiary}
                 keyboardType="email-address"
                 autoCapitalize="none"
                 autoCorrect={false}
@@ -264,12 +266,12 @@ export default function AuthScreen() {
                   width: '100%',
                   height: 50,
                   borderWidth: 1.5,
-                  borderColor: error ? '#FF3B30' : '#E5E5EA',
+                  borderColor: error ? theme.destructive : theme.separator,
                   borderRadius: 12,
                   paddingHorizontal: 16,
                   fontSize: 16,
-                  color: '#1C1C1E',
-                  backgroundColor: '#FAFAFA',
+                  color: theme.label,
+                  backgroundColor: theme.inputBackground,
                   marginBottom: 12,
                 }}
               />
@@ -282,7 +284,7 @@ export default function AuthScreen() {
                   if (error) setError(null);
                 }}
                 placeholder="Password"
-                placeholderTextColor="#C7C7CC"
+                placeholderTextColor={theme.labelTertiary}
                 secureTextEntry
                 autoCapitalize="none"
                 autoCorrect={false}
@@ -292,12 +294,12 @@ export default function AuthScreen() {
                   width: '100%',
                   height: 50,
                   borderWidth: 1.5,
-                  borderColor: error ? '#FF3B30' : '#E5E5EA',
+                  borderColor: error ? theme.destructive : theme.separator,
                   borderRadius: 12,
                   paddingHorizontal: 16,
                   fontSize: 16,
-                  color: '#1C1C1E',
-                  backgroundColor: '#FAFAFA',
+                  color: theme.label,
+                  backgroundColor: theme.inputBackground,
                   marginBottom: 8,
                 }}
               />
@@ -306,7 +308,7 @@ export default function AuthScreen() {
                 <Text
                   style={{
                     fontSize: 13,
-                    color: '#FF3B30',
+                    color: theme.destructive,
                     alignSelf: 'flex-start',
                     marginBottom: 8,
                   }}
@@ -322,7 +324,7 @@ export default function AuthScreen() {
                 style={{
                   width: '100%',
                   height: 50,
-                  backgroundColor: loading ? '#A8C8FF' : '#007AFF',
+                  backgroundColor: loading ? '#A8C8FF' : theme.primary,
                   borderRadius: 12,
                   alignItems: 'center',
                   justifyContent: 'center',
@@ -344,7 +346,7 @@ export default function AuthScreen() {
               </TouchableOpacity>
 
               <TouchableOpacity onPress={toggleMode} activeOpacity={0.7} style={{ marginTop: 20 }}>
-                <Text style={{ fontSize: 15, color: '#007AFF', fontWeight: '500' }}>
+                <Text style={{ fontSize: 15, color: theme.primary, fontWeight: '500' }}>
                   {mode === 'login'
                     ? "Don't have an account? Sign Up"
                     : 'Already have an account? Sign In'}
@@ -356,13 +358,13 @@ export default function AuthScreen() {
               <Text
                 style={{
                   fontSize: 14,
-                  color: '#8E8E93',
+                  color: theme.labelSecondary,
                   alignSelf: 'flex-start',
                   marginBottom: 8,
                 }}
               >
                 Confirmation code sent to{' '}
-                <Text style={{ color: '#1C1C1E', fontWeight: '500' }}>{email.trim()}</Text>
+                <Text style={{ color: theme.label, fontWeight: '500' }}>{email.trim()}</Text>
               </Text>
 
               <TextInput
@@ -372,7 +374,7 @@ export default function AuthScreen() {
                   if (error) setError(null);
                 }}
                 placeholder="000000"
-                placeholderTextColor="#C7C7CC"
+                placeholderTextColor={theme.labelTertiary}
                 keyboardType="numeric"
                 autoCapitalize="none"
                 autoCorrect={false}
@@ -384,13 +386,13 @@ export default function AuthScreen() {
                   width: '100%',
                   height: 56,
                   borderWidth: 1.5,
-                  borderColor: error ? '#FF3B30' : '#E5E5EA',
+                  borderColor: error ? theme.destructive : theme.separator,
                   borderRadius: 12,
                   paddingHorizontal: 16,
                   fontSize: 24,
                   fontWeight: '600',
-                  color: '#1C1C1E',
-                  backgroundColor: '#FAFAFA',
+                  color: theme.label,
+                  backgroundColor: theme.inputBackground,
                   marginBottom: 8,
                   letterSpacing: 8,
                   textAlign: 'center',
@@ -401,7 +403,7 @@ export default function AuthScreen() {
                 <Text
                   style={{
                     fontSize: 13,
-                    color: '#FF3B30',
+                    color: theme.destructive,
                     alignSelf: 'flex-start',
                     marginBottom: 8,
                   }}
@@ -417,7 +419,7 @@ export default function AuthScreen() {
                 style={{
                   width: '100%',
                   height: 50,
-                  backgroundColor: loading ? '#A8C8FF' : '#007AFF',
+                  backgroundColor: loading ? '#A8C8FF' : theme.primary,
                   borderRadius: 12,
                   alignItems: 'center',
                   justifyContent: 'center',
@@ -441,10 +443,10 @@ export default function AuthScreen() {
                   }}
                   activeOpacity={0.7}
                 >
-                  <Text style={{ fontSize: 15, color: '#007AFF', fontWeight: '500' }}>Back</Text>
+                  <Text style={{ fontSize: 15, color: theme.primary, fontWeight: '500' }}>Back</Text>
                 </TouchableOpacity>
 
-                <Text style={{ color: '#C7C7CC' }}>·</Text>
+                <Text style={{ color: theme.labelTertiary }}>·</Text>
 
                 <TouchableOpacity
                   onPress={handleResend}
@@ -454,7 +456,7 @@ export default function AuthScreen() {
                   <Text
                     style={{
                       fontSize: 15,
-                      color: cooldown > 0 ? '#C7C7CC' : '#007AFF',
+                      color: cooldown > 0 ? theme.labelTertiary : theme.primary,
                       fontWeight: '500',
                     }}
                   >

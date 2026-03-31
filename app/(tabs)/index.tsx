@@ -29,6 +29,7 @@ import { useDatabase } from '@/hooks/useDatabase';
 import { useInstalledApps } from '@/hooks/useInstalledApps';
 import { useRestoreApps } from '@/hooks/useRestoreApps';
 import { useUpdateScanner } from '@/hooks/useUpdateScanner';
+import { useTheme, type Colors } from '@/lib/theme';
 import type { InstalledApp } from '@/types';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -82,10 +83,12 @@ function AppListCard({
   app,
   hasUpdate,
   onLongPress,
+  theme,
 }: {
   app: InstalledApp;
   hasUpdate: boolean;
   onLongPress: (a: InstalledApp) => void;
+  theme: Colors;
 }) {
   const scale = useSharedValue(1);
 
@@ -123,7 +126,7 @@ function AppListCard({
               alignItems: 'center',
               paddingHorizontal: 16,
               paddingVertical: 12,
-              backgroundColor: '#FFFFFF',
+              backgroundColor: theme.surface,
               borderRadius: 12,
               shadowColor: '#000',
               shadowOffset: { width: 0, height: 2 },
@@ -147,16 +150,16 @@ function AppListCard({
 
           {/* Text */}
           <View style={{ flex: 1 }}>
-            <Text numberOfLines={1} style={{ fontSize: 16, fontWeight: '600', color: '#1C1C1E' }}>
+            <Text numberOfLines={1} style={{ fontSize: 16, fontWeight: '600', color: theme.label }}>
               {app.name}
             </Text>
-            <Text numberOfLines={1} style={{ fontSize: 13, color: '#8E8E93', marginTop: 2 }}>
+            <Text numberOfLines={1} style={{ fontSize: 13, color: theme.labelSecondary, marginTop: 2 }}>
               {subtitle}
             </Text>
           </View>
 
           {/* Chevron */}
-          <Text style={{ fontSize: 18, color: '#C7C7CC', marginLeft: 8 }}>›</Text>
+          <Text style={{ fontSize: 18, color: theme.labelTertiary, marginLeft: 8 }}>›</Text>
         </Animated.View>
       </Pressable>
     </>
@@ -165,7 +168,7 @@ function AppListCard({
 
 // ── Empty state ───────────────────────────────────────────────────────────────
 
-function EmptyState() {
+function EmptyState({ theme }: { theme: Colors }) {
   return (
     <View
       style={{
@@ -180,7 +183,7 @@ function EmptyState() {
           width: 72,
           height: 72,
           borderRadius: 20,
-          backgroundColor: '#F2F2F7',
+          backgroundColor: theme.background,
           alignItems: 'center',
           justifyContent: 'center',
           marginBottom: 20,
@@ -192,7 +195,7 @@ function EmptyState() {
         style={{
           fontSize: 20,
           fontWeight: '600',
-          color: '#1C1C1E',
+          color: theme.label,
           textAlign: 'center',
           marginBottom: 8,
         }}
@@ -202,7 +205,7 @@ function EmptyState() {
       <Text
         style={{
           fontSize: 15,
-          color: '#8E8E93',
+          color: theme.labelSecondary,
           textAlign: 'center',
           lineHeight: 22,
           marginBottom: 28,
@@ -213,7 +216,7 @@ function EmptyState() {
       <TouchableOpacity
         onPress={() => router.push('/add')}
         style={{
-          backgroundColor: '#007AFF',
+          backgroundColor: theme.primary,
           borderRadius: 12,
           paddingHorizontal: 24,
           paddingVertical: 14,
@@ -233,7 +236,7 @@ function EmptyState() {
 
 // ── FAB ───────────────────────────────────────────────────────────────────────
 
-function FAB() {
+function FAB({ theme }: { theme: Colors }) {
   return (
     <TouchableOpacity
       onPress={() => router.push('/add')}
@@ -245,7 +248,7 @@ function FAB() {
         width: 56,
         height: 56,
         borderRadius: 28,
-        backgroundColor: '#007AFF',
+        backgroundColor: theme.primary,
         alignItems: 'center',
         justifyContent: 'center',
         shadowColor: '#007AFF',
@@ -267,6 +270,7 @@ export default function HomeScreen() {
   const { apps, loading, refresh } = useInstalledApps();
   const { showToast } = useToast();
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const theme = useTheme();
 
   // Restore apps from PowerSync on a fresh device (no non-demo apps locally)
   useRestoreApps();
@@ -351,9 +355,10 @@ export default function HomeScreen() {
         app={item}
         hasUpdate={!!updatesAvailable[item.app_id]}
         onLongPress={openContextMenu}
+        theme={theme}
       />
     ),
-    [openContextMenu, updatesAvailable]
+    [openContextMenu, updatesAvailable, theme]
   );
 
   const keyExtractor = useCallback((item: InstalledApp) => item.app_id, []);
@@ -373,7 +378,7 @@ export default function HomeScreen() {
         accessibilityLabel="Cottix"
       />
       {!loading && (
-        <Animated.Text style={[{ fontSize: 13, color: '#8E8E93', marginTop: 3 }, largeTitleStyle]}>
+        <Animated.Text style={[{ fontSize: 13, color: theme.labelSecondary, marginTop: 3 }, largeTitleStyle]}>
           {apps.length} app{apps.length !== 1 ? 's' : ''} installed
         </Animated.Text>
       )}
@@ -383,7 +388,7 @@ export default function HomeScreen() {
   // ── Render ─────────────────────────────────────────────────────────────────
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: '#F2F2F7' }}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: theme.background }}>
       {/* ── Fixed nav bar: small title fades in on scroll ──────────────── */}
       <View
         style={{
@@ -391,7 +396,7 @@ export default function HomeScreen() {
           flexDirection: 'row',
           alignItems: 'center',
           justifyContent: 'center',
-          backgroundColor: '#F2F2F7',
+          backgroundColor: theme.background,
           paddingHorizontal: 16,
         }}
       >
@@ -403,7 +408,7 @@ export default function HomeScreen() {
         />
         {scanRunning && (
           <View style={{ position: 'absolute', right: 16 }}>
-            <ActivityIndicator size="small" color="#007AFF" />
+            <ActivityIndicator size="small" color={theme.primary} />
           </View>
         )}
       </View>
@@ -417,25 +422,25 @@ export default function HomeScreen() {
           renderItem={renderItem}
           keyExtractor={keyExtractor}
           ListHeaderComponent={listHeader}
-          ListEmptyComponent={!loading ? <EmptyState /> : null}
+          ListEmptyComponent={!loading ? <EmptyState theme={theme} /> : null}
           contentContainerStyle={{
             paddingHorizontal: 16,
             paddingTop: 8,
             paddingBottom: 100,
             gap: 12,
           }}
-          style={{ backgroundColor: '#F2F2F7' }}
+          style={{ backgroundColor: theme.background }}
           showsVerticalScrollIndicator={false}
           refreshControl={
             <RefreshControl
               refreshing={isRefreshing}
               onRefresh={handlePullRefresh}
-              tintColor="#007AFF"
+              tintColor={theme.primary}
             />
           }
         />
 
-        {apps.length > 0 && <FAB />}
+        {apps.length > 0 && <FAB theme={theme} />}
       </View>
 
       {/* ── Long-press context menu ────────────────────────────────────── */}

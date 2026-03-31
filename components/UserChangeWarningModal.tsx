@@ -1,5 +1,7 @@
 import { ActivityIndicator, Modal, Text, TouchableOpacity, View } from 'react-native';
 
+import { useTheme } from '@/lib/theme';
+
 interface Props {
   visible: boolean;
   newUserEmail: string | null;
@@ -15,6 +17,8 @@ interface Props {
  * the user must explicitly choose "Continue & Erase" or "Cancel".
  */
 export function UserChangeWarningModal({ visible, newUserEmail, onConfirm, onCancel }: Props) {
+  const theme = useTheme();
+
   return (
     <Modal
       visible={visible}
@@ -27,7 +31,7 @@ export function UserChangeWarningModal({ visible, newUserEmail, onConfirm, onCan
       <View
         style={{
           flex: 1,
-          backgroundColor: 'rgba(0,0,0,0.5)',
+          backgroundColor: theme.overlay,
           alignItems: 'center',
           justifyContent: 'center',
           paddingHorizontal: 28,
@@ -35,7 +39,7 @@ export function UserChangeWarningModal({ visible, newUserEmail, onConfirm, onCan
       >
         <View
           style={{
-            backgroundColor: '#FFFFFF',
+            backgroundColor: theme.surface,
             borderRadius: 20,
             paddingVertical: 28,
             paddingHorizontal: 24,
@@ -58,7 +62,7 @@ export function UserChangeWarningModal({ visible, newUserEmail, onConfirm, onCan
             style={{
               fontSize: 18,
               fontWeight: '700',
-              color: '#1C1C1E',
+              color: theme.label,
               textAlign: 'center',
               marginBottom: 12,
             }}
@@ -70,18 +74,18 @@ export function UserChangeWarningModal({ visible, newUserEmail, onConfirm, onCan
           <Text
             style={{
               fontSize: 15,
-              color: '#3C3C43',
+              color: theme.labelSecondary,
               textAlign: 'center',
               lineHeight: 22,
               marginBottom: 28,
             }}
           >
             Signing in as{' '}
-            <Text style={{ fontWeight: '600', color: '#1C1C1E' }}>
+            <Text style={{ fontWeight: '600', color: theme.label }}>
               {newUserEmail ?? 'a new account'}
             </Text>{' '}
             will{' '}
-            <Text style={{ fontWeight: '600', color: '#FF3B30' }}>
+            <Text style={{ fontWeight: '600', color: theme.destructive }}>
               erase all local apps and data
             </Text>{' '}
             from the previous account.{'\n\n'}
@@ -95,7 +99,7 @@ export function UserChangeWarningModal({ visible, newUserEmail, onConfirm, onCan
           <View
             style={{
               height: 1,
-              backgroundColor: '#E5E5EA',
+              backgroundColor: theme.separator,
               marginVertical: 12,
             }}
           />
@@ -106,7 +110,7 @@ export function UserChangeWarningModal({ visible, newUserEmail, onConfirm, onCan
               style={{
                 fontSize: 16,
                 fontWeight: '500',
-                color: '#007AFF',
+                color: theme.primary,
                 textAlign: 'center',
                 paddingVertical: 4,
               }}

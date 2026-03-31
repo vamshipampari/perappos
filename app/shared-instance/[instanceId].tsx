@@ -29,6 +29,7 @@ import { useDatabase } from '@/hooks/useDatabase';
 import { usePowerSync } from '../../services/sync/PowerSyncProvider';
 import { leaveSharedGroup, stopSharingAsOwner } from '../../services/collaborationService';
 import { supabase } from '../../services/supabase';
+import { useTheme, type Colors } from '@/lib/theme';
 
 interface SharedInstanceRow {
   instance_id: string;
@@ -45,6 +46,14 @@ interface MemberRow {
   joined_at: string;
 }
 
+interface ActivityRow {
+  key: string;
+  editor_display_name: string | null;
+  editor_user_id: string | null;
+  written_at: string | null;
+  version: number | null;
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function formatCode(code: string): string {
@@ -55,6 +64,293 @@ function truncateId(id: string): string {
   return id.length > 16 ? `${id.slice(0, 8)}…${id.slice(-4)}` : id;
 }
 
+function relativeTime(iso: string | null): string {
+  if (!iso) return '';
+  const diffMs = Date.now() - new Date(iso).getTime();
+  const secs = Math.floor(diffMs / 1000);
+  if (secs < 60) return 'just now';
+  const mins = Math.floor(secs / 60);
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+}
+
+// ── Styles ────────────────────────────────────────────────────────────────────
+
+function makeStyles(theme: Colors) {
+  return StyleSheet.create({
+    root: {
+      flex: 1,
+      backgroundColor: theme.groupedBackground,
+    },
+    center: {
+      flex: 1,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: theme.groupedBackground,
+      padding: 32,
+    },
+    emoji: {
+      fontSize: 48,
+      marginBottom: 12,
+    },
+    errorTitle: {
+      fontSize: 20,
+      fontWeight: '600',
+      color: theme.label,
+      textAlign: 'center',
+      marginBottom: 6,
+    },
+    errorSub: {
+      fontSize: 15,
+      color: theme.labelSecondary,
+      textAlign: 'center',
+    },
+    link: {
+      fontSize: 17,
+      color: theme.primary,
+    },
+
+    // Header
+    header: {
+      height: 44,
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: theme.groupedBackground,
+      paddingHorizontal: 4,
+      borderBottomWidth: 0.5,
+      borderBottomColor: theme.labelTertiary,
+    },
+    backBtn: {
+      width: 44,
+      height: 44,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    backText: {
+      fontSize: 22,
+      color: theme.primary,
+      lineHeight: 26,
+    },
+    headerCenter: {
+      flex: 1,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 6,
+    },
+    headerTitle: {
+      fontSize: 16,
+      fontWeight: '600',
+      color: theme.label,
+      flexShrink: 1,
+    },
+    sharedPill: {
+      backgroundColor: '#E8F1FF',
+      borderWidth: 1,
+      borderColor: '#BBD7FF',
+      borderRadius: 8,
+      paddingHorizontal: 6,
+      paddingVertical: 2,
+    },
+    sharedPillText: {
+      fontSize: 11,
+      fontWeight: '600',
+      color: theme.primary,
+    },
+
+    // Frozen banner
+    frozenBanner: {
+      backgroundColor: '#FEF3C7',
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: '#F59E0B',
+      paddingVertical: 10,
+      paddingHorizontal: 16,
+    },
+    frozenBannerText: {
+      fontSize: 13,
+      color: '#92400E',
+      textAlign: 'center',
+      lineHeight: 18,
+    },
+
+    // Content
+    scrollContent: {
+      padding: 20,
+      gap: 8,
+    },
+    sectionLabel: {
+      fontSize: 13,
+      fontWeight: '600',
+      color: theme.labelSecondary,
+      marginBottom: 6,
+      marginTop: 12,
+      letterSpacing: 0.3,
+    },
+    card: {
+      backgroundColor: theme.surface,
+      borderRadius: 12,
+      overflow: 'hidden',
+      paddingVertical: 12,
+      paddingHorizontal: 16,
+    },
+
+    // Invite code
+    inviteCode: {
+      fontSize: 36,
+      fontWeight: '700',
+      color: theme.label,
+      letterSpacing: 4,
+      textAlign: 'center',
+      paddingVertical: 8,
+      fontVariant: ['tabular-nums'],
+    },
+    inviteHint: {
+      fontSize: 13,
+      color: theme.labelSecondary,
+      textAlign: 'center',
+      marginBottom: 16,
+    },
+    codeButtons: {
+      flexDirection: 'row',
+      gap: 10,
+    },
+    codeBtn: {
+      flex: 1,
+      paddingVertical: 12,
+      borderRadius: 10,
+      alignItems: 'center',
+    },
+    codeBtnOutline: {
+      borderWidth: 1.5,
+      borderColor: theme.primary,
+    },
+    codeBtnFill: {
+      backgroundColor: theme.primary,
+    },
+    codeBtnOutlineText: {
+      fontSize: 15,
+      fontWeight: '600',
+      color: theme.primary,
+    },
+    codeBtnFillText: {
+      fontSize: 15,
+      fontWeight: '600',
+      color: '#FFFFFF',
+    },
+
+    // Members
+    memberRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingVertical: 10,
+      gap: 10,
+    },
+    roleBadge: {
+      borderRadius: 6,
+      paddingHorizontal: 7,
+      paddingVertical: 3,
+    },
+    roleBadgeOwner: {
+      backgroundColor: '#E8F1FF',
+    },
+    roleBadgeMember: {
+      backgroundColor: theme.groupedBackground,
+    },
+    roleBadgeText: {
+      fontSize: 12,
+      fontWeight: '600',
+    },
+    roleBadgeOwnerText: {
+      color: theme.primary,
+    },
+    roleBadgeMemberText: {
+      color: theme.labelSecondary,
+    },
+    memberUserId: {
+      flex: 1,
+      fontSize: 14,
+      color: theme.labelSecondary,
+      fontFamily: 'monospace',
+    },
+    separator: {
+      height: 0.5,
+      backgroundColor: theme.separator,
+    },
+    emptyText: {
+      fontSize: 14,
+      color: theme.labelSecondary,
+      textAlign: 'center',
+      paddingVertical: 8,
+    },
+
+    // Actions
+    actionRow: {
+      paddingVertical: 10,
+    },
+    destructiveText: {
+      fontSize: 17,
+      color: theme.destructive,
+      fontWeight: '500',
+      marginBottom: 4,
+    },
+    actionSub: {
+      fontSize: 13,
+      color: theme.labelSecondary,
+      lineHeight: 18,
+    },
+
+    // Activity panel
+    activityHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      marginBottom: 6,
+      marginTop: 12,
+    },
+    activityChevron: {
+      fontSize: 16,
+      color: theme.labelSecondary,
+      lineHeight: 20,
+    },
+    activityRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingVertical: 10,
+      gap: 10,
+    },
+    activityDot: {
+      width: 8,
+      height: 8,
+      borderRadius: 4,
+      backgroundColor: theme.primary,
+      opacity: 0.55,
+      flexShrink: 0,
+    },
+    activityContent: {
+      flex: 1,
+      gap: 2,
+    },
+    activityKey: {
+      fontSize: 14,
+      fontWeight: '500',
+      color: theme.label,
+      fontFamily: 'monospace',
+    },
+    activityMeta: {
+      fontSize: 12,
+      color: theme.labelSecondary,
+    },
+    activityVersion: {
+      fontSize: 11,
+      color: theme.labelTertiary,
+      fontVariant: ['tabular-nums'],
+    },
+  });
+}
+
 // ── Screen ────────────────────────────────────────────────────────────────────
 
 export default function SharedInstanceScreen() {
@@ -63,6 +359,8 @@ export default function SharedInstanceScreen() {
   const db = useDatabase();
   const { db: syncDb } = usePowerSync();
   const { showToast } = useToast();
+  const theme = useTheme();
+  const styles = makeStyles(theme);
 
   const [loading, setLoading] = useState(true);
   const [acting, setActing] = useState(false);
@@ -71,6 +369,8 @@ export default function SharedInstanceScreen() {
   const [myUserId, setMyUserId] = useState<string | null>(null);
   const [myRole, setMyRole] = useState<'owner' | 'member' | null>(null);
   const [isFrozen, setIsFrozen] = useState(false);
+  const [activityRows, setActivityRows] = useState<ActivityRow[]>([]);
+  const [activityCollapsed, setActivityCollapsed] = useState(false);
 
   // ── Load data ───────────────────────────────────────────────────────────────
 
@@ -176,11 +476,29 @@ export default function SharedInstanceScreen() {
         memberRows = [{ user_id: userId, role: myGuessedRole, joined_at: '' }];
       }
 
+      // 5. Load recent activity from shared_app_data_history (full audit log).
+      let activity: ActivityRow[] = [];
+      if (instanceRow) {
+        try {
+          activity = await syncDb.getAll<ActivityRow>(
+            `SELECT key, editor_display_name, editor_user_id, written_at, version
+             FROM shared_app_data_history
+             WHERE instance_id = ?
+             ORDER BY written_at DESC
+             LIMIT 20`,
+            [instanceId]
+          );
+        } catch (actErr) {
+          log.warn('[manage-group] activity load failed:', actErr);
+        }
+      }
+
       log.info('[manage-group] result — instance found:', !!instanceRow, 'members:', memberRows.length);
 
       setInstance(instanceRow ?? null);
       setIsFrozen(instanceRow?.is_frozen === 1);
       setMembers(memberRows);
+      setActivityRows(activity);
 
       if (userId && memberRows.length > 0) {
         const mine = memberRows.find((m) => m.user_id === userId);
@@ -293,7 +611,7 @@ export default function SharedInstanceScreen() {
   if (loading) {
     return (
       <SafeAreaView style={styles.center}>
-        <ActivityIndicator size="large" color="#007AFF" />
+        <ActivityIndicator size="large" color={theme.primary} />
       </SafeAreaView>
     );
   }
@@ -413,7 +731,7 @@ export default function SharedInstanceScreen() {
             <Text style={styles.sectionLabel}>ACTIONS</Text>
             <View style={styles.card}>
               {acting ? (
-                <ActivityIndicator color="#FF3B30" style={{ paddingVertical: 16 }} />
+                <ActivityIndicator color={theme.destructive} style={{ paddingVertical: 16 }} />
               ) : myRole === 'owner' ? (
                 <TouchableOpacity
                   onPress={handleStopSharing}
@@ -440,232 +758,50 @@ export default function SharedInstanceScreen() {
             </View>
           </>
         )}
+
+        {/* ── Section 4: Recent Activity ────────────────────────────────── */}
+        <TouchableOpacity
+          onPress={() => setActivityCollapsed((c) => !c)}
+          activeOpacity={0.7}
+          style={styles.activityHeader}
+        >
+          <Text style={[styles.sectionLabel, { marginTop: 0, marginBottom: 0 }]}>
+            RECENT ACTIVITY{activityRows.length > 0 ? ` · ${activityRows.length}` : ''}
+          </Text>
+          <Text style={styles.activityChevron}>{activityCollapsed ? '›' : '⌄'}</Text>
+        </TouchableOpacity>
+        {!activityCollapsed && (
+          <View style={styles.card}>
+            {activityRows.length === 0 ? (
+              <Text style={styles.emptyText}>No activity yet.</Text>
+            ) : (
+              activityRows.map((row, i) => {
+                const editor = row.editor_display_name
+                  || (row.editor_user_id ? truncateId(row.editor_user_id) : 'Unknown');
+                const truncKey = row.key.length > 20 ? `${row.key.slice(0, 20)}…` : row.key;
+                const when = relativeTime(row.written_at);
+                return (
+                  <View key={`${row.key}-${i}`}>
+                    {i > 0 && <View style={styles.separator} />}
+                    <View style={styles.activityRow}>
+                      <View style={styles.activityDot} />
+                      <View style={styles.activityContent}>
+                        <Text style={styles.activityKey} numberOfLines={1}>{truncKey}</Text>
+                        <Text style={styles.activityMeta} numberOfLines={1}>
+                          {editor}{when ? ` · ${when}` : ''}
+                        </Text>
+                      </View>
+                      {row.version != null && (
+                        <Text style={styles.activityVersion}>v{row.version}</Text>
+                      )}
+                    </View>
+                  </View>
+                );
+              })
+            )}
+          </View>
+        )}
       </ScrollView>
     </SafeAreaView>
   );
 }
-
-// ── Styles ────────────────────────────────────────────────────────────────────
-
-const styles = StyleSheet.create({
-  root: {
-    flex: 1,
-    backgroundColor: '#F2F2F7',
-  },
-  center: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#F2F2F7',
-    padding: 32,
-  },
-  emoji: {
-    fontSize: 48,
-    marginBottom: 12,
-  },
-  errorTitle: {
-    fontSize: 20,
-    fontWeight: '600',
-    color: '#1C1C1E',
-    textAlign: 'center',
-    marginBottom: 6,
-  },
-  errorSub: {
-    fontSize: 15,
-    color: '#8E8E93',
-    textAlign: 'center',
-  },
-  link: {
-    fontSize: 17,
-    color: '#007AFF',
-  },
-
-  // Header
-  header: {
-    height: 44,
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#F2F2F7',
-    paddingHorizontal: 4,
-    borderBottomWidth: 0.5,
-    borderBottomColor: '#C6C6C8',
-  },
-  backBtn: {
-    width: 44,
-    height: 44,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  backText: {
-    fontSize: 22,
-    color: '#007AFF',
-    lineHeight: 26,
-  },
-  headerCenter: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-  },
-  headerTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#1C1C1E',
-    flexShrink: 1,
-  },
-  sharedPill: {
-    backgroundColor: '#E8F1FF',
-    borderWidth: 1,
-    borderColor: '#BBD7FF',
-    borderRadius: 8,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-  },
-  sharedPillText: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: '#007AFF',
-  },
-
-  // Frozen banner
-  frozenBanner: {
-    backgroundColor: '#FEF3C7',
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#F59E0B',
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-  },
-  frozenBannerText: {
-    fontSize: 13,
-    color: '#92400E',
-    textAlign: 'center',
-    lineHeight: 18,
-  },
-
-  // Content
-  scrollContent: {
-    padding: 20,
-    gap: 8,
-  },
-  sectionLabel: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#6C6C70',
-    marginBottom: 6,
-    marginTop: 12,
-    letterSpacing: 0.3,
-  },
-  card: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    overflow: 'hidden',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-  },
-
-  // Invite code
-  inviteCode: {
-    fontSize: 36,
-    fontWeight: '700',
-    color: '#1C1C1E',
-    letterSpacing: 4,
-    textAlign: 'center',
-    paddingVertical: 8,
-    fontVariant: ['tabular-nums'],
-  },
-  inviteHint: {
-    fontSize: 13,
-    color: '#8E8E93',
-    textAlign: 'center',
-    marginBottom: 16,
-  },
-  codeButtons: {
-    flexDirection: 'row',
-    gap: 10,
-  },
-  codeBtn: {
-    flex: 1,
-    paddingVertical: 12,
-    borderRadius: 10,
-    alignItems: 'center',
-  },
-  codeBtnOutline: {
-    borderWidth: 1.5,
-    borderColor: '#007AFF',
-  },
-  codeBtnFill: {
-    backgroundColor: '#007AFF',
-  },
-  codeBtnOutlineText: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#007AFF',
-  },
-  codeBtnFillText: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#FFFFFF',
-  },
-
-  // Members
-  memberRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 10,
-    gap: 10,
-  },
-  roleBadge: {
-    borderRadius: 6,
-    paddingHorizontal: 7,
-    paddingVertical: 3,
-  },
-  roleBadgeOwner: {
-    backgroundColor: '#E8F1FF',
-  },
-  roleBadgeMember: {
-    backgroundColor: '#F2F2F7',
-  },
-  roleBadgeText: {
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  roleBadgeOwnerText: {
-    color: '#007AFF',
-  },
-  roleBadgeMemberText: {
-    color: '#6C6C70',
-  },
-  memberUserId: {
-    flex: 1,
-    fontSize: 14,
-    color: '#3C3C43',
-    fontFamily: 'monospace',
-  },
-  separator: {
-    height: 0.5,
-    backgroundColor: '#E5E5EA',
-  },
-  emptyText: {
-    fontSize: 14,
-    color: '#8E8E93',
-    textAlign: 'center',
-    paddingVertical: 8,
-  },
-
-  // Actions
-  actionRow: {
-    paddingVertical: 10,
-  },
-  destructiveText: {
-    fontSize: 17,
-    color: '#FF3B30',
-    fontWeight: '500',
-    marginBottom: 4,
-  },
-  actionSub: {
-    fontSize: 13,
-    color: '#8E8E93',
-    lineHeight: 18,
-  },
-});

@@ -29,6 +29,7 @@ import { usePowerSync } from '@/services/sync/PowerSyncProvider';
 import { handleVaultMessage } from '@/lib/vaultBridge';
 import { log } from '@/lib/logger';
 import { track } from '@/services/analytics';
+import { useTheme, type Colors } from '@/lib/theme';
 
 // ── Viewport fix (all platforms) ─────────────────────────────────────────────
 // • Creates the viewport meta if missing (external apps often omit it)
@@ -51,12 +52,106 @@ const VIEWPORT_FIX_JS = (() => {
   );
 })();
 
+// ── Styles ────────────────────────────────────────────────────────────────────
+
+function makeStyles(theme: Colors) {
+  return StyleSheet.create({
+    root: { flex: 1, backgroundColor: theme.surface },
+    center: {
+      flex: 1,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: theme.surface,
+      gap: 12,
+      padding: 24,
+    },
+    errorTitle: { fontSize: 18, fontWeight: '600', color: theme.label, textAlign: 'center' },
+    errorDetail: { fontSize: 13, color: theme.labelSecondary, textAlign: 'center', lineHeight: 18 },
+    link: { fontSize: 16, color: theme.primary },
+    retryBtn: {
+      marginTop: 8,
+      backgroundColor: theme.primary,
+      borderRadius: 10,
+      paddingHorizontal: 28,
+      paddingVertical: 12,
+    },
+    retryBtnText: { color: '#FFFFFF', fontSize: 16, fontWeight: '600' },
+
+    header: {
+      height: 44,
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: theme.surface,
+      borderBottomWidth: 0.5,
+      borderBottomColor: theme.separator,
+      paddingHorizontal: 4,
+    },
+    headerBtn: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
+    headerBtnRight: { alignItems: 'flex-end', paddingRight: 10 },
+    headerBtnText: { fontSize: 22, color: theme.primary, lineHeight: 26 },
+    headerCenter: {
+      flex: 1,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 6,
+      paddingHorizontal: 4,
+    },
+    headerTitle: { fontSize: 16, fontWeight: '600', color: theme.label, flexShrink: 1 },
+    sharedPill: {
+      marginLeft: 6,
+      backgroundColor: '#E8F1FF',
+      borderWidth: 1,
+      borderColor: '#BBD7FF',
+      borderRadius: 8,
+      paddingHorizontal: 6,
+      paddingVertical: 2,
+    },
+    sharedPillText: { fontSize: 11, fontWeight: '600', color: theme.primary },
+    menuDots: { fontSize: 16, color: theme.primary, letterSpacing: 1.5, lineHeight: 20 },
+
+    frozenBanner: {
+      backgroundColor: '#FEF3C7',
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: '#F59E0B',
+      paddingVertical: 8,
+      paddingHorizontal: 16,
+    },
+    frozenBannerText: { fontSize: 13, color: '#92400E', textAlign: 'center', lineHeight: 18 },
+
+    webContainer: { flex: 1 },
+    webView: { flex: 1 },
+    splashOverlay: {
+      ...StyleSheet.absoluteFillObject,
+      backgroundColor: theme.surface,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    splashIcon: {
+      width: 80,
+      height: 80,
+      borderRadius: 20,
+      alignItems: 'center',
+      justifyContent: 'center',
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 3 },
+      shadowOpacity: 0.1,
+      shadowRadius: 8,
+      elevation: 4,
+      marginBottom: 16,
+    },
+    splashName: { fontSize: 17, fontWeight: '600', color: theme.label },
+  });
+}
+
 // ── Screen ────────────────────────────────────────────────────────────────────
 
 export default function AppScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const db = useDatabase();
   const { db: syncDb } = usePowerSync();
+  const theme = useTheme();
+  const styles = makeStyles(theme);
 
   // Stable ref so loadShimPayload's useCallback can have empty deps.
   // See learning.md #15.
@@ -70,7 +165,14 @@ export default function AppScreen() {
   const [menuVisible, setMenuVisible] = useState(false);
 
   // Buffer for remote updates that arrive before the WebView has loaded
-  const pendingRemoteUpdates = useRef<Array<{ key: string; value: string; version: number }>>([]);
+  const pendingRemoteUpdates = useRef<Array<{
+    key: string;
+    value: string;
+    version: number;
+    lastEditorUserId?: string | null;
+    lastEditorDisplayName?: string | null;
+    writtenAt?: string | null;
+  }>>([]);
 
   // WebView fades in from 0 → 1 once the page finishes loading
   const webOpacity = useSharedValue(0);
@@ -192,7 +294,7 @@ export default function AppScreen() {
   if (phase === 'loading') {
     return (
       <View style={styles.center}>
-        <ActivityIndicator size="large" color="#007AFF" />
+        <ActivityIndicator size="large" color={theme.primary} />
       </View>
     );
   }
@@ -354,7 +456,7 @@ export default function AppScreen() {
               <Text style={{ fontSize: 32 }}>{app.icon_emoji}</Text>
             </View>
             <Text style={styles.splashName}>{app.name}</Text>
-            <ActivityIndicator style={{ marginTop: 20 }} color="#C7C7CC" />
+            <ActivityIndicator style={{ marginTop: 20 }} color={theme.labelTertiary} />
           </View>
         )}
       </View>
@@ -387,93 +489,3 @@ export default function AppScreen() {
     </SafeAreaView>
   );
 }
-
-// ── Styles ────────────────────────────────────────────────────────────────────
-
-const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: '#FFFFFF' },
-  center: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#FFFFFF',
-    gap: 12,
-    padding: 24,
-  },
-  errorTitle: { fontSize: 18, fontWeight: '600', color: '#1C1C1E', textAlign: 'center' },
-  errorDetail: { fontSize: 13, color: '#8E8E93', textAlign: 'center', lineHeight: 18 },
-  link: { fontSize: 16, color: '#007AFF' },
-  retryBtn: {
-    marginTop: 8,
-    backgroundColor: '#007AFF',
-    borderRadius: 10,
-    paddingHorizontal: 28,
-    paddingVertical: 12,
-  },
-  retryBtnText: { color: '#FFFFFF', fontSize: 16, fontWeight: '600' },
-
-  header: {
-    height: 44,
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    borderBottomWidth: 0.5,
-    borderBottomColor: '#E5E5EA',
-    paddingHorizontal: 4,
-  },
-  headerBtn: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
-  headerBtnRight: { alignItems: 'flex-end', paddingRight: 10 },
-  headerBtnText: { fontSize: 22, color: '#007AFF', lineHeight: 26 },
-  headerCenter: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    paddingHorizontal: 4,
-  },
-  headerTitle: { fontSize: 16, fontWeight: '600', color: '#1C1C1E', flexShrink: 1 },
-  sharedPill: {
-    marginLeft: 6,
-    backgroundColor: '#E8F1FF',
-    borderWidth: 1,
-    borderColor: '#BBD7FF',
-    borderRadius: 8,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-  },
-  sharedPillText: { fontSize: 11, fontWeight: '600', color: '#007AFF' },
-  menuDots: { fontSize: 16, color: '#007AFF', letterSpacing: 1.5, lineHeight: 20 },
-
-  frozenBanner: {
-    backgroundColor: '#FEF3C7',
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#F59E0B',
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-  },
-  frozenBannerText: { fontSize: 13, color: '#92400E', textAlign: 'center', lineHeight: 18 },
-
-  webContainer: { flex: 1 },
-  webView: { flex: 1 },
-  splashOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: '#FFFFFF',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  splashIcon: {
-    width: 80,
-    height: 80,
-    borderRadius: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 4,
-    marginBottom: 16,
-  },
-  splashName: { fontSize: 17, fontWeight: '600', color: '#1C1C1E' },
-});

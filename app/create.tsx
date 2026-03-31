@@ -19,6 +19,7 @@ import WebView from 'react-native-webview';
 import { useToast } from '@/components/Toast';
 import { log } from '@/lib/logger';
 import { supabase } from '@/services/supabase';
+import { useTheme, type Colors } from '@/lib/theme';
 
 // ---------- Constants ----------
 
@@ -52,10 +53,297 @@ interface Message {
   content: string;
 }
 
+// ---------- Styles ----------
+
+function makeStyles(theme: Colors) {
+  return StyleSheet.create({
+    root: {
+      flex: 1,
+      backgroundColor: theme.groupedBackground,
+    },
+    flex: {
+      flex: 1,
+    },
+    cancelBtn: {
+      fontSize: 17,
+      color: theme.primary,
+    },
+
+    // Generating overlay
+    generatingOverlay: {
+      flex: 1,
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: 32,
+    },
+    generatingCard: {
+      backgroundColor: theme.surface,
+      borderRadius: 20,
+      padding: 32,
+      alignItems: 'center',
+      width: '100%',
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.08,
+      shadowRadius: 12,
+      elevation: 4,
+    },
+    generatingEmoji: {
+      fontSize: 48,
+    },
+    generatingMsg: {
+      fontSize: 17,
+      fontWeight: '600',
+      color: theme.label,
+      marginTop: 20,
+      textAlign: 'center',
+    },
+    generatingHint: {
+      fontSize: 13,
+      color: theme.labelSecondary,
+      marginTop: 8,
+    },
+
+    // Scroll content
+    scrollContent: {
+      padding: 16,
+      paddingBottom: 8,
+      flexGrow: 1,
+    },
+
+    // Idle hero
+    idleHero: {
+      alignItems: 'center',
+      paddingTop: 24,
+      paddingBottom: 16,
+      gap: 8,
+    },
+    heroEmoji: {
+      fontSize: 56,
+    },
+    heroTitle: {
+      fontSize: 22,
+      fontWeight: '700',
+      color: theme.label,
+      marginTop: 8,
+      textAlign: 'center',
+    },
+    heroSubtitle: {
+      fontSize: 15,
+      color: theme.labelSecondary,
+      textAlign: 'center',
+      lineHeight: 21,
+      paddingHorizontal: 16,
+    },
+    examplesCard: {
+      width: '100%',
+      backgroundColor: theme.surface,
+      borderRadius: 14,
+      overflow: 'hidden',
+      marginTop: 20,
+    },
+    examplesLabel: {
+      fontSize: 11,
+      fontWeight: '700',
+      color: theme.labelSecondary,
+      letterSpacing: 0.6,
+      paddingHorizontal: 16,
+      paddingTop: 14,
+      paddingBottom: 8,
+    },
+    exampleRow: {
+      paddingHorizontal: 16,
+      paddingVertical: 13,
+      borderTopWidth: 0.5,
+      borderTopColor: theme.separator,
+    },
+    exampleRowPressed: {
+      backgroundColor: theme.groupedBackground,
+    },
+    exampleText: {
+      fontSize: 15,
+      color: theme.primary,
+      lineHeight: 20,
+    },
+
+    // Error
+    errorBox: {
+      backgroundColor: '#FEE2E2',
+      borderRadius: 14,
+      padding: 20,
+      marginTop: 16,
+      gap: 8,
+      alignItems: 'center',
+    },
+    errorTitle: {
+      fontSize: 16,
+      fontWeight: '600',
+      color: '#B91C1C',
+    },
+    errorMsg: {
+      fontSize: 14,
+      color: '#7F1D1D',
+      textAlign: 'center',
+      lineHeight: 20,
+    },
+    errorRetryBtn: {
+      marginTop: 8,
+      backgroundColor: '#B91C1C',
+      paddingHorizontal: 24,
+      paddingVertical: 10,
+      borderRadius: 10,
+    },
+    errorRetryText: {
+      color: '#FFFFFF',
+      fontSize: 15,
+      fontWeight: '600',
+    },
+
+    // Preview
+    previewContainer: {
+      gap: 12,
+    },
+    appInfoRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 12,
+      paddingHorizontal: 4,
+    },
+    appIconBox: {
+      width: 52,
+      height: 52,
+      borderRadius: 13,
+      alignItems: 'center',
+      justifyContent: 'center',
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.08,
+      shadowRadius: 4,
+      elevation: 2,
+    },
+    appIconEmoji: {
+      fontSize: 26,
+    },
+    appInfoText: {
+      flex: 1,
+      gap: 2,
+    },
+    appTitle: {
+      fontSize: 17,
+      fontWeight: '700',
+      color: theme.label,
+    },
+    appDesc: {
+      fontSize: 13,
+      color: theme.labelSecondary,
+    },
+    webViewWrapper: {
+      height: 420,
+      borderRadius: 14,
+      overflow: 'hidden',
+      backgroundColor: theme.surface,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.06,
+      shadowRadius: 8,
+      elevation: 2,
+    },
+    webView: {
+      flex: 1,
+    },
+    webViewLoading: {
+      ...StyleSheet.absoluteFillObject,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: theme.surface,
+    },
+    refineHint: {
+      fontSize: 12,
+      color: theme.labelSecondary,
+      textAlign: 'center',
+    },
+    actionRow: {
+      flexDirection: 'row',
+      gap: 10,
+    },
+    shareBtn: {
+      flex: 1,
+      paddingVertical: 14,
+      borderRadius: 12,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: theme.surface,
+      borderWidth: 1.5,
+      borderColor: theme.primary,
+    },
+    shareBtnText: {
+      color: theme.primary,
+      fontSize: 16,
+      fontWeight: '600',
+    },
+    installBtn: {
+      flex: 2,
+      paddingVertical: 14,
+      borderRadius: 12,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: theme.primary,
+    },
+    installBtnText: {
+      color: '#FFFFFF',
+      fontSize: 16,
+      fontWeight: '600',
+    },
+
+    // Input bar
+    inputBar: {
+      flexDirection: 'row',
+      alignItems: 'flex-end',
+      gap: 10,
+      paddingHorizontal: 16,
+      paddingTop: 10,
+      paddingBottom: 12,
+      backgroundColor: theme.surface,
+      borderTopWidth: 0.5,
+      borderTopColor: theme.separator,
+    },
+    promptInput: {
+      flex: 1,
+      minHeight: 44,
+      maxHeight: 120,
+      fontSize: 16,
+      color: theme.label,
+      backgroundColor: theme.groupedBackground,
+      borderRadius: 12,
+      paddingHorizontal: 14,
+      paddingVertical: 10,
+      lineHeight: 22,
+    },
+    sendBtn: {
+      width: 44,
+      height: 44,
+      borderRadius: 22,
+      backgroundColor: theme.primary,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    sendBtnDisabled: {
+      backgroundColor: theme.labelTertiary,
+    },
+    sendBtnText: {
+      fontSize: 18,
+      color: '#FFFFFF',
+      fontWeight: '700',
+    },
+  });
+}
+
 // ---------- Screen ----------
 
 export default function CreateScreen() {
   const { showToast } = useToast();
+  const theme = useTheme();
+  const styles = makeStyles(theme);
 
   const [prompt, setPrompt] = useState('');
   const [status, setStatus] = useState<Status>('idle');
@@ -235,8 +523,8 @@ export default function CreateScreen() {
         options={{
           title: 'Create with AI',
           headerShown: true,
-          headerStyle: { backgroundColor: '#FFFFFF' },
-          headerTitleStyle: { color: '#1C1C1E', fontWeight: '600' },
+          headerStyle: { backgroundColor: theme.surface },
+          headerTitleStyle: { color: theme.label, fontWeight: '600' },
           headerLeft: () => (
             <TouchableOpacity
               onPress={() => router.back()}
@@ -260,7 +548,7 @@ export default function CreateScreen() {
             <View style={styles.generatingOverlay}>
               <View style={styles.generatingCard}>
                 <Text style={styles.generatingEmoji}>✨</Text>
-                <ActivityIndicator size="large" color="#007AFF" style={{ marginTop: 16 }} />
+                <ActivityIndicator size="large" color={theme.primary} style={{ marginTop: 16 }} />
                 <Text style={styles.generatingMsg}>
                   {LOADING_MESSAGES[loadingMsgIndex]}
                 </Text>
@@ -353,7 +641,7 @@ export default function CreateScreen() {
                       startInLoadingState
                       renderLoading={() => (
                         <View style={styles.webViewLoading}>
-                          <ActivityIndicator color="#007AFF" />
+                          <ActivityIndicator color={theme.primary} />
                         </View>
                       )}
                     />
@@ -398,7 +686,7 @@ export default function CreateScreen() {
                     ? 'Refine: "Make buttons bigger", "Add dark mode"...'
                     : 'Describe the app you want to create...'
                 }
-                placeholderTextColor="#C7C7CC"
+                placeholderTextColor={theme.labelTertiary}
                 style={styles.promptInput}
                 multiline
                 returnKeyType="default"
@@ -425,286 +713,3 @@ export default function CreateScreen() {
     </>
   );
 }
-
-// ---------- Styles ----------
-
-const styles = StyleSheet.create({
-  root: {
-    flex: 1,
-    backgroundColor: '#F2F2F7',
-  },
-  flex: {
-    flex: 1,
-  },
-  cancelBtn: {
-    fontSize: 17,
-    color: '#007AFF',
-  },
-
-  // Generating overlay
-  generatingOverlay: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 32,
-  },
-  generatingCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 20,
-    padding: 32,
-    alignItems: 'center',
-    width: '100%',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    elevation: 4,
-  },
-  generatingEmoji: {
-    fontSize: 48,
-  },
-  generatingMsg: {
-    fontSize: 17,
-    fontWeight: '600',
-    color: '#1C1C1E',
-    marginTop: 20,
-    textAlign: 'center',
-  },
-  generatingHint: {
-    fontSize: 13,
-    color: '#8E8E93',
-    marginTop: 8,
-  },
-
-  // Scroll content
-  scrollContent: {
-    padding: 16,
-    paddingBottom: 8,
-    flexGrow: 1,
-  },
-
-  // Idle hero
-  idleHero: {
-    alignItems: 'center',
-    paddingTop: 24,
-    paddingBottom: 16,
-    gap: 8,
-  },
-  heroEmoji: {
-    fontSize: 56,
-  },
-  heroTitle: {
-    fontSize: 22,
-    fontWeight: '700',
-    color: '#1C1C1E',
-    marginTop: 8,
-    textAlign: 'center',
-  },
-  heroSubtitle: {
-    fontSize: 15,
-    color: '#8E8E93',
-    textAlign: 'center',
-    lineHeight: 21,
-    paddingHorizontal: 16,
-  },
-  examplesCard: {
-    width: '100%',
-    backgroundColor: '#FFFFFF',
-    borderRadius: 14,
-    overflow: 'hidden',
-    marginTop: 20,
-  },
-  examplesLabel: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#8E8E93',
-    letterSpacing: 0.6,
-    paddingHorizontal: 16,
-    paddingTop: 14,
-    paddingBottom: 8,
-  },
-  exampleRow: {
-    paddingHorizontal: 16,
-    paddingVertical: 13,
-    borderTopWidth: 0.5,
-    borderTopColor: '#E5E5EA',
-  },
-  exampleRowPressed: {
-    backgroundColor: '#F2F2F7',
-  },
-  exampleText: {
-    fontSize: 15,
-    color: '#007AFF',
-    lineHeight: 20,
-  },
-
-  // Error
-  errorBox: {
-    backgroundColor: '#FEE2E2',
-    borderRadius: 14,
-    padding: 20,
-    marginTop: 16,
-    gap: 8,
-    alignItems: 'center',
-  },
-  errorTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#B91C1C',
-  },
-  errorMsg: {
-    fontSize: 14,
-    color: '#7F1D1D',
-    textAlign: 'center',
-    lineHeight: 20,
-  },
-  errorRetryBtn: {
-    marginTop: 8,
-    backgroundColor: '#B91C1C',
-    paddingHorizontal: 24,
-    paddingVertical: 10,
-    borderRadius: 10,
-  },
-  errorRetryText: {
-    color: '#FFFFFF',
-    fontSize: 15,
-    fontWeight: '600',
-  },
-
-  // Preview
-  previewContainer: {
-    gap: 12,
-  },
-  appInfoRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    paddingHorizontal: 4,
-  },
-  appIconBox: {
-    width: 52,
-    height: 52,
-    borderRadius: 13,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 4,
-    elevation: 2,
-  },
-  appIconEmoji: {
-    fontSize: 26,
-  },
-  appInfoText: {
-    flex: 1,
-    gap: 2,
-  },
-  appTitle: {
-    fontSize: 17,
-    fontWeight: '700',
-    color: '#1C1C1E',
-  },
-  appDesc: {
-    fontSize: 13,
-    color: '#8E8E93',
-  },
-  webViewWrapper: {
-    height: 420,
-    borderRadius: 14,
-    overflow: 'hidden',
-    backgroundColor: '#FFFFFF',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 8,
-    elevation: 2,
-  },
-  webView: {
-    flex: 1,
-  },
-  webViewLoading: {
-    ...StyleSheet.absoluteFillObject,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#FFFFFF',
-  },
-  refineHint: {
-    fontSize: 12,
-    color: '#8E8E93',
-    textAlign: 'center',
-  },
-  actionRow: {
-    flexDirection: 'row',
-    gap: 10,
-  },
-  shareBtn: {
-    flex: 1,
-    paddingVertical: 14,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1.5,
-    borderColor: '#007AFF',
-  },
-  shareBtnText: {
-    color: '#007AFF',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  installBtn: {
-    flex: 2,
-    paddingVertical: 14,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#007AFF',
-  },
-  installBtnText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-
-  // Input bar
-  inputBar: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    gap: 10,
-    paddingHorizontal: 16,
-    paddingTop: 10,
-    paddingBottom: 12,
-    backgroundColor: '#FFFFFF',
-    borderTopWidth: 0.5,
-    borderTopColor: '#E5E5EA',
-  },
-  promptInput: {
-    flex: 1,
-    minHeight: 44,
-    maxHeight: 120,
-    fontSize: 16,
-    color: '#1C1C1E',
-    backgroundColor: '#F2F2F7',
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    lineHeight: 22,
-  },
-  sendBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: '#007AFF',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  sendBtnDisabled: {
-    backgroundColor: '#C7C7CC',
-  },
-  sendBtnText: {
-    fontSize: 18,
-    color: '#FFFFFF',
-    fontWeight: '700',
-  },
-});

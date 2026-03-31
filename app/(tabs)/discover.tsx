@@ -1,11 +1,15 @@
 import { Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { useTheme } from '@/lib/theme';
+
 export default function DiscoverScreen() {
+  const theme = useTheme();
+
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: '#FFFFFF' }}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: theme.surface }}>
       <View style={{ paddingHorizontal: 20, paddingTop: 8, paddingBottom: 12 }}>
-        <Text style={{ fontSize: 34, fontWeight: '700', color: '#1C1C1E', letterSpacing: 0.3 }}>
+        <Text style={{ fontSize: 34, fontWeight: '700', color: theme.label, letterSpacing: 0.3 }}>
           Discover
         </Text>
       </View>
@@ -17,7 +21,7 @@ export default function DiscoverScreen() {
             width: 100,
             height: 100,
             borderRadius: 28,
-            backgroundColor: '#F2F2F7',
+            backgroundColor: theme.background,
             alignItems: 'center',
             justifyContent: 'center',
             marginBottom: 24,
@@ -26,10 +30,10 @@ export default function DiscoverScreen() {
           <Text style={{ fontSize: 52 }}>🔮</Text>
         </View>
 
-        <Text style={{ fontSize: 20, fontWeight: '600', color: '#1C1C1E', textAlign: 'center', marginBottom: 10 }}>
+        <Text style={{ fontSize: 20, fontWeight: '600', color: theme.label, textAlign: 'center', marginBottom: 10 }}>
           Coming soon
         </Text>
-        <Text style={{ fontSize: 15, color: '#8E8E93', textAlign: 'center', lineHeight: 22 }}>
+        <Text style={{ fontSize: 15, color: theme.labelSecondary, textAlign: 'center', lineHeight: 22 }}>
           Browse and share app templates with the Cottix community.
         </Text>
       </View>
