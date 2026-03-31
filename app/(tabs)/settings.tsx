@@ -7,7 +7,6 @@ import * as Sharing from 'expo-sharing';
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   Alert,
-  Appearance,
   Modal,
   ScrollView,
   Switch,
@@ -24,7 +23,7 @@ import { useDatabase } from '@/hooks/useDatabase';
 import { useInstalledApps } from '@/hooks/useInstalledApps';
 import { useUserProfile, type PlanType } from '@/hooks/useUserProfile';
 import { log } from '@/lib/logger';
-import { useTheme, type Colors } from '@/lib/theme';
+import { useTheme, useSetTheme, type Colors, type ThemeMode } from '@/lib/theme';
 import { track } from '@/services/analytics';
 import { supabase } from '../../services/supabase';
 import { usePowerSync } from '../../services/sync/PowerSyncProvider';
@@ -283,6 +282,7 @@ export default function SettingsScreen() {
   const db = useDatabase();
   const { db: syncDb, isConnected } = usePowerSync();
   const theme = useTheme();
+  const setAppTheme = useSetTheme();
 
   const [appLock, setAppLock] = useState(false);
   const [autoUpdate, setAutoUpdate] = useState(true);
@@ -296,6 +296,7 @@ export default function SettingsScreen() {
   const [newKeyName, setNewKeyName] = useState('');
   const [newKeyValue, setNewKeyValue] = useState('');
   const [appearance, setAppearance] = useState<'light' | 'dark' | 'system'>('light');
+  const [pendingJoins, setPendingJoins] = useState<{ instance_id: string; invite_code: string; app_name: string }[]>([]);
   const [editProfileVisible, setEditProfileVisible] = useState(false);
   const [editName, setEditName] = useState('');
   const [editEmoji, setEditEmoji] = useState('👤');
@@ -316,6 +317,27 @@ export default function SettingsScreen() {
       refreshProfile();
     }, [refreshProfile])
   );
+
+  // Load pending join requests from local SQLite whenever Settings is focused.
+  const loadPendingJoins = useCallback(async () => {
+    try {
+      const rows = await db.getAllAsync<{ key: string; value: string }>(
+        `SELECT key, value FROM shared_data WHERE category = 'pending_joins' ORDER BY updated_at DESC`
+      );
+      setPendingJoins(
+        rows.map((r) => {
+          try {
+            const parsed = JSON.parse(r.value) as { invite_code: string; app_name: string };
+            return { instance_id: r.key, invite_code: parsed.invite_code, app_name: parsed.app_name };
+          } catch {
+            return null;
+          }
+        }).filter((x): x is NonNullable<typeof x> => x !== null)
+      );
+    } catch { /* non-critical */ }
+  }, [db]);
+
+  useFocusEffect(useCallback(() => { void loadPendingJoins(); }, [loadPendingJoins]));
 
   // Load stored API key names whenever Settings is focused.
   const loadSecrets = useCallback(async () => {
@@ -411,9 +433,9 @@ export default function SettingsScreen() {
         if (storageRow) setStorageUsed(storageRow.total ?? 0);
         setBiometricAvailable(biometric);
         if (appearanceRow) {
-          const val = appearanceRow.value as 'light' | 'dark' | 'system';
+          const val = appearanceRow.value as ThemeMode;
           setAppearance(val);
-          if (val !== 'system') Appearance.setColorScheme(val);
+          setAppTheme(val);
         }
       } catch {
         // non-critical, defaults are fine
@@ -494,7 +516,7 @@ export default function SettingsScreen() {
           text: label + (appearance === value ? ' ✓' : ''),
           onPress: async () => {
             setAppearance(value);
-            if (value !== 'system') Appearance.setColorScheme(value);
+            setAppTheme(value);
             await savePref('appearance', value);
           },
         })),
@@ -801,6 +823,20 @@ export default function SettingsScreen() {
                 value={isConnected ? 'Connected ✓' : 'Offline'}
                 theme={theme}
               />
+              {pendingJoins.length > 0 && (
+                <>
+                  {pendingJoins.map((pj) => (
+                    <Row
+                      key={pj.instance_id}
+                      kind="chevron"
+                      label={`⏳ ${pj.app_name}`}
+                      value="Pending approval"
+                      onPress={() => router.push(`/join-shared-app?code=${pj.invite_code}` as any)}
+                      theme={theme}
+                    />
+                  ))}
+                </>
+              )}
               <Row
                 kind="chevron"
                 label="Join Shared App"

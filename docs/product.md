@@ -43,6 +43,7 @@ Secondary: Individual vibe-coders building for themselves (lower conversion, hig
 - [2026-03-24] API keys are account-level not app-level — single SecureStore entry per key name, works across all mini-apps.
 - [2026-03-19] AI generation: Supabase Edge Function → Claude Sonnet 4.6 → Cloudflare KV → apps.cottix.co/{appId}. Rate limit: 20/user/day.
 - [2026-03-18] Shared instance freeze: when owner downgrades plan, existing shared instances freeze (not deleted). Unfreeze on upgrade. Owner sees amber banner.
+- [2026-03-31] Discover tab replaced with Guide tab: interactive onboarding + help reference (7 sections: Overview, Install, Share, API Keys, Tips, Limits, FAQ). Discover was a placeholder with no content; Guide serves both first-time users and power users looking up how things work.
 - [2026-03-XX] Admin panel: defer until non-technical team needs it. Retool when the time comes.
 - [2026-03-XX] Analytics: PostHog + Sentry. Integrate just before sharing with real testers — not before.
 - [2026-03-XX] Push notifications: Expo Push API + Supabase Edge Functions. No third-party service needed.

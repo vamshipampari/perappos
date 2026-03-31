@@ -60,6 +60,8 @@ const instanceMembers = new Table(
     user_id: column.text,
     role: column.text,
     joined_at: column.text,
+    // ─── Join approval ───
+    status: column.text, // 'pending' | 'active' | 'rejected'
   },
   { indexes: { by_instance: ["instance_id"] } },
 );

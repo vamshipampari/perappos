@@ -8,7 +8,7 @@ Capture a learning correctly.
 ## If called with 'refactor':
 
 1. Read `.claude/learning.md` in full
-2. The critical patterns section should have max 15 lines. Prune any that are redundant or too generic.
+2. The critical patterns section should have max 30 lines. Prune any that are redundant or too generic.
 3. The session log should have max 30 days. Remove anything older.
 4. Show me the full diff before writing anything. Wait for approval.
 

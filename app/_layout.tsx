@@ -14,6 +14,7 @@ import { useUserChangeGuard } from '@/hooks/useUserChangeGuard';
 import { ToastProvider } from '@/components/Toast';
 import { cleanupExpiredUpdateBackups } from '@/lib/appUpdates';
 import { log } from '@/lib/logger';
+import { ThemeProvider, useSetTheme, type ThemeMode } from '@/lib/theme';
 import { seedDemoApps } from '@/utils/createDemoApp';
 import { PowerSyncProvider } from '../services/sync/PowerSyncProvider';
 import { supabase } from '../services/supabase';
@@ -86,10 +87,55 @@ const initializeDatabase = async (db: import('expo-sqlite').SQLiteDatabase) => {
   } catch {
     // Column already exists — safe to ignore.
   }
+  try {
+    await db.execAsync('ALTER TABLE apps ADD COLUMN folder_id TEXT');
+  } catch {
+    // Column already exists — safe to ignore.
+  }
+
+  // Folders table — local only, no PowerSync sync needed.
+  await db.execAsync(`
+    CREATE TABLE IF NOT EXISTS folders (
+      folder_id TEXT PRIMARY KEY,
+      parent_folder_id TEXT,
+      name TEXT NOT NULL,
+      icon_emoji TEXT DEFAULT '📁',
+      created_at TEXT DEFAULT (datetime('now')),
+      order_index INTEGER DEFAULT 0
+    );
+  `);
 
   await seedDemoApps(db);
   await cleanupExpiredUpdateBackups(db);
 };
+
+// ── Theme Initializer ─────────────────────────────────────────────────────────
+// Must live inside SQLiteProvider so it can read the stored preference.
+// Reads once on mount and pushes it into ThemeContext, which propagates
+// to all mounted screens regardless of focus state.
+
+function ThemeInitializer() {
+  const db = useSQLiteContext();
+  const setTheme = useSetTheme();
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const row = await db.getFirstAsync<{ value: string }>(
+          `SELECT value FROM shared_data WHERE category='settings' AND key='appearance'`
+        );
+        if (row?.value) {
+          setTheme(row.value as ThemeMode);
+        }
+      } catch {
+        // non-critical — default (system) is fine
+      }
+    })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  return null;
+}
 
 // ── App Lock Gate ─────────────────────────────────────────────────────────────
 // Reads the 'app_lock' setting from shared_data. When enabled, listens for
@@ -333,6 +379,7 @@ export default function RootLayout() {
   }
 
   return (
+    <ThemeProvider>
     <Suspense
       fallback={
         <View className="flex-1 items-center justify-center bg-white">
@@ -341,6 +388,7 @@ export default function RootLayout() {
       }
     >
       <SQLiteProvider databaseName={DB_NAME} onInit={initializeDatabase} useSuspense>
+        <ThemeInitializer />
         <PowerSyncProvider>
           <AuthChangeGuard>
             <ToastProvider>
@@ -409,5 +457,6 @@ export default function RootLayout() {
         </PowerSyncProvider>
       </SQLiteProvider>
     </Suspense>
+    </ThemeProvider>
   );
 }

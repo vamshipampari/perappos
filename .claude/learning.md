@@ -27,6 +27,7 @@
 
 ## Session log (rolling — keep last 30 days only)
 
+2026-03-31: Guide tab replacing Discover · GuideAtoms + GuideSections components · 7 interactive sections with expandable cards, step lists, callouts
 2026-03-31: Login UX (forgot password, show/hide, duplicate email) · Settings fixes (app lock, edit profile, appearance) · Dark theme system (lib/theme.ts + 15 files)
 2026-03-31: Write attribution (shared_app_data + history table) · _addedBy stamping · VaultAPI.collaboration · activity panel on Manage Group
 2026-03-26: API Keys UI + version tracking · installed_apps PK fix (${userId}/${appId})

@@ -5,7 +5,7 @@ import { supabase } from './supabase';
 
 type EventName =
   | 'app_opened' | 'app_installed' | 'app_opened_webview'
-  | 'share_created' | 'share_joined' | 'signup_completed'
+  | 'share_created' | 'share_joined' | 'share_join_requested' | 'signup_completed'
   | 'login_completed' | 'promo_redeemed' | 'feedback_submitted';
 
 export async function track(

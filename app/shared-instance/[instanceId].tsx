@@ -27,7 +27,12 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useToast } from '@/components/Toast';
 import { useDatabase } from '@/hooks/useDatabase';
 import { usePowerSync } from '../../services/sync/PowerSyncProvider';
-import { leaveSharedGroup, stopSharingAsOwner } from '../../services/collaborationService';
+import {
+  leaveSharedGroup,
+  stopSharingAsOwner,
+  approveMember,
+  rejectMember,
+} from '../../services/collaborationService';
 import { supabase } from '../../services/supabase';
 import { useTheme, type Colors } from '@/lib/theme';
 
@@ -44,6 +49,14 @@ interface MemberRow {
   user_id: string;
   role: 'owner' | 'member';
   joined_at: string;
+  status: string;
+  email: string | null;
+}
+
+interface PendingMemberRow {
+  user_id: string;
+  joined_at: string;
+  email: string | null;
 }
 
 interface ActivityRow {
@@ -302,6 +315,47 @@ function makeStyles(theme: Colors) {
       lineHeight: 18,
     },
 
+    // Pending requests
+    pendingRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingVertical: 10,
+      gap: 10,
+    },
+    pendingInfo: {
+      flex: 1,
+    },
+    pendingUserId: {
+      fontSize: 14,
+      color: theme.label,
+      fontFamily: 'monospace',
+    },
+    pendingMeta: {
+      fontSize: 12,
+      color: theme.labelSecondary,
+      marginTop: 2,
+    },
+    pendingActions: {
+      flexDirection: 'row',
+      gap: 8,
+    },
+    approveBtn: {
+      width: 32,
+      height: 32,
+      borderRadius: 8,
+      backgroundColor: '#D1FAE5',
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    rejectBtn: {
+      width: 32,
+      height: 32,
+      borderRadius: 8,
+      backgroundColor: '#FEE2E2',
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+
     // Activity panel
     activityHeader: {
       flexDirection: 'row',
@@ -366,6 +420,7 @@ export default function SharedInstanceScreen() {
   const [acting, setActing] = useState(false);
   const [instance, setInstance] = useState<SharedInstanceRow | null>(null);
   const [members, setMembers] = useState<MemberRow[]>([]);
+  const [pendingMembers, setPendingMembers] = useState<PendingMemberRow[]>([]);
   const [myUserId, setMyUserId] = useState<string | null>(null);
   const [myRole, setMyRole] = useState<'owner' | 'member' | null>(null);
   const [isFrozen, setIsFrozen] = useState(false);
@@ -462,18 +517,57 @@ export default function SharedInstanceScreen() {
         }
       }
 
-      // 4. Load members from PowerSync local.
-      let memberRows = await syncDb.getAll<MemberRow>(
-        'SELECT user_id, role, joined_at FROM instance_members WHERE instance_id = ? ORDER BY role DESC, joined_at ASC',
-        [instanceId]
-      );
+      // 4. Load members from Supabase directly (active only).
+      // We query Supabase instead of PowerSync local because the `status` column
+      // may not be in the PowerSync sync rules yet, causing pending members to
+      // appear alongside active ones (both have status = NULL locally).
+      let memberRows: MemberRow[] = [];
+      try {
+        const { data: memberData } = await supabase
+          .from('instance_members')
+          .select('user_id, role, joined_at, status, email')
+          .eq('instance_id', instanceId)
+          .or('status.eq.active,status.is.null')
+          .order('role', { ascending: false })
+          .order('joined_at', { ascending: true });
+        memberRows = (memberData as MemberRow[] | null) ?? [];
+      } catch (memberErr) {
+        log.warn('[manage-group] members load from Supabase failed, falling back to local:', memberErr);
+        // Fallback to PowerSync local if Supabase fails
+        memberRows = await syncDb.getAll<MemberRow>(
+          `SELECT user_id, role, joined_at, status
+           FROM instance_members
+           WHERE instance_id = ? AND (status = 'active' OR status IS NULL)
+           ORDER BY role DESC, joined_at ASC`,
+          [instanceId]
+        );
+      }
 
-      // If we have the instance (possibly from fallback) but no members in local,
+      // If we have the instance (possibly from fallback) but no members at all,
       // synthesise a row for the current user so the Actions section is shown.
       if (instanceRow && memberRows.length === 0 && userId) {
         const myGuessedRole: 'owner' | 'member' =
           instanceRow.owner_id === userId ? 'owner' : 'member';
-        memberRows = [{ user_id: userId, role: myGuessedRole, joined_at: '' }];
+        memberRows = [{ user_id: userId, role: myGuessedRole, joined_at: '', status: 'active', email: null }];
+      }
+
+      // 4b. Load pending members from Supabase directly (owner only).
+      // We query Supabase instead of PowerSync local because the `status` column
+      // may not be in the PowerSync sync rules yet, meaning local rows have
+      // status = NULL and `WHERE status = 'pending'` returns nothing.
+      let pendingRows: PendingMemberRow[] = [];
+      if (instanceRow?.owner_id === userId && userId) {
+        try {
+          const { data: pendingData } = await supabase
+            .from('instance_members')
+            .select('user_id, joined_at, email')
+            .eq('instance_id', instanceId)
+            .eq('status', 'pending')
+            .order('joined_at', { ascending: true });
+          pendingRows = (pendingData as PendingMemberRow[] | null) ?? [];
+        } catch (pendingErr) {
+          log.warn('[manage-group] pending members load failed:', pendingErr);
+        }
       }
 
       // 5. Load recent activity from shared_app_data_history (full audit log).
@@ -498,6 +592,7 @@ export default function SharedInstanceScreen() {
       setInstance(instanceRow ?? null);
       setIsFrozen(instanceRow?.is_frozen === 1);
       setMembers(memberRows);
+      setPendingMembers(pendingRows);
       setActivityRows(activity);
 
       if (userId && memberRows.length > 0) {
@@ -606,6 +701,63 @@ export default function SharedInstanceScreen() {
     );
   }, [db, instance, showToast, syncDb]);
 
+  // ── Approve pending member ───────────────────────────────────────────────────
+
+  const handleApprove = useCallback(
+    (pendingUserId: string, pendingEmail?: string | null) => {
+      if (!instance) return;
+      Alert.alert(
+        'Approve request?',
+        `Allow ${pendingEmail ?? truncateId(pendingUserId)} to join the shared group?`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Approve',
+            onPress: async () => {
+              try {
+                await approveMember(syncDb, instance.instance_id, pendingUserId);
+                showToast('User approved', 'success');
+                await load();
+              } catch (e) {
+                Alert.alert('Failed', e instanceof Error ? e.message : 'Could not approve request.');
+              }
+            },
+          },
+        ]
+      );
+    },
+    [instance, syncDb, showToast, load]
+  );
+
+  // ── Reject pending member ────────────────────────────────────────────────────
+
+  const handleReject = useCallback(
+    (pendingUserId: string, pendingEmail?: string | null) => {
+      if (!instance) return;
+      Alert.alert(
+        'Deny request?',
+        `Remove ${pendingEmail ?? truncateId(pendingUserId)}'s join request?`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Deny',
+            style: 'destructive',
+            onPress: async () => {
+              try {
+                await rejectMember(syncDb, instance.instance_id, pendingUserId);
+                showToast('Request denied', 'success');
+                await load();
+              } catch (e) {
+                Alert.alert('Failed', e instanceof Error ? e.message : 'Could not deny request.');
+              }
+            },
+          },
+        ]
+      );
+    },
+    [instance, syncDb, showToast, load]
+  );
+
   // ── Render: loading ──────────────────────────────────────────────────────────
 
   if (loading) {
@@ -683,6 +835,52 @@ export default function SharedInstanceScreen() {
           </View>
         </View>
 
+        {/* ── Section 1b: Pending Requests (owner only) ───────────────── */}
+        {myRole === 'owner' && (
+          <>
+            <Text style={styles.sectionLabel}>
+              PENDING REQUESTS{pendingMembers.length > 0 ? ` · ${pendingMembers.length}` : ''}
+            </Text>
+            <View style={styles.card}>
+              {pendingMembers.length === 0 ? (
+                <Text style={styles.emptyText}>No pending requests.</Text>
+              ) : (
+                pendingMembers.map((pending, i) => (
+                  <View key={pending.user_id}>
+                    {i > 0 && <View style={styles.separator} />}
+                    <View style={styles.pendingRow}>
+                      <View style={styles.pendingInfo}>
+                        <Text style={styles.pendingUserId} numberOfLines={1}>
+                          {pending.email ?? truncateId(pending.user_id)}
+                        </Text>
+                        <Text style={styles.pendingMeta}>
+                          Requested {relativeTime(pending.joined_at)}
+                        </Text>
+                      </View>
+                      <View style={styles.pendingActions}>
+                        <TouchableOpacity
+                          onPress={() => handleApprove(pending.user_id, pending.email)}
+                          style={styles.approveBtn}
+                          activeOpacity={0.7}
+                        >
+                          <Text style={{ fontSize: 16 }}>✓</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          onPress={() => handleReject(pending.user_id, pending.email)}
+                          style={styles.rejectBtn}
+                          activeOpacity={0.7}
+                        >
+                          <Text style={{ fontSize: 14 }}>✕</Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  </View>
+                ))
+              )}
+            </View>
+          </>
+        )}
+
         {/* ── Section 2: Members ───────────────────────────────────────── */}
         <Text style={styles.sectionLabel}>
           MEMBERS{members.length > 0 ? ` · ${members.length}` : ''}
@@ -715,7 +913,7 @@ export default function SharedInstanceScreen() {
                       </Text>
                     </View>
                     <Text style={styles.memberUserId} numberOfLines={1}>
-                      {truncateId(member.user_id)}
+                      {member.email ?? truncateId(member.user_id)}
                       {isMe ? ' (you)' : ''}
                     </Text>
                   </View>

@@ -1,5 +1,5 @@
-import { router } from 'expo-router';
-import { useRef, useState } from 'react';
+import { router, useLocalSearchParams } from 'expo-router';
+import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -16,7 +16,11 @@ import { useDatabase } from '@/hooks/useDatabase';
 import { useInstalledApps } from '@/hooks/useInstalledApps';
 import { log } from '@/lib/logger';
 import { useTheme } from '@/lib/theme';
-import { joinSharedAppByCode, type SharedInstance } from '@/services/collaborationService';
+import {
+  joinSharedAppByCode,
+  type JoinStatus,
+  type SharedInstance,
+} from '@/services/collaborationService';
 import { reconnectPowerSync } from '@/services/sync/PowerSyncProvider';
 import { supabase } from '@/services/supabase';
 import { track } from '@/services/analytics';
@@ -24,15 +28,51 @@ import { track } from '@/services/analytics';
 export default function JoinSharedAppScreen() {
   const db = useDatabase();
   const { refresh } = useInstalledApps();
+  const params = useLocalSearchParams<{ code?: string }>();
 
-  const [code, setCode] = useState('');
+  const [code, setCode] = useState(params.code ?? '');
   const [preview, setPreview] = useState<SharedInstance | null>(null);
   const [checking, setChecking] = useState(false);
   const [joining, setJoining] = useState(false);
+  const [joinStatus, setJoinStatus] = useState<JoinStatus | null>(null);
+  const [existingMemberStatus, setExistingMemberStatus] = useState<'active' | 'pending' | null>(null);
   const joinStateRef = useRef('idle');
+  const autoTriggered = useRef(false);
 
   const theme = useTheme();
   const normalizedCode = code.trim().toUpperCase();
+
+  // When launched with ?code=XXX (from Settings pending list), auto-trigger check.
+  useEffect(() => {
+    if (params.code && !autoTriggered.current) {
+      autoTriggered.current = true;
+      // Small delay to let the screen mount fully before firing.
+      setTimeout(() => { void handleCheck(); }, 300);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ── Persist / clear pending join in local SQLite ─────────────────────────────
+
+  const savePendingJoin = async (instance: SharedInstance) => {
+    try {
+      await db.runAsync(
+        `INSERT OR REPLACE INTO shared_data (category, key, value, source_app, updated_at)
+         VALUES ('pending_joins', ?, ?, NULL, datetime('now'))`,
+        instance.instance_id,
+        JSON.stringify({ invite_code: instance.invite_code.toUpperCase(), app_name: instance.app_name })
+      );
+    } catch { /* non-critical */ }
+  };
+
+  const clearPendingJoin = async (instanceId: string) => {
+    try {
+      await db.runAsync(
+        `DELETE FROM shared_data WHERE category = 'pending_joins' AND key = ?`,
+        instanceId
+      );
+    } catch { /* non-critical */ }
+  };
 
   const handleCheck = async () => {
     if (normalizedCode.length < 6) {
@@ -41,6 +81,8 @@ export default function JoinSharedAppScreen() {
     }
 
     setChecking(true);
+    setJoinStatus(null);
+    setExistingMemberStatus(null);
     try {
       const { data, error } = await supabase.rpc('lookup_shared_instance', {
         p_invite_code: normalizedCode,
@@ -53,6 +95,23 @@ export default function JoinSharedAppScreen() {
         setPreview(null);
         return;
       }
+
+      // Check if the user is already a member so we can show the right button.
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.user?.id) {
+          const { data: memberRows } = await supabase
+            .from('instance_members')
+            .select('status')
+            .eq('instance_id', instance.instance_id)
+            .eq('user_id', session.user.id)
+            .limit(1);
+          const status = (memberRows as Array<{ status: string }> | null)?.[0]?.status ?? null;
+          if (status === 'active' || status === 'pending') {
+            setExistingMemberStatus(status);
+          }
+        }
+      } catch { /* non-critical */ }
 
       setPreview(instance);
     } catch {
@@ -76,15 +135,29 @@ export default function JoinSharedAppScreen() {
       const result = await joinSharedAppByCode(db, normalizedCode, (state) => {
         joinStateRef.current = state;
       });
-      log.info('App install result:', JSON.stringify(result));
-      // Force PowerSync reconnect so this device immediately receives
-      // other members' shared_app_data rows under the refreshed sync buckets.
-      await reconnectPowerSync();
-      await refresh();
-      void track('share_joined', { instance_id: result.instance.instance_id });
-      setJoining(false);
+      log.info('Join result:', JSON.stringify({ appId: result.appId, status: result.status }));
+
+      setJoinStatus(result.status);
       clearTimeout(timeoutId);
-      router.replace(`/app/${result.appId}`);
+
+      if (result.status === 'already_active') {
+        // User is already approved — clear pending record, reconnect PowerSync, navigate.
+        await clearPendingJoin(result.instance.instance_id);
+        await reconnectPowerSync();
+        await refresh();
+        void track('share_joined', { instance_id: result.instance.instance_id });
+        setJoining(false);
+        router.replace(`/app/${result.appId}`);
+        return;
+      }
+
+      if (result.status === 'pending' || result.status === 'already_pending') {
+        // Request submitted (or still pending) — persist so Settings can show it.
+        await savePendingJoin(result.instance);
+        void track('share_join_requested', { instance_id: result.instance.instance_id });
+        setJoining(false);
+        return;
+      }
     } catch (err) {
       try {
         log.error('Join error:', JSON.stringify(err));
@@ -99,12 +172,15 @@ export default function JoinSharedAppScreen() {
     }
   };
 
+  // ── Render ──────────────────────────────────────────────────────────────────
+
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: theme.surface }} edges={['top', 'bottom']}>
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         style={{ flex: 1 }}
       >
+        {/* Header */}
         <View
           style={{
             flexDirection: 'row',
@@ -133,6 +209,8 @@ export default function JoinSharedAppScreen() {
             onChangeText={(text) => {
               setCode(text.replace(/[^a-zA-Z0-9]/g, '').toUpperCase().slice(0, 8));
               if (preview) setPreview(null);
+              if (joinStatus) setJoinStatus(null);
+              if (existingMemberStatus) setExistingMemberStatus(null);
             }}
             autoCapitalize="characters"
             autoCorrect={false}
@@ -170,11 +248,77 @@ export default function JoinSharedAppScreen() {
           >
             {checking ? <ActivityIndicator size="small" color="#FFFFFF" /> : null}
             <Text style={{ color: '#FFFFFF', fontSize: 16, fontWeight: '600' }}>
-              {checking ? 'Checking…' : 'Join'}
+              {checking ? 'Checking…' : 'Look Up Code'}
             </Text>
           </TouchableOpacity>
 
-          {preview ? (
+          {/* ── Pending confirmation banner ────────────────────────────── */}
+          {(joinStatus === 'pending' || joinStatus === 'already_pending') && (
+            <View
+              style={{
+                marginTop: 22,
+                borderRadius: 14,
+                padding: 20,
+                backgroundColor: '#FFF7ED',
+                borderWidth: 1,
+                borderColor: '#FED7AA',
+                alignItems: 'center',
+                gap: 10,
+              }}
+            >
+              <Text style={{ fontSize: 28 }}>⏳</Text>
+              <Text style={{ fontSize: 17, fontWeight: '600', color: '#92400E', textAlign: 'center' }}>
+                {joinStatus === 'already_pending' ? 'Still waiting for approval' : 'Request sent!'}
+              </Text>
+              <Text style={{ fontSize: 14, color: '#B45309', textAlign: 'center', lineHeight: 20 }}>
+                {joinStatus === 'already_pending'
+                  ? 'Your request is pending. The owner needs to approve it before you can access shared data.'
+                  : `Your join request for "${preview?.app_name ?? 'this app'}" has been sent. The owner will be notified.`}
+              </Text>
+              <View style={{ flexDirection: 'row', gap: 10, marginTop: 4 }}>
+                <TouchableOpacity
+                  onPress={handleJoin}
+                  disabled={joining}
+                  style={{
+                    flex: 1,
+                    paddingHorizontal: 16,
+                    paddingVertical: 10,
+                    borderRadius: 10,
+                    backgroundColor: '#FFFFFF',
+                    borderWidth: 1.5,
+                    borderColor: '#F59E0B',
+                    alignItems: 'center',
+                    flexDirection: 'row',
+                    justifyContent: 'center',
+                    gap: 6,
+                  }}
+                  activeOpacity={0.8}
+                >
+                  {joining ? <ActivityIndicator size="small" color="#F59E0B" /> : null}
+                  <Text style={{ color: '#92400E', fontWeight: '600', fontSize: 14 }}>
+                    {joining ? 'Checking…' : 'Check Status'}
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => router.back()}
+                  style={{
+                    flex: 1,
+                    paddingHorizontal: 16,
+                    paddingVertical: 10,
+                    borderRadius: 10,
+                    backgroundColor: '#F59E0B',
+                    alignItems: 'center',
+                  }}
+                  activeOpacity={0.8}
+                >
+                  <Text style={{ color: '#FFFFFF', fontWeight: '600', fontSize: 14 }}>Got it</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
+
+          {/* ── Preview card (shown before joining) ───────────────────── */}
+          {preview && joinStatus === null ? (
             <View
               style={{
                 marginTop: 22,
@@ -186,11 +330,12 @@ export default function JoinSharedAppScreen() {
               }}
             >
               <Text style={{ fontSize: 17, fontWeight: '600', color: theme.label }}>
-                Join "{preview.app_name}"?
+                Join &quot;{preview.app_name}&quot;?
               </Text>
               <Text style={{ marginTop: 8, fontSize: 14, lineHeight: 20, color: theme.labelSecondary }}>
-                You&apos;ll share data with the group. The app will be installed if you don&apos;t have
-                it already.
+                {existingMemberStatus === 'active'
+                  ? "You're approved — tap to open the app."
+                  : 'Your request will be sent to the owner for approval. Once approved, you\'ll share data with the group.'}
               </Text>
               <TouchableOpacity
                 onPress={handleJoin}
@@ -208,7 +353,9 @@ export default function JoinSharedAppScreen() {
               >
                 {joining ? <ActivityIndicator size="small" color="#FFFFFF" /> : null}
                 <Text style={{ color: '#FFFFFF', fontSize: 16, fontWeight: '600' }}>
-                  {joining ? 'Joining…' : 'Join Shared App'}
+                  {joining
+                    ? (existingMemberStatus === 'active' ? 'Opening…' : 'Sending request…')
+                    : (existingMemberStatus === 'active' ? 'Open App' : 'Request to Join')}
                 </Text>
               </TouchableOpacity>
             </View>

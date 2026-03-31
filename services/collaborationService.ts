@@ -23,6 +23,7 @@ interface InstanceMember {
   user_id: string;
   role: 'owner' | 'member';
   joined_at: string;
+  status: 'pending' | 'active' | 'rejected';
 }
 
 export interface GroupDetails {
@@ -58,7 +59,7 @@ function throwWithStage(stage: string, error: unknown): never {
   throw new Error(`${stage}: ${message}`);
 }
 
-async function getRequiredUserId(): Promise<string> {
+async function getRequiredSession(): Promise<{ userId: string; email: string | null }> {
   const {
     data: { session },
   } = await supabase.auth.getSession();
@@ -67,7 +68,11 @@ async function getRequiredUserId(): Promise<string> {
     throw new Error('You must be signed in to use collaboration.');
   }
 
-  return session.user.id;
+  return { userId: session.user.id, email: session.user.email ?? null };
+}
+
+async function getRequiredUserId(): Promise<string> {
+  return (await getRequiredSession()).userId;
 }
 
 // Use lookup_shared_instance RPC to check uniqueness — avoids direct table select (RLS).
@@ -284,12 +289,14 @@ export async function getSharedGroupDetails(
   };
 }
 
+export type JoinStatus = 'pending' | 'active' | 'already_active' | 'already_pending';
+
 export async function joinSharedAppByCode(
   db: SQLiteDatabase,
   code: string,
   onStateChange?: (state: string) => void
-): Promise<{ appId: string; instance: SharedInstance; alreadyMember: boolean }> {
-  const userId = await getRequiredUserId();
+): Promise<{ appId: string; instance: SharedInstance; status: JoinStatus }> {
+  const { userId, email } = await getRequiredSession();
   const normalizedCode = code.trim().toUpperCase();
   onStateChange?.('lookup_shared_instance');
 
@@ -297,7 +304,6 @@ export async function joinSharedAppByCode(
     throw new Error('Please enter a valid 6-character invite code.');
   }
 
-  // lookup_shared_instance RPC already in use — no direct table access needed.
   const { data, error: lookupError } = await supabase.rpc('lookup_shared_instance', {
     p_invite_code: normalizedCode,
   });
@@ -307,68 +313,126 @@ export async function joinSharedAppByCode(
   if (lookupError || !instance) {
     throw new Error('Invalid invite code. Check and try again.');
   }
-  onStateChange?.('add_instance_member');
+  onStateChange?.('check_existing_membership');
 
-  // Use add_instance_member RPC — bypasses RLS on instance_members.
-  // The RPC is idempotent; if the user is already a member it either no-ops or
-  // returns a duplicate-key error, which we treat as "already a member".
-  const { data: memberAddData, error: addMemberError } = await supabase.rpc('add_instance_member', {
-    p_instance_id: instance.instance_id,
-    p_user_id: userId,
-    p_role: 'member',
-  });
-  log.info(
-    'Member add result:',
-    JSON.stringify(memberAddData),
-    'Error:',
-    JSON.stringify(addMemberError)
-  );
+  // Check if user is already a member (RLS is DISABLED on instance_members — direct query is safe).
+  const { data: existingRows } = await supabase
+    .from('instance_members')
+    .select('status')
+    .eq('instance_id', instance.instance_id)
+    .eq('user_id', userId)
+    .limit(1);
 
-  const alreadyMember =
-    !!addMemberError &&
-    String(addMemberError.message).toLowerCase().includes('duplicate');
+  const existingMember = (existingRows as Array<{ status: string }> | null)?.[0] ?? null;
 
-  if (addMemberError && !alreadyMember) {
-    throw addMemberError;
-  }
+  if (existingMember) {
+    const currentStatus = existingMember.status as 'pending' | 'active' | 'rejected';
 
-  onStateChange?.('check_local_install');
-
-  const installedApp = await db.getFirstAsync<Pick<InstalledApp, 'app_id'>>(
-    'SELECT app_id FROM apps WHERE app_id = ?',
-    instance.app_id
-  );
-
-  let appId = installedApp?.app_id ?? null;
-
-  if (!appId) {
-    if (!instance.app_source_url) {
-      throw new Error('This shared app has no source URL and cannot be auto-installed.');
+    if (currentStatus === 'active') {
+      // Already approved — link local app and navigate.
+      onStateChange?.('check_local_install');
+      const installedApp = await db.getFirstAsync<Pick<InstalledApp, 'app_id'>>(
+        'SELECT app_id FROM apps WHERE app_id = ?',
+        instance.app_id
+      );
+      let appId = installedApp?.app_id ?? null;
+      if (!appId && instance.app_source_url) {
+        onStateChange?.('install_app');
+        appId = await installUrlApp(db, {
+          appId: instance.app_id,
+          name: instance.app_name,
+          iconEmoji: '📱',
+          iconBgColor: '#DBEAFE',
+          url: instance.app_source_url,
+        });
+      }
+      onStateChange?.('link_local_instance');
+      await db.runAsync('UPDATE apps SET instance_id = ? WHERE app_id = ?', [
+        instance.instance_id,
+        instance.app_id,
+      ]);
+      onStateChange?.('complete');
+      return { appId: appId ?? instance.app_id, instance, status: 'already_active' };
     }
 
-    onStateChange?.('install_app');
-    appId = await installUrlApp(db, {
-      appId: instance.app_id,
-      name: instance.app_name,
-      iconEmoji: '📱',
-      iconBgColor: '#DBEAFE',
-      url: instance.app_source_url,
-    });
-    log.info('App install result:', JSON.stringify({ appId, appSourceUrl: instance.app_source_url }));
+    if (currentStatus === 'pending') {
+      return { appId: instance.app_id, instance, status: 'already_pending' };
+    }
+
+    // Rejected — allow re-joining by re-inserting as pending below.
+    await supabase
+      .from('instance_members')
+      .delete()
+      .eq('instance_id', instance.instance_id)
+      .eq('user_id', userId);
   }
 
-  onStateChange?.('link_local_instance');
-  await db.runAsync('UPDATE apps SET instance_id = ? WHERE app_id = ?', [
-    instance.instance_id,
-    instance.app_id,
-  ]);
-  onStateChange?.('complete');
+  onStateChange?.('add_instance_member');
 
-  return {
-    appId,
-    instance: instance as SharedInstance,
-    alreadyMember,
-  };
+  // Insert with status='pending'. RLS is DISABLED on instance_members so direct insert is safe.
+  // Store email so the owner can display it in the pending requests panel.
+  const memberId = Crypto.randomUUID();
+  const { error: insertError } = await supabase.from('instance_members').insert({
+    id: memberId,
+    instance_id: instance.instance_id,
+    user_id: userId,
+    email,
+    role: 'member',
+    status: 'pending',
+    joined_at: new Date().toISOString(),
+  });
+  log.info('Member insert (pending) error:', JSON.stringify(insertError));
+
+  if (insertError) {
+    const isDuplicate = String(insertError.message).toLowerCase().includes('duplicate');
+    if (!isDuplicate) throw insertError;
+    // Race-condition duplicate — treat as already pending.
+    return { appId: instance.app_id, instance, status: 'already_pending' };
+  }
+
+  onStateChange?.('complete');
+  return { appId: instance.app_id, instance, status: 'pending' };
+}
+
+/** Owner approves a pending join request. Updates Supabase + PowerSync local. */
+export async function approveMember(
+  syncDb: AbstractPowerSyncDatabase,
+  instanceId: string,
+  userId: string
+): Promise<void> {
+  const { error } = await supabase
+    .from('instance_members')
+    .update({ status: 'active' })
+    .eq('instance_id', instanceId)
+    .eq('user_id', userId);
+
+  if (error) throw error;
+
+  // Update PowerSync local so the UI reflects the change immediately.
+  await syncDb.execute(
+    `UPDATE instance_members SET status = 'active' WHERE instance_id = ? AND user_id = ?`,
+    [instanceId, userId]
+  );
+}
+
+/** Owner rejects a pending join request. Deletes from Supabase + PowerSync local. */
+export async function rejectMember(
+  syncDb: AbstractPowerSyncDatabase,
+  instanceId: string,
+  userId: string
+): Promise<void> {
+  const { error } = await supabase
+    .from('instance_members')
+    .delete()
+    .eq('instance_id', instanceId)
+    .eq('user_id', userId);
+
+  if (error) throw error;
+
+  await syncDb.execute(
+    `DELETE FROM instance_members WHERE instance_id = ? AND user_id = ?`,
+    [instanceId, userId]
+  );
 }
 
 async function snapshotSharedDataToPersonal(

@@ -5,9 +5,9 @@ import { Haptics, safeImpactAsync } from '@/lib/haptics';
 import { useTheme } from '@/lib/theme';
 import { supabase } from '../../services/supabase';
 
-function TabIcon({ symbol, focused }: { symbol: string; focused: boolean }) {
+function TabIcon({ symbol, color }: { symbol: string; focused: boolean; color: string }) {
   return (
-    <Text style={{ fontSize: 22, opacity: focused ? 1 : 0.5 }}>{symbol}</Text>
+    <Text style={{ fontSize: 22, color }}>{symbol}</Text>
   );
 }
 
@@ -58,14 +58,14 @@ export default function TabLayout() {
         name="index"
         options={{
           title: 'Home',
-          tabBarIcon: ({ focused }) => <TabIcon symbol="⊞" focused={focused} />,
+          tabBarIcon: ({ focused, color }) => <TabIcon symbol="⊞" focused={focused} color={color} />,
         }}
       />
       <Tabs.Screen
         name="guide"
         options={{
           title: 'Guide',
-          tabBarIcon: ({ focused }) => <TabIcon symbol="◎" focused={focused} />,
+          tabBarIcon: ({ focused, color }) => <TabIcon symbol="◎" focused={focused} color={color} />,
         }}
       />
       <Tabs.Screen
@@ -78,7 +78,7 @@ export default function TabLayout() {
         name="settings"
         options={{
           title: 'Settings',
-          tabBarIcon: ({ focused }) => <TabIcon symbol="⚙" focused={focused} />,
+          tabBarIcon: ({ focused, color }) => <TabIcon symbol="⚙" focused={focused} color={color} />,
         }}
       />
     </Tabs>

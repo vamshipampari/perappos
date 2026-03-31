@@ -26,6 +26,17 @@ export interface InstalledApp {
   last_opened: string | null;
   open_count: number;
   instance_id: string | null;
+  folder_id: string | null;
+}
+
+/** Row shape from the local `folders` SQLite table. */
+export interface Folder {
+  folder_id: string;
+  parent_folder_id: string | null;
+  name: string;
+  icon_emoji: string;
+  created_at: string;
+  order_index: number;
 }
 
 /** Subset of InstalledApp passed to the WebView bridge as context. */

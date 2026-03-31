@@ -1,8 +1,21 @@
 # Cottix — Status
 
-**Last Updated**: 2026-03-31 (Session 16)
+**Last Updated**: 2026-03-31 (Session 17)
 
-## Current Sprint: Write Attribution + VaultAPI.collaboration
+## Current Sprint: Guide Tab
+
+### ✅ Session 17 — Guide Tab replacing Discover (2026-03-31)
+
+- Replaced Discover tab (placeholder) with a full interactive Guide tab
+- 7 sections via horizontal scrollable tab pills: Overview, Install, Share, API Keys, Tips, Limits, FAQ
+- Components: `ExpandableCard`, numbered `StepItem`, `Callout`, `CodeBlock`, `PromptBox`, `BulletRow`
+- Refactored into 3 files: `app/(tabs)/guide.tsx` (shell, ~115 lines), `components/guide/GuideAtoms.tsx` (primitives), `components/guide/GuideSections.tsx` (sections + data)
+- Search bar navigates to matching section on submit
+- Discover route kept with `href: null` to suppress from tab bar without breaking routing
+
+---
+
+## Previous Sprint: Write Attribution + VaultAPI.collaboration
 
 ### ✅ Session 16 — Write Attribution + _addedBy Stamping + Activity Panel (2026-03-31)
 
@@ -310,7 +323,7 @@
 - [ ] **Create with AI — optimizations**:
   - [ ] Custom domain `apps.cottix.co` → point DNS to Cloudflare Worker route
   - [ ] Improve prompt for complex multi-screen apps
-  - [ ] Show generated app history in Discover screen
+  - [ ] Show generated app history in Guide tab (Overview section or new "My Apps" section)
   - [ ] Progressive complexity: start with 4k tokens, retry with 8k if first attempt is too short
   - [ ] Gifting/sharing generated app links
 - [ ] Remove one-time queue flush from `PowerSyncProvider` after confirming clean CRUD queues on all devices
