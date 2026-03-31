@@ -71,10 +71,19 @@ export function useWebViewApp(
       const db = syncDbRef.current;
       const preloadedData: Record<string, string> = {};
       const preloadedVersions: Record<string, number> = {};
+      const preloadedAttribution: Record<string, { userId: string | null; displayName: string | null; writtenAt: string | null; version: number }> = {};
 
       if (target.instance_id) {
-        const sharedRows = await db.getAll<{ key: string; value: string; version: number | null }>(
-          `SELECT key, value, COALESCE(version, 0) as version
+        const sharedRows = await db.getAll<{
+          key: string;
+          value: string;
+          version: number | null;
+          last_editor_user_id: string | null;
+          last_editor_display_name: string | null;
+          updated_at: string | null;
+        }>(
+          `SELECT key, value, COALESCE(version, 0) as version,
+                  last_editor_user_id, last_editor_display_name, updated_at
            FROM shared_app_data
            WHERE instance_id = ? AND app_id = ?
            ORDER BY version DESC`,
@@ -85,6 +94,12 @@ export function useWebViewApp(
           if (row.key in preloadedData) continue;
           preloadedData[row.key] = row.value;
           preloadedVersions[row.key] = row.version ?? 0;
+          preloadedAttribution[row.key] = {
+            userId: row.last_editor_user_id ?? null,
+            displayName: row.last_editor_display_name ?? null,
+            writtenAt: row.updated_at ?? null,
+            version: row.version ?? 0,
+          };
         }
 
         if (Object.keys(preloadedData).length === 0) {
@@ -93,12 +108,18 @@ export function useWebViewApp(
           try {
             const { data: remoteRows } = await supabase
               .from('shared_app_data')
-              .select('key, value, version')
+              .select('key, value, version, last_editor_user_id, last_editor_display_name, updated_at')
               .eq('instance_id', target.instance_id)
               .eq('app_id', target.app_id);
             for (const row of (remoteRows ?? [])) {
               preloadedData[row.key] = row.value;
               preloadedVersions[row.key] = (row.version as number | null) ?? 0;
+              preloadedAttribution[row.key] = {
+                userId: (row.last_editor_user_id as string | null) ?? null,
+                displayName: (row.last_editor_display_name as string | null) ?? null,
+                writtenAt: (row.updated_at as string | null) ?? null,
+                version: (row.version as number | null) ?? 0,
+              };
             }
           } catch {
             // Network unavailable — fall through to personal-fallback
@@ -106,7 +127,7 @@ export function useWebViewApp(
 
           if (Object.keys(preloadedData).length > 0) {
             return {
-              shim: buildSyncShim(target.app_id, preloadedData, preloadedVersions),
+              shim: buildSyncShim(target.app_id, preloadedData, preloadedVersions, preloadedAttribution, target.instance_id ?? ''),
               preloadSource: 'shared',
             };
           }
@@ -122,13 +143,13 @@ export function useWebViewApp(
           }
 
           return {
-            shim: buildSyncShim(target.app_id, preloadedData, preloadedVersions),
+            shim: buildSyncShim(target.app_id, preloadedData, preloadedVersions, preloadedAttribution, target.instance_id ?? ''),
             preloadSource: 'personal-fallback',
           };
         }
 
         return {
-          shim: buildSyncShim(target.app_id, preloadedData, preloadedVersions),
+          shim: buildSyncShim(target.app_id, preloadedData, preloadedVersions, preloadedAttribution, target.instance_id ?? ''),
           preloadSource: 'shared',
         };
       }

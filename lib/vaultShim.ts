@@ -250,6 +250,17 @@ export function buildVaultShim(
         return _bridge("storage_get_url", { uri: String(uri) });
       },
     },
+
+    /**
+     * Collaboration — attribution queries for shared apps.
+     * Both methods resolve to null / [] for personal (non-shared) apps.
+     */
+    collaboration: {
+      getAttribution: function() { return Promise.resolve(null); },
+      getAllAttribution: function() { return Promise.resolve({}); },
+      getItemOwner: function() { return Promise.resolve(null); },
+      getRecentActivity: function() { return Promise.resolve([]); },
+    },
   };
 
 })();
@@ -306,6 +317,41 @@ export interface VaultAPI {
     upload(opts?: { source?: 'gallery' | 'files' }): Promise<{ uri: string; cancelled: false } | { cancelled: true }>;
     /** Create a 1-hour signed URL for a storage path from upload(). Returns { url }. */
     getUrl(uri: string): Promise<{ url: string }>;
+  };
+  collaboration: {
+    /** Returns attribution for a specific key. Synchronous for shared apps (no bridge round-trip). */
+    getAttribution(key: string): Promise<{
+      userId: string | null;
+      displayName: string | null;
+      writtenAt: string | null;
+      version: number;
+    } | null>;
+    /** Returns the full attribution map for all keys. Synchronous for shared apps. */
+    getAllAttribution(): Promise<Record<string, {
+      userId: string | null;
+      displayName: string | null;
+      writtenAt: string | null;
+      version: number;
+    }>>;
+    /** Returns the _addedBy stamp for an item inside a cached array key. */
+    getItemOwner(arrayKey: string, itemId: string): Promise<{
+      userId: string;
+      displayName: string;
+      addedAt: string;
+    } | null>;
+    /**
+     * Returns recent write history for this shared instance from shared_app_data_history.
+     * Returns [] for personal apps or when history is not yet synced.
+     */
+    getRecentActivity(limit?: number): Promise<Array<{
+      key: string;
+      value: string;
+      userId: string | null;
+      displayName: string | null;
+      writtenAt: string | null;
+      mergeStrategy: string | null;
+      version: number;
+    }>>;
   };
 }
 

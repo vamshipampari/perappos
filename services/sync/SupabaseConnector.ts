@@ -6,6 +6,63 @@ import {
 import { log } from "@/lib/logger";
 import { supabase } from "../supabase";
 
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+/**
+ * Call the versioned upsert RPC with attribution columns if available,
+ * falling back to the original 11-param signature if the migration hasn't
+ * been applied yet (i.e. the new params don't exist in Supabase).
+ *
+ * This makes the attribution feature deploy-safe: uploads keep working
+ * even if the SQL migration is run after the app update.
+ */
+async function upsertSharedAppData(
+  client: typeof supabase,
+  row: Record<string, unknown>
+): Promise<void> {
+  const baseParams = {
+    p_id:                   row.id,
+    p_instance_id:          row.instance_id,
+    p_app_id:               row.app_id,
+    p_key:                  row.key,
+    p_value:                row.value,
+    p_version:              row.version ?? 1,
+    p_updated_by:           row.updated_by ?? null,
+    p_updated_at:           row.updated_at ?? new Date().toISOString(),
+    p_last_write_id:        row.last_write_id ?? null,
+    p_last_merge_strategy:  row.last_merge_strategy ?? null,
+    p_last_conflict_count:  row.last_conflict_count ?? 0,
+  };
+
+  // Try with attribution params first (requires migration to have run).
+  const { error } = await client.rpc("upsert_shared_app_data_versioned", {
+    ...baseParams,
+    p_last_editor_user_id:       row.last_editor_user_id ?? null,
+    p_last_editor_display_name:  row.last_editor_display_name ?? null,
+  });
+
+  if (!error) return;
+
+  // If Postgres rejected the call because the new params don't exist yet
+  // (PGRST202 = "could not find the function"), retry without them.
+  // Any other error is a real failure — rethrow immediately.
+  if (
+    (error as { code?: string }).code === "PGRST202" ||
+    error.message?.includes("Could not find the function") ||
+    error.message?.includes("does not exist")
+  ) {
+    log.warn("[PowerSync] attribution RPC params not available yet — retrying without them");
+    const { error: retryError } = await client.rpc(
+      "upsert_shared_app_data_versioned",
+      baseParams
+    );
+    if (retryError) throw retryError;
+    return;
+  }
+
+  throw error;
+}
+
 export class SupabaseConnector implements PowerSyncBackendConnector {
   async fetchCredentials() {
     const {
@@ -80,23 +137,24 @@ export class SupabaseConnector implements PowerSyncBackendConnector {
               // Use versioned upsert RPC so stale CRUD entries (lower version)
               // never overwrite newer writes from other devices.
               const row = withWriteActor(table, record) as Record<string, unknown>;
-              const { error } = await supabase.rpc(
-                "upsert_shared_app_data_versioned",
-                {
-                  p_id:                   row.id,
-                  p_instance_id:          row.instance_id,
-                  p_app_id:               row.app_id,
-                  p_key:                  row.key,
-                  p_value:                row.value,
-                  p_version:              row.version ?? 1,
-                  p_updated_by:           row.updated_by ?? null,
-                  p_updated_at:           row.updated_at ?? new Date().toISOString(),
-                  p_last_write_id:        row.last_write_id ?? null,
-                  p_last_merge_strategy:  row.last_merge_strategy ?? null,
-                  p_last_conflict_count:  row.last_conflict_count ?? 0,
-                }
-              );
-              if (error) throw error;
+              await upsertSharedAppData(supabase, row);
+
+              // Append to audit log — fire-and-forget (history loss is acceptable).
+              if (row.last_editor_user_id || row.updated_by) {
+                supabase.from("shared_app_data_history").insert({
+                  instance_id:          row.instance_id,
+                  app_id:               row.app_id,
+                  key:                  row.key,
+                  value:                row.value,
+                  editor_user_id:       (row.last_editor_user_id ?? row.updated_by ?? '') as string,
+                  editor_display_name:  (row.last_editor_display_name ?? '') as string,
+                  written_at:           row.updated_at ?? new Date().toISOString(),
+                  merge_strategy:       row.last_merge_strategy ?? null,
+                  version:              row.version ?? 1,
+                }).then(({ error: histErr }) => {
+                  if (histErr) log.warn("[PowerSync] history insert failed (non-fatal):", histErr.message);
+                });
+              }
             } else {
               const { error } = await supabase
                 .from(table)
@@ -109,23 +167,7 @@ export class SupabaseConnector implements PowerSyncBackendConnector {
             if (table === "shared_app_data") {
               // Same versioned guard for PATCH operations.
               const row = withWriteActor(table, record) as Record<string, unknown>;
-              const { error } = await supabase.rpc(
-                "upsert_shared_app_data_versioned",
-                {
-                  p_id:                   row.id,
-                  p_instance_id:          row.instance_id,
-                  p_app_id:               row.app_id,
-                  p_key:                  row.key,
-                  p_value:                row.value,
-                  p_version:              row.version ?? 1,
-                  p_updated_by:           row.updated_by ?? null,
-                  p_updated_at:           row.updated_at ?? new Date().toISOString(),
-                  p_last_write_id:        row.last_write_id ?? null,
-                  p_last_merge_strategy:  row.last_merge_strategy ?? null,
-                  p_last_conflict_count:  row.last_conflict_count ?? 0,
-                }
-              );
-              if (error) throw error;
+              await upsertSharedAppData(supabase, row);
             } else {
               const { error } = await supabase
                 .from(table)

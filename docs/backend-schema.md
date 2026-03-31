@@ -1,6 +1,6 @@
 # Cottix — Backend Schema
 
-Last updated: 2026-03-26 | Used by: perappos + cottix-hub
+Last updated: 2026-03-31 | Used by: perappos + cottix-hub
 
 ---
 
@@ -136,10 +136,31 @@ Managed by PowerSync (`powersync.db`) — separate from expo-sqlite. All writes 
 | last_write_id | TEXT | Last accepted client write ID (idempotency) |
 | last_merge_strategy | TEXT | Strategy used: noop / fast_path / object_merge / array_merge / lww / frozen |
 | last_conflict_count | INTEGER | Conflicts observed during last write |
+| last_editor_user_id | TEXT | auth.uid() of the user who last wrote (display-friendly attribution) |
+| last_editor_display_name | TEXT | Display name of last writer (best-effort; may be email prefix) |
 
 Natural key: `(instance_id, app_id, key)` — UNIQUE constraint required for upsert.
 
 Merge strategies: `noop` → `idempotent_skip` → `init_blocked` → `fast_path` → `array_merge` → `object_merge` → `lww`
+
+### shared_app_data_history (append-only audit log)
+
+| Column | Type | Notes |
+|---|---|---|
+| id | uuid PK | — |
+| instance_id | TEXT | FK → shared_instances.instance_id |
+| app_id | TEXT | — |
+| key | TEXT | — |
+| value | TEXT | JSON string at time of write |
+| editor_user_id | TEXT | auth.uid() of writer |
+| editor_display_name | TEXT | Display name at time of write |
+| written_at | TIMESTAMPTZ | Timestamp of write |
+| merge_strategy | TEXT | Strategy used for this write |
+| version | INTEGER | Version number of this write |
+
+RLS: SELECT for instance members (`auth.uid()` in `instance_members` for the instance_id). INSERT from service role via trigger on `shared_app_data` — do NOT expose to direct client writes.
+
+> **⚠️ PowerSync**: Add `shared_app_data_history` as a synced table and add `last_editor_user_id`, `last_editor_display_name` to the `shared_app_data` SELECT projection in the PowerSync dashboard.
 
 ---
 
@@ -229,7 +250,7 @@ Create via migration (Phase 3 Step 3.4).
 | `increment_shared_instance_count` | `(delta int)` | ±1 on create/stop |
 | `freeze_owner_instances` | `(p_owner_id uuid)` | Called by get_user_profile on expiry detection |
 | `unfreeze_owner_instances` | `(p_owner_id uuid)` | Called by redeem_promo_code on plan upgrade |
-| `upsert_shared_app_data_versioned` | `(...)` | Versioned upsert used by SupabaseConnector |
+| `upsert_shared_app_data_versioned` | `(..., p_last_editor_user_id TEXT DEFAULT NULL, p_last_editor_display_name TEXT DEFAULT NULL)` | Versioned upsert; new attribution params have DEFAULT NULL for deploy-before-migration safety |
 
 ---
 
@@ -337,6 +358,10 @@ RLS: `is_admin()` SECURITY DEFINER function guards all policies (avoids recursio
 
 ## Pending changes
 
-- **UPDATE POWERSYNC SYNC RULES**: add `is_frozen`, `frozen_at`, `frozen_reason` to `shared_instances` SELECT projection in PowerSync dashboard
+- **RUN MIGRATION**: `supabase/migrations/20260330_attribution.sql` — adds `last_editor_user_id`, `last_editor_display_name` to `shared_app_data`; creates `shared_app_data_history` table; recreates `upsert_shared_app_data_versioned` RPC with attribution params
+- **UPDATE POWERSYNC SYNC RULES** (dashboard):
+  - Add `last_editor_user_id`, `last_editor_display_name` to `shared_app_data` SELECT projection
+  - Add `is_frozen`, `frozen_at`, `frozen_reason` to `shared_instances` SELECT projection
+  - Add `shared_app_data_history` as a new synced table (SELECT projection: all columns)
 - Deploy `deploy-html` edge function: `supabase functions deploy deploy-html`
 - Create `beta_signups` table via migration (Phase 3 Step 3.4)

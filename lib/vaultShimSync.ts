@@ -29,10 +29,14 @@ export function buildSyncShim(
   appId: string,
   preloadedData: Record<string, string>,
   preloadedVersions: Record<string, number>,
+  preloadedAttribution: Record<string, { userId: string | null; displayName: string | null; writtenAt: string | null; version: number }> = {},
+  instanceId: string = '',
 ): string {
   const safeId = JSON.stringify(appId);
+  const safeInstanceId = JSON.stringify(instanceId);
   const safeData = JSON.stringify(preloadedData);
   const safeVersions = JSON.stringify(preloadedVersions);
+  const safeAttribution = JSON.stringify(preloadedAttribution);
 
   return `
 (function() {
@@ -57,7 +61,9 @@ export function buildSyncShim(
   var _cache = (_savedState && _savedState.cache) || ${safeData};
   var _baseState = (_savedState && _savedState.base) || ${safeData};
   var _keyVersions = (_savedState && _savedState.versions) || ${safeVersions};
+  var _attribution = (_savedState && _savedState.attribution) || ${safeAttribution};
   var _appId = ${safeId};
+  var _instanceId = ${safeInstanceId};
 
   var _pageLoadedAt = Date.now();
   var _firstInteractionAt = null;
@@ -323,6 +329,52 @@ export function buildSyncShim(
       getUrl: function(uri) {
         return _bridge("storage_get_url", { uri: String(uri) });
       }
+    },
+    collaboration: {
+      /** Synchronous — reads attribution from in-memory _attribution map. */
+      getAttribution: function(key) {
+        var k = String(key);
+        return Promise.resolve(
+          Object.prototype.hasOwnProperty.call(_attribution, k) ? _attribution[k] : null
+        );
+      },
+
+      /** Synchronous — returns a shallow copy of the full _attribution map. */
+      getAllAttribution: function() {
+        return Promise.resolve(Object.assign({}, _attribution));
+      },
+
+      /**
+       * Reads the _addedBy stamp for a specific item in a cached array.
+       * arrayKey: the localStorage key holding a JSON array.
+       * itemId: the _id (or id) of the target item.
+       * Returns { userId, displayName, addedAt } | null
+       */
+      getItemOwner: function(arrayKey, itemId) {
+        try {
+          var arr = JSON.parse(_cache[String(arrayKey)] || '[]');
+          for (var i = 0; i < arr.length; i++) {
+            if (arr[i]._id === itemId || arr[i].id === itemId) {
+              return Promise.resolve(arr[i]._addedBy || null);
+            }
+          }
+          return Promise.resolve(null);
+        } catch(e) {
+          return Promise.resolve(null);
+        }
+      },
+
+      /**
+       * Async — queries shared_app_data_history via native bridge.
+       * Returns last N writes with { key, value, userId, displayName, writtenAt, mergeStrategy, version }.
+       */
+      getRecentActivity: function(limit) {
+        return _bridge("collab_get_recent_activity", {
+          instanceId: _instanceId,
+          appId: _appId,
+          limit: limit || 50
+        });
+      }
     }
   };
 
@@ -343,6 +395,14 @@ export function buildSyncShim(
         _cache[u.key] = u.value;
         _baseState[u.key] = u.value;
         _keyVersions[u.key] = u.version;
+        if (u.lastEditorUserId) {
+          _attribution[u.key] = {
+            userId: u.lastEditorUserId,
+            displayName: u.lastEditorDisplayName || null,
+            writtenAt: u.writtenAt || null,
+            version: u.version
+          };
+        }
         changedKeys.push(u.key);
       }
     }
@@ -379,7 +439,8 @@ export function buildSyncShim(
           __vault: true,
           cache: _cache,
           base: _baseState,
-          versions: _keyVersions
+          versions: _keyVersions,
+          attribution: _attribution
         });
         location.reload();
       } catch(e) {}
