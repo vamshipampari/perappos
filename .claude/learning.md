@@ -5,18 +5,18 @@
 - PowerSync sync rules: never use table aliases → rows land in ps_untyped
 - PowerSync row IDs: always `${instanceId}/${appId}/${key}` not UUID
 - useCallback + PowerSync db: use useRef(db), empty [] deps → prevents re-fire on sync
-- iOS WebKit localStorage: replace window.localStorage entirely, don't defineProperty
+- PowerSync missing sync rule column: columns absent from sync rules projection return NULL locally → query Supabase directly for those columns instead
 - Supabase upsert: onConflict col must have matching UNIQUE constraint in Postgres
 - After Supabase write: don't query PowerSync local immediately → pre-seed or use fallback
-- Duplicate UNIQUE constraints: check with pg_constraint before adding → breaks upsert
-- Supabase signUp: doesn't error on existing email → check data.user.identities?.length === 0
 - StyleSheet.create(): evaluated at load time, can't use hooks → use makeStyles(theme: Colors) called inside component
 - WebView reload for sync: location.reload() + window.name is the only universal approach
 - PowerSync boolean columns: use column.integer (0/1) → no column.boolean exists
 - supabase.rpc(): use .then(undefined, () => {}) for fire-and-forget → .catch() doesn't exist on PostgrestFilterBuilder
-- Edge functions + user JWTs: deploy with --no-verify-jwt → decode JWT locally via atob() with base64url padding
 - vaultBridge.ts native modules: lazy await import() → static imports crash entire bridge if any module unlinked
 - New RPC params: add DEFAULT NULL in SQL + PGRST202 catch-retry in connector → deploy code before migration without breaking uploads
+- useColorScheme() RN New Arch: programmatic Appearance.setColorScheme() doesn't re-render unfocused tabs → use ThemeContext backed by React state, wrap app in ThemeProvider
+- tabBarIcon color prop: Expo Router passes color to tabBarIcon render fn — always forward it to Text/Icon, never rely on default color
+- React state + async picker: closeMenu()/setState(null) batches before async resolves → capture target in useRef synchronously before calling close
 
 ## Architecture decisions (why, not what — see docs/context.md for detail)
 
@@ -27,7 +27,7 @@
 
 ## Session log (rolling — keep last 30 days only)
 
-2026-03-31: Guide tab replacing Discover · GuideAtoms + GuideSections components · 7 interactive sections with expandable cards, step lists, callouts
+2026-04-01: Folders (local SQLite, home browser, move picker) · Join approval (pending/active status, owner UI, Realtime auto-complete) · ThemeContext dark theme fix · Tab bar icon color · Member email in approval UI
 2026-03-31: Login UX (forgot password, show/hide, duplicate email) · Settings fixes (app lock, edit profile, appearance) · Dark theme system (lib/theme.ts + 15 files)
 2026-03-31: Write attribution (shared_app_data + history table) · _addedBy stamping · VaultAPI.collaboration · activity panel on Manage Group
 2026-03-26: API Keys UI + version tracking · installed_apps PK fix (${userId}/${appId})

@@ -409,6 +409,11 @@ The shared-sync path depends on Supabase matching the client schema:
 
 ## Supabase
 
+### Realtime
+
+**Supabase Realtime UPDATE events require `REPLICA IDENTITY FULL`**
+By default tables use `REPLICA IDENTITY DEFAULT` — UPDATE events only broadcast the primary key, not the new column values. The `new` object in `postgres_changes` handlers is empty/incomplete. To receive full row data on UPDATE: `ALTER TABLE <table> REPLICA IDENTITY FULL`. Required for any pattern that detects status changes in real time (e.g. join approval: watching `instance_members.status` changing to `'active'`). Without it, the AppState + Supabase direct query fallback still works but isn't instant.
+
 ### RPC Quirks
 
 **`supabase.rpc()` returns `PostgrestFilterBuilder`, not a Promise**
