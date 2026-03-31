@@ -461,6 +461,16 @@ const writer = writable.getWriter();
 return new Response(readable, { headers: { "Content-Type": "text/event-stream" } });
 ```
 
+## Theming
+
+The app uses a `useTheme()` hook (`lib/theme.ts`) backed by React Native's `useColorScheme()`. Light and dark palettes are defined as `Colors` objects. The user's preference is stored in SQLite (`settings/appearance`) and applied via `Appearance.setColorScheme()` on app start and on change.
+
+**`StyleSheet.create()` with theme values:** `StyleSheet.create()` is evaluated at module load time — it cannot reference hook values. For theme-aware components, use a `makeStyles(theme: Colors)` function that returns a `StyleSheet.create({...})` result, called inside the component: `const styles = makeStyles(theme)`.
+
+**`Appearance.setColorScheme(null)`:** Invalid in RN 0.83 — `ColorSchemeName` does not include `null`. For "System" preference, skip the call entirely: `if (val !== 'system') Appearance.setColorScheme(val)`.
+
+**Haptics flicker:** Calling `Haptics.impactAsync()` without `await` or `void` leaves an unhandled Promise that can briefly trigger iOS app state change events, causing visible UI flicker. Always `await Haptics.impactAsync(...)` or prefix with `void`.
+
 ## Deployment
 
 **Worktree fixes must be copied to the main project immediately**
