@@ -62,10 +62,16 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
+        name="guide"
+        options={{
+          title: 'Guide',
+          tabBarIcon: ({ focused }) => <TabIcon symbol="◎" focused={focused} />,
+        }}
+      />
+      <Tabs.Screen
         name="discover"
         options={{
-          title: 'Discover',
-          tabBarIcon: ({ focused }) => <TabIcon symbol="✦" focused={focused} />,
+          href: null,
         }}
       />
       <Tabs.Screen
