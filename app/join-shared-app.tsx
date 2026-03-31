@@ -15,6 +15,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useDatabase } from '@/hooks/useDatabase';
 import { useInstalledApps } from '@/hooks/useInstalledApps';
 import { log } from '@/lib/logger';
+import { useTheme } from '@/lib/theme';
 import { joinSharedAppByCode, type SharedInstance } from '@/services/collaborationService';
 import { reconnectPowerSync } from '@/services/sync/PowerSyncProvider';
 import { supabase } from '@/services/supabase';
@@ -30,6 +31,7 @@ export default function JoinSharedAppScreen() {
   const [joining, setJoining] = useState(false);
   const joinStateRef = useRef('idle');
 
+  const theme = useTheme();
   const normalizedCode = code.trim().toUpperCase();
 
   const handleCheck = async () => {
@@ -98,7 +100,7 @@ export default function JoinSharedAppScreen() {
   };
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: '#FFFFFF' }} edges={['top', 'bottom']}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: theme.surface }} edges={['top', 'bottom']}>
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         style={{ flex: 1 }}
@@ -111,18 +113,18 @@ export default function JoinSharedAppScreen() {
             paddingHorizontal: 16,
             paddingVertical: 10,
             borderBottomWidth: 0.5,
-            borderBottomColor: '#E5E5EA',
+            borderBottomColor: theme.separator,
           }}
         >
           <TouchableOpacity onPress={() => router.back()} hitSlop={10}>
-            <Text style={{ fontSize: 17, color: '#007AFF' }}>Back</Text>
+            <Text style={{ fontSize: 17, color: theme.primary }}>Back</Text>
           </TouchableOpacity>
-          <Text style={{ fontSize: 17, fontWeight: '600', color: '#1C1C1E' }}>Join Shared App</Text>
+          <Text style={{ fontSize: 17, fontWeight: '600', color: theme.label }}>Join Shared App</Text>
           <View style={{ width: 40 }} />
         </View>
 
         <View style={{ paddingHorizontal: 20, paddingTop: 28 }}>
-          <Text style={{ fontSize: 14, color: '#8E8E93', marginBottom: 10 }}>
+          <Text style={{ fontSize: 14, color: theme.labelSecondary, marginBottom: 10 }}>
             Invite code
           </Text>
 
@@ -136,10 +138,10 @@ export default function JoinSharedAppScreen() {
             autoCorrect={false}
             autoFocus
             placeholder="AB3K9Z"
-            placeholderTextColor="#C7C7CC"
+            placeholderTextColor={theme.labelTertiary}
             style={{
               borderWidth: 1.5,
-              borderColor: '#E5E5EA',
+              borderColor: theme.separator,
               borderRadius: 12,
               paddingHorizontal: 16,
               height: 58,
@@ -147,8 +149,8 @@ export default function JoinSharedAppScreen() {
               fontWeight: '700',
               letterSpacing: 8,
               textAlign: 'center',
-              color: '#1C1C1E',
-              backgroundColor: '#FAFAFA',
+              color: theme.label,
+              backgroundColor: theme.inputBackground,
             }}
           />
 
@@ -159,7 +161,7 @@ export default function JoinSharedAppScreen() {
               marginTop: 16,
               height: 48,
               borderRadius: 12,
-              backgroundColor: checking ? '#A8C8FF' : '#007AFF',
+              backgroundColor: checking ? '#A8C8FF' : theme.primary,
               alignItems: 'center',
               justifyContent: 'center',
               flexDirection: 'row',
@@ -177,16 +179,16 @@ export default function JoinSharedAppScreen() {
               style={{
                 marginTop: 22,
                 borderWidth: 1,
-                borderColor: '#E5E5EA',
+                borderColor: theme.separator,
                 borderRadius: 14,
                 padding: 16,
-                backgroundColor: '#FFFFFF',
+                backgroundColor: theme.surface,
               }}
             >
-              <Text style={{ fontSize: 17, fontWeight: '600', color: '#1C1C1E' }}>
+              <Text style={{ fontSize: 17, fontWeight: '600', color: theme.label }}>
                 Join "{preview.app_name}"?
               </Text>
-              <Text style={{ marginTop: 8, fontSize: 14, lineHeight: 20, color: '#636366' }}>
+              <Text style={{ marginTop: 8, fontSize: 14, lineHeight: 20, color: theme.labelSecondary }}>
                 You&apos;ll share data with the group. The app will be installed if you don&apos;t have
                 it already.
               </Text>
@@ -197,7 +199,7 @@ export default function JoinSharedAppScreen() {
                   marginTop: 14,
                   height: 44,
                   borderRadius: 10,
-                  backgroundColor: joining ? '#A8C8FF' : '#007AFF',
+                  backgroundColor: joining ? '#A8C8FF' : theme.primary,
                   alignItems: 'center',
                   justifyContent: 'center',
                   flexDirection: 'row',

@@ -7,6 +7,7 @@ import * as Sharing from 'expo-sharing';
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   Alert,
+  Appearance,
   Modal,
   ScrollView,
   Switch,
@@ -23,6 +24,7 @@ import { useDatabase } from '@/hooks/useDatabase';
 import { useInstalledApps } from '@/hooks/useInstalledApps';
 import { useUserProfile, type PlanType } from '@/hooks/useUserProfile';
 import { log } from '@/lib/logger';
+import { useTheme, type Colors } from '@/lib/theme';
 import { track } from '@/services/analytics';
 import { supabase } from '../../services/supabase';
 import { usePowerSync } from '../../services/sync/PowerSyncProvider';
@@ -77,6 +79,7 @@ function formatBytes(bytes: number): string {
 interface BaseRowProps {
   label: string;
   isLast?: boolean;
+  theme: Colors;
 }
 
 interface ChevronRowProps extends BaseRowProps {
@@ -106,11 +109,22 @@ interface InfoRowProps extends BaseRowProps {
 type RowProps = ChevronRowProps | ValueRowProps | ToggleRowProps | InfoRowProps;
 
 function Row(props: RowProps) {
+  const { theme } = props;
+
+  const rowContainerStyle = {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    justifyContent: 'space-between' as const,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    minHeight: 44,
+  };
+
   const separator = !props.isLast && (
     <View
       style={{
         height: 0.5,
-        backgroundColor: '#E5E5EA',
+        backgroundColor: theme.separator,
         marginLeft: 16,
       }}
     />
@@ -128,7 +142,7 @@ function Row(props: RowProps) {
             <Text
               style={{
                 fontSize: 16,
-                color: props.labelColor ?? '#1C1C1E',
+                color: props.labelColor ?? theme.label,
                 flex: 1,
               }}
             >
@@ -136,9 +150,9 @@ function Row(props: RowProps) {
             </Text>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
               {props.value && (
-                <Text style={{ fontSize: 16, color: '#8E8E93' }}>{props.value}</Text>
+                <Text style={{ fontSize: 16, color: theme.labelSecondary }}>{props.value}</Text>
               )}
-              <Text style={{ fontSize: 18, color: '#C7C7CC', lineHeight: 22 }}>›</Text>
+              <Text style={{ fontSize: 18, color: theme.labelTertiary, lineHeight: 22 }}>›</Text>
             </View>
           </TouchableOpacity>
         );
@@ -146,8 +160,8 @@ function Row(props: RowProps) {
       case 'value':
         return (
           <View style={rowContainerStyle}>
-            <Text style={{ fontSize: 16, color: '#1C1C1E', flex: 1 }}>{props.label}</Text>
-            <Text style={{ fontSize: 16, color: '#8E8E93' }}>{props.value}</Text>
+            <Text style={{ fontSize: 16, color: theme.label, flex: 1 }}>{props.label}</Text>
+            <Text style={{ fontSize: 16, color: theme.labelSecondary }}>{props.value}</Text>
           </View>
         );
 
@@ -157,7 +171,7 @@ function Row(props: RowProps) {
             <Text
               style={{
                 fontSize: 16,
-                color: props.disabled ? '#8E8E93' : '#1C1C1E',
+                color: props.disabled ? theme.labelSecondary : theme.label,
                 flex: 1,
               }}
             >
@@ -167,7 +181,7 @@ function Row(props: RowProps) {
               value={props.value}
               onValueChange={props.onChange}
               disabled={props.disabled}
-              trackColor={{ false: '#E5E5EA', true: '#34C759' }}
+              trackColor={{ false: theme.separator, true: theme.success }}
               thumbColor="#FFFFFF"
             />
           </View>
@@ -184,7 +198,7 @@ function Row(props: RowProps) {
             <Text
               style={{
                 fontSize: 15,
-                color: '#8E8E93',
+                color: theme.labelSecondary,
                 textAlign: props.centered ? 'center' : 'left',
                 flex: props.centered ? undefined : 1,
               }}
@@ -210,10 +224,12 @@ function Section({
   title,
   footer,
   children,
+  theme,
 }: {
   title?: string;
   footer?: string;
   children: React.ReactNode;
+  theme: Colors;
 }) {
   return (
     <View style={{ marginBottom: 28 }}>
@@ -222,7 +238,7 @@ function Section({
           style={{
             fontSize: 13,
             fontWeight: '500',
-            color: '#8E8E93',
+            color: theme.labelSecondary,
             textTransform: 'uppercase',
             letterSpacing: 0.4,
             paddingHorizontal: 20,
@@ -235,11 +251,11 @@ function Section({
       <View
         style={{
           marginHorizontal: 16,
-          backgroundColor: '#FFFFFF',
+          backgroundColor: theme.surface,
           borderRadius: 10,
           overflow: 'hidden',
           borderWidth: 0.5,
-          borderColor: '#E5E5EA',
+          borderColor: theme.separator,
         }}
       >
         {children}
@@ -248,7 +264,7 @@ function Section({
         <Text
           style={{
             fontSize: 13,
-            color: '#8E8E93',
+            color: theme.labelSecondary,
             paddingHorizontal: 20,
             marginTop: 6,
             lineHeight: 18,
@@ -266,6 +282,7 @@ function Section({
 export default function SettingsScreen() {
   const db = useDatabase();
   const { db: syncDb, isConnected } = usePowerSync();
+  const theme = useTheme();
 
   const [appLock, setAppLock] = useState(false);
   const [autoUpdate, setAutoUpdate] = useState(true);
@@ -278,8 +295,13 @@ export default function SettingsScreen() {
   const [addKeyVisible, setAddKeyVisible] = useState(false);
   const [newKeyName, setNewKeyName] = useState('');
   const [newKeyValue, setNewKeyValue] = useState('');
+  const [appearance, setAppearance] = useState<'light' | 'dark' | 'system'>('light');
+  const [editProfileVisible, setEditProfileVisible] = useState(false);
+  const [editName, setEditName] = useState('');
+  const [editEmoji, setEditEmoji] = useState('👤');
+  const [editProfileSaving, setEditProfileSaving] = useState(false);
 
-  const { profile, limits, redeemPromoCode, refresh: refreshProfile } = useUserProfile();
+  const { profile, limits, redeemPromoCode, refresh: refreshProfile, updateDisplayName, updateAvatarEmoji } = useUserProfile();
   const { apps } = useInstalledApps();
   // Use local SQLite count (not Supabase counter) so Settings matches the Home screen.
   // The Supabase app_install_count can drift after device wipes or multi-device use.
@@ -368,7 +390,7 @@ export default function SettingsScreen() {
   useEffect(() => {
     (async () => {
       try {
-        const [lockRow, updateRow, storageRow, biometric] = await Promise.all([
+        const [lockRow, updateRow, storageRow, biometric, appearanceRow] = await Promise.all([
           db.getFirstAsync<{ value: string }>(
             `SELECT value FROM shared_data WHERE category='settings' AND key='app_lock'`
           ),
@@ -379,12 +401,20 @@ export default function SettingsScreen() {
             `SELECT COALESCE(SUM(bundle_size), 0) AS total FROM apps`
           ),
           LocalAuthentication.hasHardwareAsync(),
+          db.getFirstAsync<{ value: string }>(
+            `SELECT value FROM shared_data WHERE category='settings' AND key='appearance'`
+          ),
         ]);
 
         if (lockRow) setAppLock(lockRow.value === 'true');
         if (updateRow) setAutoUpdate(updateRow.value !== 'false');
         if (storageRow) setStorageUsed(storageRow.total ?? 0);
         setBiometricAvailable(biometric);
+        if (appearanceRow) {
+          const val = appearanceRow.value as 'light' | 'dark' | 'system';
+          setAppearance(val);
+          if (val !== 'system') Appearance.setColorScheme(val);
+        }
       } catch {
         // non-critical, defaults are fine
       }
@@ -419,30 +449,78 @@ export default function SettingsScreen() {
   };
 
   const handleAppLockToggle = async (next: boolean) => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     if (next) {
-      const enrolled = await LocalAuthentication.isEnrolledAsync();
-      if (!enrolled) {
-        Alert.alert(
-          'No Biometrics',
-          'Set up Face ID or fingerprint in your device settings first.'
-        );
+      try {
+        const enrolled = await LocalAuthentication.isEnrolledAsync();
+        if (!enrolled) {
+          Alert.alert(
+            'No Biometrics',
+            'Set up Face ID or fingerprint in your device settings first.'
+          );
+          return;
+        }
+        const result = await LocalAuthentication.authenticateAsync({
+          promptMessage: 'Authenticate to enable App Lock',
+          fallbackLabel: 'Use passcode',
+        });
+        if (!result.success) return;
+      } catch {
+        Alert.alert('Authentication Error', 'Biometric authentication is not available on this device.');
         return;
       }
-      const result = await LocalAuthentication.authenticateAsync({
-        promptMessage: 'Authenticate to enable App Lock',
-        fallbackLabel: 'Use passcode',
-      });
-      if (!result.success) return;
     }
     setAppLock(next);
     await savePref('app_lock', String(next));
   };
 
   const handleAutoUpdateToggle = async (next: boolean) => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setAutoUpdate(next);
     await savePref('auto_update', String(next));
+  };
+
+  const handleAppearanceChange = () => {
+    const options: { label: string; value: 'light' | 'dark' | 'system' }[] = [
+      { label: 'Light', value: 'light' },
+      { label: 'Dark', value: 'dark' },
+      { label: 'System', value: 'system' },
+    ];
+    Alert.alert(
+      'Appearance',
+      'Choose a color scheme',
+      [
+        ...options.map(({ label, value }) => ({
+          text: label + (appearance === value ? ' ✓' : ''),
+          onPress: async () => {
+            setAppearance(value);
+            if (value !== 'system') Appearance.setColorScheme(value);
+            await savePref('appearance', value);
+          },
+        })),
+        { text: 'Cancel', style: 'cancel' as const },
+      ]
+    );
+  };
+
+  const handleOpenEditProfile = () => {
+    setEditName(profile?.display_name ?? '');
+    setEditEmoji(profile?.avatar_emoji ?? '👤');
+    setEditProfileVisible(true);
+  };
+
+  const handleSaveProfile = async () => {
+    setEditProfileSaving(true);
+    try {
+      const trimmed = editName.trim();
+      await updateDisplayName(trimmed);
+      await updateAvatarEmoji(editEmoji);
+      setEditProfileVisible(false);
+    } catch {
+      Alert.alert('Error', 'Failed to save profile. Please try again.');
+    } finally {
+      setEditProfileSaving(false);
+    }
   };
 
   const handleExportData = async () => {
@@ -567,7 +645,7 @@ export default function SettingsScreen() {
   // ── Render ───────────────────────────────────────────────────────────────────
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: '#F2F2F7' }} edges={['top']}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: theme.background }} edges={['top']}>
       {/* Large title */}
       <View
         style={{
@@ -580,7 +658,7 @@ export default function SettingsScreen() {
           style={{
             fontSize: 34,
             fontWeight: '700',
-            color: '#1C1C1E',
+            color: theme.label,
             letterSpacing: 0.3,
           }}
         >
@@ -599,7 +677,7 @@ export default function SettingsScreen() {
               style={{
                 fontSize: 13,
                 fontWeight: '500',
-                color: '#8E8E93',
+                color: theme.labelSecondary,
                 textTransform: 'uppercase',
                 letterSpacing: 0.4,
                 paddingHorizontal: 20,
@@ -611,11 +689,11 @@ export default function SettingsScreen() {
             <View
               style={{
                 marginHorizontal: 16,
-                backgroundColor: '#FFFFFF',
+                backgroundColor: theme.surface,
                 borderRadius: 10,
                 overflow: 'hidden',
                 borderWidth: 0.5,
-                borderColor: '#E5E5EA',
+                borderColor: theme.separator,
                 padding: 16,
               }}
             >
@@ -626,7 +704,7 @@ export default function SettingsScreen() {
                     width: 44,
                     height: 44,
                     borderRadius: 22,
-                    backgroundColor: '#F2F2F7',
+                    backgroundColor: theme.background,
                     justifyContent: 'center',
                     alignItems: 'center',
                     marginRight: 12,
@@ -636,7 +714,7 @@ export default function SettingsScreen() {
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text
-                    style={{ fontSize: 16, fontWeight: '600', color: '#1C1C1E' }}
+                    style={{ fontSize: 16, fontWeight: '600', color: theme.label }}
                     numberOfLines={1}
                   >
                     {userEmail}
@@ -644,7 +722,7 @@ export default function SettingsScreen() {
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 }}>
                     <PlanBadge plan={profile.plan} />
                     {profile.plan_expires_at && (
-                      <Text style={{ fontSize: 13, color: '#8E8E93' }}>
+                      <Text style={{ fontSize: 13, color: theme.labelSecondary }}>
                         {formatExpiry(profile.plan_expires_at)}
                       </Text>
                     )}
@@ -661,7 +739,7 @@ export default function SettingsScreen() {
                     flex: 1,
                     height: 36,
                     borderRadius: 8,
-                    backgroundColor: '#007AFF',
+                    backgroundColor: theme.primary,
                     justifyContent: 'center',
                     alignItems: 'center',
                   }}
@@ -672,18 +750,17 @@ export default function SettingsScreen() {
                 </TouchableOpacity>
                 <TouchableOpacity
                   activeOpacity={0.7}
-                  disabled
+                  onPress={handleOpenEditProfile}
                   style={{
                     flex: 1,
                     height: 36,
                     borderRadius: 8,
-                    backgroundColor: '#F2F2F7',
+                    backgroundColor: theme.background,
                     justifyContent: 'center',
                     alignItems: 'center',
-                    opacity: 0.5,
                   }}
                 >
-                  <Text style={{ fontSize: 14, fontWeight: '600', color: '#1C1C1E' }}>
+                  <Text style={{ fontSize: 14, fontWeight: '600', color: theme.label }}>
                     Edit Profile
                   </Text>
                 </TouchableOpacity>
@@ -692,18 +769,18 @@ export default function SettingsScreen() {
               {/* App limit */}
               <View style={{ marginTop: 12 }}>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                  <Text style={{ fontSize: 13, color: '#8E8E93' }}>Apps installed</Text>
-                  <Text style={{ fontSize: 13, fontWeight: '600', color: '#1C1C1E' }}>
+                  <Text style={{ fontSize: 13, color: theme.labelSecondary }}>Apps installed</Text>
+                  <Text style={{ fontSize: 13, fontWeight: '600', color: theme.label }}>
                     {localAppCount} / {limits.maxApps === Infinity ? '∞' : limits.maxApps}
                   </Text>
                 </View>
                 {limits.maxApps !== Infinity && (
-                  <View style={{ height: 4, backgroundColor: '#E5E5EA', borderRadius: 2, overflow: 'hidden' }}>
+                  <View style={{ height: 4, backgroundColor: theme.separator, borderRadius: 2, overflow: 'hidden' }}>
                     <View
                       style={{
                         height: 4,
                         borderRadius: 2,
-                        backgroundColor: localAppCount >= limits.maxApps ? '#FF3B30' : '#007AFF',
+                        backgroundColor: localAppCount >= limits.maxApps ? theme.destructive : theme.primary,
                         width: `${Math.min((localAppCount / limits.maxApps) * 100, 100)}%`,
                       }}
                     />
@@ -715,30 +792,34 @@ export default function SettingsScreen() {
         ) : null}
 
         {/* Account rows */}
-        <Section title={userEmail && profile ? undefined : 'Account'}>
+        <Section title={userEmail && profile ? undefined : 'Account'} theme={theme}>
           {userEmail ? (
             <>
               <Row
                 kind="value"
                 label="Sync Status"
                 value={isConnected ? 'Connected ✓' : 'Offline'}
+                theme={theme}
               />
               <Row
                 kind="chevron"
                 label="Join Shared App"
                 onPress={() => router.push('/join-shared-app' as any)}
+                theme={theme}
               />
               <Row
                 kind="chevron"
                 label="Debug: Check Sync DB"
                 onPress={handleDebugSync}
+                theme={theme}
               />
               <Row
                 kind="chevron"
                 label="Sign Out"
-                labelColor="#FF3B30"
+                labelColor={theme.destructive}
                 onPress={handleSignOut}
                 isLast
+                theme={theme}
               />
             </>
           ) : (
@@ -747,6 +828,7 @@ export default function SettingsScreen() {
               label="Sign In"
               onPress={() => router.push('/auth')}
               isLast
+              theme={theme}
             />
           )}
         </Section>
@@ -759,14 +841,22 @@ export default function SettingsScreen() {
               ? 'App Lock requires Face ID or fingerprint to be set up on this device.'
               : undefined
           }
+          theme={theme}
         >
-          <Row kind="value" label="Appearance" value="Light" />
+          <Row
+            kind="chevron"
+            label="Appearance"
+            value={appearance.charAt(0).toUpperCase() + appearance.slice(1)}
+            onPress={handleAppearanceChange}
+            theme={theme}
+          />
           <Row
             kind="toggle"
             label="App Lock"
             value={appLock}
             onChange={handleAppLockToggle}
             disabled={!biometricAvailable}
+            theme={theme}
           />
           <Row
             kind="toggle"
@@ -774,19 +864,21 @@ export default function SettingsScreen() {
             value={autoUpdate}
             onChange={handleAutoUpdateToggle}
             isLast
+            theme={theme}
           />
         </Section>
 
         {/* Data */}
-        <Section title="Data">
-          <Row kind="value" label="Storage Used" value={formatBytes(storageUsed)} />
-          <Row kind="chevron" label="Export All Data" onPress={handleExportData} />
+        <Section title="Data" theme={theme}>
+          <Row kind="value" label="Storage Used" value={formatBytes(storageUsed)} theme={theme} />
+          <Row kind="chevron" label="Export All Data" onPress={handleExportData} theme={theme} />
           <Row
             kind="chevron"
             label="Clear All Data"
-            labelColor="#FF3B30"
+            labelColor={theme.destructive}
             onPress={handleClearAllData}
             isLast
+            theme={theme}
           />
         </Section>
 
@@ -794,6 +886,7 @@ export default function SettingsScreen() {
         <Section
           title="API Keys"
           footer="Stored securely on-device. Mini-apps inject these into API requests — values are never exposed to the web."
+          theme={theme}
         >
           {storedSecrets.map((s, i) => (
             <Row
@@ -803,14 +896,16 @@ export default function SettingsScreen() {
               value={s.sourceApp === 'manual' ? 'manual' : 'from app'}
               onPress={() => handleDeleteSecret(s.name)}
               isLast={false}
+              theme={theme}
             />
           ))}
           <Row
             kind="chevron"
             label="Add API Key"
-            labelColor="#007AFF"
+            labelColor={theme.primary}
             onPress={() => setAddKeyVisible(true)}
             isLast
+            theme={theme}
           />
         </Section>
 
@@ -821,7 +916,7 @@ export default function SettingsScreen() {
           presentationStyle="formSheet"
           onRequestClose={() => setAddKeyVisible(false)}
         >
-          <View style={{ flex: 1, backgroundColor: '#F2F2F7' }}>
+          <View style={{ flex: 1, backgroundColor: theme.background }}>
             <View style={{
               flexDirection: 'row',
               alignItems: 'center',
@@ -831,59 +926,59 @@ export default function SettingsScreen() {
               paddingBottom: 12,
             }}>
               <TouchableOpacity onPress={() => { setAddKeyVisible(false); setNewKeyName(''); setNewKeyValue(''); }}>
-                <Text style={{ fontSize: 16, color: '#007AFF' }}>Cancel</Text>
+                <Text style={{ fontSize: 16, color: theme.primary }}>Cancel</Text>
               </TouchableOpacity>
-              <Text style={{ fontSize: 17, fontWeight: '600', color: '#1C1C1E' }}>Add API Key</Text>
+              <Text style={{ fontSize: 17, fontWeight: '600', color: theme.label }}>Add API Key</Text>
               <TouchableOpacity onPress={handleSaveNewKey}>
-                <Text style={{ fontSize: 16, fontWeight: '600', color: '#007AFF' }}>Save</Text>
+                <Text style={{ fontSize: 16, fontWeight: '600', color: theme.primary }}>Save</Text>
               </TouchableOpacity>
             </View>
 
             <View style={{ marginHorizontal: 16, marginTop: 8, gap: 12 }}>
               <View style={{
-                backgroundColor: '#FFFFFF',
+                backgroundColor: theme.surface,
                 borderRadius: 10,
                 borderWidth: 0.5,
-                borderColor: '#E5E5EA',
+                borderColor: theme.separator,
                 overflow: 'hidden',
               }}>
                 <View style={{ paddingHorizontal: 16, paddingVertical: 4 }}>
-                  <Text style={{ fontSize: 12, color: '#8E8E93', marginBottom: 2, marginTop: 8 }}>KEY NAME</Text>
+                  <Text style={{ fontSize: 12, color: theme.labelSecondary, marginBottom: 2, marginTop: 8 }}>KEY NAME</Text>
                   <TextInput
                     value={newKeyName}
                     onChangeText={setNewKeyName}
                     placeholder="e.g. openai, anthropic"
-                    placeholderTextColor="#C7C7CC"
+                    placeholderTextColor={theme.labelTertiary}
                     autoCapitalize="none"
                     autoCorrect={false}
-                    style={{ fontSize: 16, color: '#1C1C1E', paddingVertical: 8 }}
+                    style={{ fontSize: 16, color: theme.label, paddingVertical: 8 }}
                   />
                 </View>
               </View>
 
               <View style={{
-                backgroundColor: '#FFFFFF',
+                backgroundColor: theme.surface,
                 borderRadius: 10,
                 borderWidth: 0.5,
-                borderColor: '#E5E5EA',
+                borderColor: theme.separator,
                 overflow: 'hidden',
               }}>
                 <View style={{ paddingHorizontal: 16, paddingVertical: 4 }}>
-                  <Text style={{ fontSize: 12, color: '#8E8E93', marginBottom: 2, marginTop: 8 }}>VALUE</Text>
+                  <Text style={{ fontSize: 12, color: theme.labelSecondary, marginBottom: 2, marginTop: 8 }}>VALUE</Text>
                   <TextInput
                     value={newKeyValue}
                     onChangeText={setNewKeyValue}
                     placeholder="sk-..."
-                    placeholderTextColor="#C7C7CC"
+                    placeholderTextColor={theme.labelTertiary}
                     autoCapitalize="none"
                     autoCorrect={false}
                     secureTextEntry
-                    style={{ fontSize: 16, color: '#1C1C1E', paddingVertical: 8 }}
+                    style={{ fontSize: 16, color: theme.label, paddingVertical: 8 }}
                   />
                 </View>
               </View>
 
-              <Text style={{ fontSize: 13, color: '#8E8E93', paddingHorizontal: 4, lineHeight: 18 }}>
+              <Text style={{ fontSize: 13, color: theme.labelSecondary, paddingHorizontal: 4, lineHeight: 18 }}>
                 The key name is what mini-apps reference (e.g. "openai"). The value is never displayed again after saving.
               </Text>
             </View>
@@ -891,21 +986,105 @@ export default function SettingsScreen() {
         </Modal>
 
         {/* About */}
-        <Section title="About">
+        <Section title="About" theme={theme}>
           <Row
             kind="chevron"
             label="Send Feedback"
             onPress={() => setFeedbackVisible(true)}
+            theme={theme}
           />
           <Row
             kind="value"
             label="Version"
             value={`${Constants.expoConfig?.version ?? '0.0.0'} (${Constants.expoConfig?.extra?.eas?.projectId ? 'EAS' : 'dev'})`}
+            theme={theme}
           />
-          <Row kind="info" label="Built with ❤️ in Hyderabad" centered />
-          <Row kind="info" label="Cottix — Personal App OS" centered isLast />
+          <Row kind="info" label="Built with ❤️ in Hyderabad" centered theme={theme} />
+          <Row kind="info" label="Cottix — Personal App OS" centered isLast theme={theme} />
         </Section>
       </ScrollView>
+
+      {/* Edit Profile modal */}
+      <Modal
+        visible={editProfileVisible}
+        animationType="slide"
+        presentationStyle="formSheet"
+        onRequestClose={() => setEditProfileVisible(false)}
+      >
+        <View style={{ flex: 1, backgroundColor: theme.background }}>
+          <View style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            paddingHorizontal: 20,
+            paddingTop: 20,
+            paddingBottom: 12,
+          }}>
+            <TouchableOpacity onPress={() => setEditProfileVisible(false)}>
+              <Text style={{ fontSize: 16, color: theme.primary }}>Cancel</Text>
+            </TouchableOpacity>
+            <Text style={{ fontSize: 17, fontWeight: '600', color: theme.label }}>Edit Profile</Text>
+            <TouchableOpacity onPress={handleSaveProfile} disabled={editProfileSaving}>
+              <Text style={{ fontSize: 16, fontWeight: '600', color: editProfileSaving ? '#A8C8FF' : theme.primary }}>
+                {editProfileSaving ? 'Saving…' : 'Save'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          <View style={{ marginHorizontal: 16, gap: 20, marginTop: 8 }}>
+            {/* Avatar emoji picker */}
+            <View>
+              <Text style={{ fontSize: 13, fontWeight: '500', color: theme.labelSecondary, textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 8 }}>
+                Avatar
+              </Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
+                {['👤','😀','😎','🤓','🧑‍💻','🦊','🐻','🐼','🦁','🐸','🚀','⭐','🔥','💡','🎯'].map((emoji) => (
+                  <TouchableOpacity
+                    key={emoji}
+                    onPress={() => setEditEmoji(emoji)}
+                    style={{
+                      width: 44,
+                      height: 44,
+                      borderRadius: 22,
+                      backgroundColor: editEmoji === emoji ? '#007AFF20' : theme.surface,
+                      borderWidth: editEmoji === emoji ? 2 : 1,
+                      borderColor: editEmoji === emoji ? theme.primary : theme.separator,
+                      justifyContent: 'center',
+                      alignItems: 'center',
+                    }}
+                  >
+                    <Text style={{ fontSize: 22 }}>{emoji}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+
+            {/* Display name */}
+            <View>
+              <Text style={{ fontSize: 13, fontWeight: '500', color: theme.labelSecondary, textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 8 }}>
+                Display Name
+              </Text>
+              <View style={{
+                backgroundColor: theme.surface,
+                borderRadius: 10,
+                borderWidth: 0.5,
+                borderColor: theme.separator,
+                overflow: 'hidden',
+              }}>
+                <TextInput
+                  value={editName}
+                  onChangeText={setEditName}
+                  placeholder="Your name"
+                  placeholderTextColor={theme.labelTertiary}
+                  autoCorrect={false}
+                  returnKeyType="done"
+                  style={{ fontSize: 16, color: theme.label, paddingHorizontal: 16, paddingVertical: 13 }}
+                />
+              </View>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       <PromoCodeSheet
         visible={promoSheetVisible}
@@ -925,14 +1104,3 @@ export default function SettingsScreen() {
     </SafeAreaView>
   );
 }
-
-// ─── Shared styles ────────────────────────────────────────────────────────────
-
-const rowContainerStyle: import('react-native').ViewStyle = {
-  flexDirection: 'row',
-  alignItems: 'center',
-  justifyContent: 'space-between',
-  paddingHorizontal: 16,
-  paddingVertical: 12,
-  minHeight: 44,
-};

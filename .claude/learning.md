@@ -4,13 +4,13 @@
 
 - PowerSync sync rules: never use table aliases → rows land in ps_untyped
 - PowerSync row IDs: always `${instanceId}/${appId}/${key}` not UUID
-- RLS on instance_members: keep DISABLED → PowerSync sync rules handle access
 - useCallback + PowerSync db: use useRef(db), empty [] deps → prevents re-fire on sync
 - iOS WebKit localStorage: replace window.localStorage entirely, don't defineProperty
 - Supabase upsert: onConflict col must have matching UNIQUE constraint in Postgres
 - After Supabase write: don't query PowerSync local immediately → pre-seed or use fallback
-- Worktree fixes: always copy to main project → worktree has no node_modules
 - Duplicate UNIQUE constraints: check with pg_constraint before adding → breaks upsert
+- Supabase signUp: doesn't error on existing email → check data.user.identities?.length === 0
+- StyleSheet.create(): evaluated at load time, can't use hooks → use makeStyles(theme: Colors) called inside component
 - WebView reload for sync: location.reload() + window.name is the only universal approach
 - PowerSync boolean columns: use column.integer (0/1) → no column.boolean exists
 - supabase.rpc(): use .then(undefined, () => {}) for fire-and-forget → .catch() doesn't exist on PostgrestFilterBuilder
@@ -27,6 +27,7 @@
 
 ## Session log (rolling — keep last 30 days only)
 
+2026-03-31: Login UX (forgot password, show/hide, duplicate email) · Settings fixes (app lock, edit profile, appearance) · Dark theme system (lib/theme.ts + 15 files)
 2026-03-31: Write attribution (shared_app_data + history table) · _addedBy stamping · VaultAPI.collaboration · activity panel on Manage Group
 2026-03-26: API Keys UI + version tracking · installed_apps PK fix (${userId}/${appId})
 2026-03-25: Cross-device app list sync · auth lifecycle fixes · HTML add flow · WebView viewport fix

@@ -31,6 +31,7 @@ import { track } from '@/services/analytics';
 import { powerSyncDb } from '@/services/sync/PowerSyncProvider';
 import { detectPlatform, fetchUrlMetadata } from '@/services/urlFetcher';
 import { type ParsedBundle, extractAndBundle } from '@/services/zipInstaller';
+import { useTheme, type Colors } from '@/lib/theme';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -50,6 +51,358 @@ const BG_COLOR_OPTIONS = [
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 type Step = 'input' | 'processing' | 'details' | 'installing';
+
+// ── Styles ────────────────────────────────────────────────────────────────────
+
+// Static styles for the class-based ErrorBoundary (can't use hooks in classes).
+const boundaryStyles = StyleSheet.create({
+  boundaryRoot: {
+    flex: 1,
+    backgroundColor: '#F2F2F7',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 20,
+  },
+  boundaryCard: {
+    width: '100%',
+    maxWidth: 360,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
+    padding: 16,
+    alignItems: 'center',
+    gap: 10,
+  },
+  boundaryTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#1C1C1E',
+  },
+  boundaryBody: {
+    fontSize: 14,
+    lineHeight: 20,
+    color: '#3C3C43',
+    textAlign: 'center',
+  },
+  boundaryBtn: {
+    marginTop: 6,
+    backgroundColor: '#007AFF',
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+  },
+  boundaryBtnText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+});
+
+function makeStyles(theme: Colors) {
+  return StyleSheet.create({
+    root: {
+      flex: 1,
+      backgroundColor: theme.groupedBackground,
+    },
+    dragHandle: {
+      width: 36,
+      height: 5,
+      borderRadius: 2.5,
+      backgroundColor: theme.labelTertiary,
+      alignSelf: 'center',
+      marginTop: 8,
+      marginBottom: 4,
+    },
+
+    cancelBtn: {
+      fontSize: 17,
+      color: theme.primary,
+    },
+
+    // Processing overlay
+    processingOverlay: {
+      flex: 1,
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 20,
+      paddingHorizontal: 32,
+    },
+    processingMsg: {
+      fontSize: 16,
+      color: theme.labelSecondary,
+      textAlign: 'center',
+    },
+
+    scrollContent: {
+      padding: 20,
+      gap: 8,
+      paddingBottom: 40,
+    },
+
+    section: {
+      gap: 8,
+    },
+    sectionHeader: {
+      fontSize: 12,
+      fontWeight: '600',
+      color: theme.labelSecondary,
+      textTransform: 'uppercase',
+      letterSpacing: 0.6,
+      paddingHorizontal: 4,
+      marginBottom: 2,
+    },
+
+    card: {
+      backgroundColor: theme.surface,
+      borderRadius: 12,
+      overflow: 'hidden',
+    },
+
+    urlInput: {
+      paddingHorizontal: 16,
+      paddingVertical: 14,
+      fontSize: 16,
+      color: theme.label,
+      lineHeight: 22,
+    },
+
+    badgeRow: {
+      paddingHorizontal: 16,
+      paddingBottom: 12,
+      flexDirection: 'row',
+    },
+    badge: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 5,
+      paddingHorizontal: 10,
+      paddingVertical: 4,
+      borderRadius: 20,
+    },
+    badgeDot: {
+      width: 6,
+      height: 6,
+      borderRadius: 3,
+    },
+    badgeText: {
+      fontSize: 13,
+      fontWeight: '600',
+    },
+
+    errorBox: {
+      marginHorizontal: 16,
+      marginBottom: 12,
+      backgroundColor: '#FEE2E2',
+      borderRadius: 8,
+      padding: 10,
+    },
+    errorText: {
+      fontSize: 13,
+      color: '#B91C1C',
+      lineHeight: 18,
+    },
+
+    primaryBtn: {
+      backgroundColor: theme.primary,
+      margin: 12,
+      borderRadius: 12,
+      paddingVertical: 15,
+      alignItems: 'center',
+      justifyContent: 'center',
+      minHeight: 50,
+    },
+    primaryBtnDisabled: {
+      backgroundColor: theme.labelTertiary,
+    },
+    primaryBtnText: {
+      color: '#FFFFFF',
+      fontSize: 17,
+      fontWeight: '600',
+    },
+
+    dividerRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+      paddingHorizontal: 4,
+      marginVertical: 4,
+    },
+    dividerLine: {
+      flex: 1,
+      height: 0.5,
+      backgroundColor: theme.labelTertiary,
+    },
+    dividerText: {
+      fontSize: 13,
+      color: theme.labelSecondary,
+      fontWeight: '500',
+    },
+
+    outlineBtn: {
+      backgroundColor: theme.surface,
+      borderRadius: 12,
+      paddingVertical: 15,
+      alignItems: 'center',
+      borderWidth: 1.5,
+      borderColor: theme.primary,
+    },
+    outlineBtnText: {
+      color: theme.primary,
+      fontSize: 17,
+      fontWeight: '600',
+    },
+    zipHint: {
+      fontSize: 12,
+      color: theme.labelSecondary,
+      textAlign: 'center',
+      paddingHorizontal: 8,
+    },
+
+    fieldGroup: {
+      paddingHorizontal: 16,
+      paddingVertical: 14,
+    },
+    fieldGroupBorder: {
+      borderTopWidth: 0.5,
+      borderTopColor: theme.separator,
+    },
+    fieldLabel: {
+      fontSize: 12,
+      fontWeight: '600',
+      color: theme.labelSecondary,
+      textTransform: 'uppercase',
+      letterSpacing: 0.5,
+      marginBottom: 10,
+    },
+
+    nameInput: {
+      fontSize: 16,
+      color: theme.label,
+      borderWidth: 0.5,
+      borderColor: theme.separator,
+      borderRadius: 8,
+      paddingHorizontal: 12,
+      paddingVertical: 10,
+      backgroundColor: theme.inputBackground,
+    },
+
+    previewRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 14,
+    },
+    previewIcon: {
+      width: 56,
+      height: 56,
+      borderRadius: 13,
+      alignItems: 'center',
+      justifyContent: 'center',
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.08,
+      shadowRadius: 4,
+      elevation: 2,
+    },
+    previewEmoji: {
+      fontSize: 26,
+    },
+    previewName: {
+      fontSize: 15,
+      fontWeight: '500',
+      color: theme.label,
+      flex: 1,
+    },
+
+    // Create with AI card
+    aiCard: {
+      backgroundColor: '#F5F3FF',
+      borderRadius: 14,
+      borderWidth: 1,
+      borderColor: '#DDD6FE',
+      padding: 16,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 12,
+    },
+    aiCardEmoji: {
+      fontSize: 28,
+    },
+    aiCardText: {
+      flex: 1,
+      gap: 2,
+    },
+    aiCardTitle: {
+      fontSize: 16,
+      fontWeight: '700',
+      color: theme.label,
+    },
+    aiCardSubtitle: {
+      fontSize: 13,
+      color: theme.labelSecondary,
+      lineHeight: 18,
+    },
+    aiCardChevron: {
+      fontSize: 22,
+      color: theme.labelTertiary,
+      fontWeight: '300',
+    },
+    aiCardDisabled: {
+      opacity: 0.6,
+    },
+    comingSoonBadge: {
+      backgroundColor: '#E0E7FF',
+      borderRadius: 8,
+      paddingHorizontal: 8,
+      paddingVertical: 4,
+    },
+    comingSoonText: {
+      fontSize: 12,
+      fontWeight: '600',
+      color: '#6366F1',
+    },
+    // ── HTML add flow ─────────────────────────────────────────────────────────
+    htmlFileRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingHorizontal: 16,
+      paddingVertical: 12,
+      gap: 8,
+    },
+    htmlFileName: {
+      flex: 1,
+      fontSize: 13,
+      color: theme.labelSecondary,
+    },
+    htmlFileBtn: {
+      backgroundColor: theme.groupedBackground,
+      borderRadius: 8,
+      paddingVertical: 7,
+      paddingHorizontal: 12,
+      borderWidth: 0.5,
+      borderColor: theme.separator,
+    },
+    htmlFileBtnText: {
+      fontSize: 13,
+      fontWeight: '600',
+      color: theme.primary,
+    },
+    htmlInnerDivider: {
+      height: 0.5,
+      backgroundColor: theme.separator,
+      marginHorizontal: 16,
+    },
+    htmlInput: {
+      paddingHorizontal: 16,
+      paddingVertical: 14,
+      fontSize: 13,
+      color: theme.label,
+      lineHeight: 20,
+      minHeight: 120,
+      fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+      textAlignVertical: 'top',
+    },
+  });
+}
 
 // ── Screen ────────────────────────────────────────────────────────────────────
 
@@ -86,18 +439,18 @@ class AddScreenErrorBoundary extends Component<
   render() {
     if (this.state.hasError) {
       return (
-        <SafeAreaView style={styles.boundaryRoot} edges={['bottom']}>
-          <View style={styles.boundaryCard}>
-            <Text style={styles.boundaryTitle}>Something went wrong</Text>
-            <Text style={styles.boundaryBody}>
+        <SafeAreaView style={boundaryStyles.boundaryRoot} edges={['bottom']}>
+          <View style={boundaryStyles.boundaryCard}>
+            <Text style={boundaryStyles.boundaryTitle}>Something went wrong</Text>
+            <Text style={boundaryStyles.boundaryBody}>
               Please reopen Add App and try again.
             </Text>
             <TouchableOpacity
               onPress={() => router.back()}
               activeOpacity={0.8}
-              style={styles.boundaryBtn}
+              style={boundaryStyles.boundaryBtn}
             >
-              <Text style={styles.boundaryBtnText}>Go Back</Text>
+              <Text style={boundaryStyles.boundaryBtnText}>Go Back</Text>
             </TouchableOpacity>
           </View>
         </SafeAreaView>
@@ -121,6 +474,9 @@ function AddScreenContent() {
   const { refresh, apps } = useInstalledApps();
   const { showToast } = useToast();
   const { gateAppInstall } = useGatekeeper();
+  const theme = useTheme();
+  const styles = makeStyles(theme);
+
   const replaceAppId =
     typeof params.replace_app_id === 'string' ? params.replace_app_id : null;
   const replaceUrlParam =
@@ -488,7 +844,7 @@ function AddScreenContent() {
         {/* ── Processing overlay ─────────────────────────────────────────── */}
         {step === 'processing' && (
           <View style={styles.processingOverlay}>
-            <ActivityIndicator size="large" color="#007AFF" />
+            <ActivityIndicator size="large" color={theme.primary} />
             <Text style={styles.processingMsg}>{processingMsg}</Text>
           </View>
         )}
@@ -524,7 +880,7 @@ function AddScreenContent() {
                         setUrl(normalised);
                       }}
                       placeholder="Paste app URL (lovable.dev, bolt.host, vercel.app…)"
-                      placeholderTextColor="#C7C7CC"
+                      placeholderTextColor={theme.labelTertiary}
                       style={styles.urlInput}
                       keyboardType="url"
                       autoCapitalize="none"
@@ -633,7 +989,7 @@ function AddScreenContent() {
                         if (htmlFileName) setHtmlFileName(null);
                       }}
                       placeholder={'Or paste HTML code here…\n\n<!DOCTYPE html>\n<html>…'}
-                      placeholderTextColor="#C7C7CC"
+                      placeholderTextColor={theme.labelTertiary}
                       style={styles.htmlInput}
                       multiline
                       autoCapitalize="none"
@@ -696,7 +1052,7 @@ function AddScreenContent() {
                         value={appName}
                         onChangeText={setAppName}
                         placeholder="App name"
-                        placeholderTextColor="#C7C7CC"
+                        placeholderTextColor={theme.labelTertiary}
                         style={styles.nameInput}
                         autoCapitalize="words"
                         autoCorrect={false}
@@ -770,349 +1126,3 @@ function AddScreenContent() {
     </>
   );
 }
-
-// ── Styles ────────────────────────────────────────────────────────────────────
-
-const styles = StyleSheet.create({
-  root: {
-    flex: 1,
-    backgroundColor: '#F2F2F7',
-  },
-  dragHandle: {
-    width: 36,
-    height: 5,
-    borderRadius: 2.5,
-    backgroundColor: '#D1D1D6',
-    alignSelf: 'center',
-    marginTop: 8,
-    marginBottom: 4,
-  },
-  boundaryRoot: {
-    flex: 1,
-    backgroundColor: '#F2F2F7',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 20,
-  },
-  boundaryCard: {
-    width: '100%',
-    maxWidth: 360,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 14,
-    padding: 16,
-    alignItems: 'center',
-    gap: 10,
-  },
-  boundaryTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#1C1C1E',
-  },
-  boundaryBody: {
-    fontSize: 14,
-    lineHeight: 20,
-    color: '#3C3C43',
-    textAlign: 'center',
-  },
-  boundaryBtn: {
-    marginTop: 6,
-    backgroundColor: '#007AFF',
-    borderRadius: 10,
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-  },
-  boundaryBtnText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-
-  cancelBtn: {
-    fontSize: 17,
-    color: '#007AFF',
-  },
-
-  // Processing overlay
-  processingOverlay: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 20,
-    paddingHorizontal: 32,
-  },
-  processingMsg: {
-    fontSize: 16,
-    color: '#3C3C43',
-    textAlign: 'center',
-  },
-
-  scrollContent: {
-    padding: 20,
-    gap: 8,
-    paddingBottom: 40,
-  },
-
-  section: {
-    gap: 8,
-  },
-  sectionHeader: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#8E8E93',
-    textTransform: 'uppercase',
-    letterSpacing: 0.6,
-    paddingHorizontal: 4,
-    marginBottom: 2,
-  },
-
-  card: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    overflow: 'hidden',
-  },
-
-  urlInput: {
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    fontSize: 16,
-    color: '#1C1C1E',
-    lineHeight: 22,
-  },
-
-  badgeRow: {
-    paddingHorizontal: 16,
-    paddingBottom: 12,
-    flexDirection: 'row',
-  },
-  badge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 20,
-  },
-  badgeDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-  },
-  badgeText: {
-    fontSize: 13,
-    fontWeight: '600',
-  },
-
-  errorBox: {
-    marginHorizontal: 16,
-    marginBottom: 12,
-    backgroundColor: '#FEE2E2',
-    borderRadius: 8,
-    padding: 10,
-  },
-  errorText: {
-    fontSize: 13,
-    color: '#B91C1C',
-    lineHeight: 18,
-  },
-
-  primaryBtn: {
-    backgroundColor: '#007AFF',
-    margin: 12,
-    borderRadius: 12,
-    paddingVertical: 15,
-    alignItems: 'center',
-    justifyContent: 'center',
-    minHeight: 50,
-  },
-  primaryBtnDisabled: {
-    backgroundColor: '#C7C7CC',
-  },
-  primaryBtnText: {
-    color: '#FFFFFF',
-    fontSize: 17,
-    fontWeight: '600',
-  },
-
-  dividerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    paddingHorizontal: 4,
-    marginVertical: 4,
-  },
-  dividerLine: {
-    flex: 1,
-    height: 0.5,
-    backgroundColor: '#C7C7CC',
-  },
-  dividerText: {
-    fontSize: 13,
-    color: '#8E8E93',
-    fontWeight: '500',
-  },
-
-  outlineBtn: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    paddingVertical: 15,
-    alignItems: 'center',
-    borderWidth: 1.5,
-    borderColor: '#007AFF',
-  },
-  outlineBtnText: {
-    color: '#007AFF',
-    fontSize: 17,
-    fontWeight: '600',
-  },
-  zipHint: {
-    fontSize: 12,
-    color: '#8E8E93',
-    textAlign: 'center',
-    paddingHorizontal: 8,
-  },
-
-  fieldGroup: {
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-  },
-  fieldGroupBorder: {
-    borderTopWidth: 0.5,
-    borderTopColor: '#E5E5EA',
-  },
-  fieldLabel: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#8E8E93',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    marginBottom: 10,
-  },
-
-  nameInput: {
-    fontSize: 16,
-    color: '#1C1C1E',
-    borderWidth: 0.5,
-    borderColor: '#E5E5EA',
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    backgroundColor: '#F9F9F9',
-  },
-
-  previewRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 14,
-  },
-  previewIcon: {
-    width: 56,
-    height: 56,
-    borderRadius: 13,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 4,
-    elevation: 2,
-  },
-  previewEmoji: {
-    fontSize: 26,
-  },
-  previewName: {
-    fontSize: 15,
-    fontWeight: '500',
-    color: '#1C1C1E',
-    flex: 1,
-  },
-
-  // Create with AI card
-  aiCard: {
-    backgroundColor: '#F5F3FF',
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: '#DDD6FE',
-    padding: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  aiCardEmoji: {
-    fontSize: 28,
-  },
-  aiCardText: {
-    flex: 1,
-    gap: 2,
-  },
-  aiCardTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#1C1C1E',
-  },
-  aiCardSubtitle: {
-    fontSize: 13,
-    color: '#8E8E93',
-    lineHeight: 18,
-  },
-  aiCardChevron: {
-    fontSize: 22,
-    color: '#C7C7CC',
-    fontWeight: '300',
-  },
-  aiCardDisabled: {
-    opacity: 0.6,
-  },
-  comingSoonBadge: {
-    backgroundColor: '#E0E7FF',
-    borderRadius: 8,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-  },
-  comingSoonText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#6366F1',
-  },
-  // ── HTML add flow ─────────────────────────────────────────────────────────
-  htmlFileRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    gap: 8,
-  },
-  htmlFileName: {
-    flex: 1,
-    fontSize: 13,
-    color: '#8E8E93',
-  },
-  htmlFileBtn: {
-    backgroundColor: '#F2F2F7',
-    borderRadius: 8,
-    paddingVertical: 7,
-    paddingHorizontal: 12,
-    borderWidth: 0.5,
-    borderColor: '#E5E5EA',
-  },
-  htmlFileBtnText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#007AFF',
-  },
-  htmlInnerDivider: {
-    height: 0.5,
-    backgroundColor: '#E5E5EA',
-    marginHorizontal: 16,
-  },
-  htmlInput: {
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    fontSize: 13,
-    color: '#1C1C1E',
-    lineHeight: 20,
-    minHeight: 120,
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
-    textAlignVertical: 'top',
-  },
-});

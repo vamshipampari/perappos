@@ -13,6 +13,8 @@ import {
   View,
 } from 'react-native';
 
+import { useTheme, type Colors } from '@/lib/theme';
+
 export interface SheetAction {
   label: string;
   onPress: () => void;
@@ -28,6 +30,61 @@ interface Props {
   onDismiss: () => void;
 }
 
+function makeStyles(theme: Colors) {
+  return StyleSheet.create({
+    wrapper: {
+      flex: 1,
+      justifyContent: 'flex-end',
+      backgroundColor: theme.overlay,
+    },
+    container: {
+      paddingHorizontal: 8,
+      paddingBottom: 34, // accommodate home indicator
+      gap: 8,
+    },
+    group: {
+      backgroundColor: theme.surface,
+      borderRadius: 13,
+      overflow: 'hidden',
+    },
+    titleRow: {
+      paddingVertical: 14,
+      paddingHorizontal: 16,
+      alignItems: 'center',
+    },
+    titleText: {
+      fontSize: 13,
+      color: theme.labelSecondary,
+      fontWeight: '500',
+    },
+    row: {
+      paddingVertical: 16,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    rowInner: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 8,
+    },
+    rowText: {
+      fontSize: 17,
+      color: theme.primary,
+    },
+    destructiveText: {
+      color: theme.destructive,
+    },
+    cancelText: {
+      fontWeight: '600',
+    },
+    separator: {
+      height: 0.5,
+      backgroundColor: theme.separator,
+    },
+  });
+}
+
 export function ActionSheet({
   visible,
   title,
@@ -35,6 +92,9 @@ export function ActionSheet({
   destructiveActions = [],
   onDismiss,
 }: Props) {
+  const theme = useTheme();
+  const styles = makeStyles(theme);
+
   return (
     <Modal
       visible={visible}
@@ -69,7 +129,7 @@ export function ActionSheet({
                 >
                   <View style={styles.rowInner}>
                     {action.loading ? (
-                      <ActivityIndicator size="small" color="#007AFF" />
+                      <ActivityIndicator size="small" color={theme.primary} />
                     ) : null}
                     <Text style={styles.rowText}>{action.label}</Text>
                   </View>
@@ -116,56 +176,3 @@ export function ActionSheet({
     </Modal>
   );
 }
-
-const styles = StyleSheet.create({
-  wrapper: {
-    flex: 1,
-    justifyContent: 'flex-end',
-    backgroundColor: 'rgba(0,0,0,0.35)',
-  },
-  container: {
-    paddingHorizontal: 8,
-    paddingBottom: 34, // accommodate home indicator
-    gap: 8,
-  },
-  group: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 13,
-    overflow: 'hidden',
-  },
-  titleRow: {
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    alignItems: 'center',
-  },
-  titleText: {
-    fontSize: 13,
-    color: '#8E8E93',
-    fontWeight: '500',
-  },
-  row: {
-    paddingVertical: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  rowInner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-  },
-  rowText: {
-    fontSize: 17,
-    color: '#007AFF',
-  },
-  destructiveText: {
-    color: '#FF3B30',
-  },
-  cancelText: {
-    fontWeight: '600',
-  },
-  separator: {
-    height: 0.5,
-    backgroundColor: '#E5E5EA',
-  },
-});

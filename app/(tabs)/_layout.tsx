@@ -2,6 +2,7 @@ import { Redirect, Tabs } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { Text } from 'react-native';
 import { Haptics, safeImpactAsync } from '@/lib/haptics';
+import { useTheme } from '@/lib/theme';
 import { supabase } from '../../services/supabase';
 
 function TabIcon({ symbol, focused }: { symbol: string; focused: boolean }) {
@@ -13,6 +14,7 @@ function TabIcon({ symbol, focused }: { symbol: string; focused: boolean }) {
 export default function TabLayout() {
   const [sessionChecked, setSessionChecked] = useState(false);
   const [hasSession, setHasSession] = useState(false);
+  const theme = useTheme();
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -38,13 +40,13 @@ export default function TabLayout() {
       screenOptions={{
         headerShown: false,
         tabBarStyle: {
-          backgroundColor: '#FFFFFF',
+          backgroundColor: theme.tabBar,
           borderTopWidth: 0.5,
-          borderTopColor: '#E5E7EB',
+          borderTopColor: theme.tabBarBorder,
           elevation: 0,
         },
-        tabBarActiveTintColor: '#007AFF',
-        tabBarInactiveTintColor: '#8E8E93',
+        tabBarActiveTintColor: theme.primary,
+        tabBarInactiveTintColor: theme.labelSecondary,
         tabBarLabelStyle: {
           fontSize: 10,
           fontWeight: '500',
