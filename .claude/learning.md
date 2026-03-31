@@ -16,6 +16,7 @@
 - supabase.rpc(): use .then(undefined, () => {}) for fire-and-forget → .catch() doesn't exist on PostgrestFilterBuilder
 - Edge functions + user JWTs: deploy with --no-verify-jwt → decode JWT locally via atob() with base64url padding
 - vaultBridge.ts native modules: lazy await import() → static imports crash entire bridge if any module unlinked
+- New RPC params: add DEFAULT NULL in SQL + PGRST202 catch-retry in connector → deploy code before migration without breaking uploads
 
 ## Architecture decisions (why, not what — see docs/context.md for detail)
 
@@ -26,6 +27,7 @@
 
 ## Session log (rolling — keep last 30 days only)
 
+2026-03-31: Write attribution (shared_app_data + history table) · _addedBy stamping · VaultAPI.collaboration · activity panel on Manage Group
 2026-03-26: API Keys UI + version tracking · installed_apps PK fix (${userId}/${appId})
 2026-03-25: Cross-device app list sync · auth lifecycle fixes · HTML add flow · WebView viewport fix
 2026-03-24: VaultAPI.secrets + VaultAPI.storage end-to-end · shared shim patched

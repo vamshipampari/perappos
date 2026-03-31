@@ -1,8 +1,49 @@
 # Cottix — Status
 
-**Last Updated**: 2026-03-26 (Session 15)
+**Last Updated**: 2026-03-31 (Session 16)
 
-## Current Sprint: API Keys UI + Version Tracking
+## Current Sprint: Write Attribution + VaultAPI.collaboration
+
+### ✅ Session 16 — Write Attribution + _addedBy Stamping + Activity Panel (2026-03-31)
+
+**Write attribution (`shared_app_data`):**
+- Added `last_editor_user_id` and `last_editor_display_name` columns to `shared_app_data` (PowerSync schema + Supabase migration `20260330_attribution.sql`)
+- Module-level identity cache (`_bridgeUser`) in `vaultBridge.ts` — warmed at import via `getSession()`, refreshed on `onAuthStateChange`. No per-write `getSession()` call.
+- `handleSharedWrite()` in `bridge-merge-handler.ts` now accepts `userDisplayName` and stamps both fields on every write via `writeRow()`
+- `SupabaseConnector.uploadData()` passes attribution to `upsert_shared_app_data_versioned` RPC; PGRST202 catch-retry pattern for deploy-before-migration safety
+- Fire-and-forget insert into `shared_app_data_history` (append-only audit log) on every PUT
+
+**`_addedBy` stamping on array items:**
+- `bridge-merge-handler.ts` array merge path: after `mergeArraysById()`, post-processes `result.merged`
+  - New items (not in `currentParsed`): stamped with `{ userId, displayName, addedAt }`
+  - Existing items: `_addedBy` always restored from `currentParsed` — never overwritten by merge
+
+**Attribution preload in sync shim:**
+- `loadShimPayload` (`useWebViewApp.ts`) fetches `last_editor_user_id`, `last_editor_display_name`, `updated_at` from both PowerSync local and Supabase fallback; builds `preloadedAttribution` map
+- `buildSyncShim` extended with `preloadedAttribution` + `instanceId` params
+- `_attribution` var in shim IIFE (alongside `_cache`, not inside); seeded from native payload; carried through `window.name` save/restore across `location.reload()`
+- `_VaultSyncPush` updates `_attribution[key]` when remote update includes `lastEditorUserId`
+- `useLiveSyncPush.ts` watcher now selects and forwards `last_editor_user_id`, `last_editor_display_name`, `updated_at` in push payload
+
+**`VaultAPI.collaboration` surface (shared apps only):**
+- `getAttribution(key)` — synchronous from `_attribution`, zero bridge round-trip
+- `getAllAttribution()` — synchronous shallow copy of full `_attribution` map
+- `getItemOwner(arrayKey, itemId)` — reads `_addedBy` from `_cache` for a specific array item
+- `getRecentActivity(limit)` — async bridge call → `collab_get_recent_activity` handler → queries `shared_app_data_history` filtered by `instance_id + app_id`, limit `min(limit, 200)`
+- Personal shim stubs all return `null`/`[]`; TypeScript `VaultAPI` interface updated
+
+**Activity panel on Manage Group screen (`app/shared-instance/[instanceId].tsx`):**
+- Reads from `shared_app_data_history` (full audit log) instead of `shared_app_data` (last-write per key)
+- Always visible — shows "No activity yet." when empty (no longer conditionally hidden)
+- Collapsible via tap on section header (chevron `⌄`/`›` toggle, default expanded)
+- Key truncated to 20 chars; `relativeTime()` helper reused (already existed in file)
+
+**Migration required:** Run `supabase/migrations/20260330_attribution.sql` in Supabase SQL Editor.
+**PowerSync sync rules required:** Add attribution columns to `shared_app_data` projection; add `shared_app_data_history` as synced table.
+
+---
+
+## Previous Sprint: API Keys UI + Version Tracking
 
 ### ✅ Session 15 — API Keys Management + Version Display (2026-03-26)
 
@@ -257,7 +298,11 @@
   - **Known limitation**: Complex apps (>8k tokens) may time out; simple apps (counter, todo, etc.) work reliably; streaming gives real-time feedback
 
 ### 🔜 Next Up
-- [ ] **UPDATE POWERSYNC SYNC RULES**: Add `is_frozen`, `frozen_at`, `frozen_reason` to `shared_instances` SELECT projection in PowerSync dashboard (required for freeze to work on client)
+- [ ] **RUN MIGRATION**: `supabase/migrations/20260330_attribution.sql` in Supabase SQL Editor (adds attribution columns + history table + updated RPC)
+- [ ] **UPDATE POWERSYNC SYNC RULES** (dashboard):
+  - [ ] Add `last_editor_user_id`, `last_editor_display_name` to `shared_app_data` SELECT projection
+  - [ ] Add `is_frozen`, `frozen_at`, `frozen_reason` to `shared_instances` SELECT projection
+  - [ ] Add `shared_app_data_history` as a new synced table (SELECT all columns, filter by instance membership)
 - [ ] Deploy `deploy-html` edge function: `supabase functions deploy deploy-html`
 - [ ] HTML/ZIP apps cross-device: show "Re-install required" overlay on tile when `bundle_html` is NULL after restore (currently opens with error)
 - [ ] Complete `npx expo prebuild --clean` (downloading NDK, ~5-15 min)
@@ -288,4 +333,6 @@
 - `shared_app_data` Supabase constraints (must be in place):
   - UNIQUE constraint `shared_app_data_natural_key` on `(instance_id, app_id, key)` — exactly ONE constraint, no duplicates (duplicate constraints cause "more than one unique constraint" error on every upsert after the first insert)
   - Merge columns: `version`, `last_write_id`, `last_merge_strategy`, `last_conflict_count`
+  - Attribution columns: `last_editor_user_id`, `last_editor_display_name` (added by `20260330_attribution.sql`)
+- `shared_app_data_history` table: created by `20260330_attribution.sql`; RLS allows SELECT for instance members
 - RLS on `shared_app_data`: INSERT/UPDATE for instance members using `auth.uid()` (uuid — no `::text` cast)
