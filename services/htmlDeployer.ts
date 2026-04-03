@@ -7,9 +7,6 @@
 
 import { supabase } from '@/services/supabase';
 
-const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL!;
-const SUPABASE_ANON_KEY = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY!;
-
 /** 5 MB limit — matches the edge function */
 export const HTML_SIZE_LIMIT = 5 * 1024 * 1024;
 
@@ -66,14 +63,6 @@ export interface DeployResult {
  * Requires an active Supabase session. Throws on auth error or network failure.
  */
 export async function deployHtml(appId: string, html: string): Promise<DeployResult> {
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
-
-  if (!session) {
-    throw new Error('You must be signed in to deploy an app');
-  }
-
   const htmlBytes = new TextEncoder().encode(html).length;
   if (htmlBytes > HTML_SIZE_LIMIT) {
     throw new Error(
@@ -81,32 +70,31 @@ export async function deployHtml(appId: string, html: string): Promise<DeployRes
     );
   }
 
-  const response = await fetch(`${SUPABASE_URL}/functions/v1/deploy-html`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${session.access_token}`,
-      apikey: SUPABASE_ANON_KEY,
-    },
-    body: JSON.stringify({ appId, html }),
+  // supabase.functions.invoke() handles auth (JWT + auto-refresh) internally —
+  // no manual token fetching, no PowerSync side-effects from refreshSession().
+  const { data, error } = await supabase.functions.invoke<{ url: string }>('deploy-html', {
+    body: { appId, html },
   });
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    let errorMessage: string;
+  if (error) {
+    // FunctionsHttpError carries the raw Response in `.context` — try to extract
+    // the JSON body for a human-readable reason, fall back to error.message.
+    let message = error.message || 'Deploy failed';
     try {
-      const parsed = JSON.parse(errorText) as { error?: string };
-      errorMessage = parsed.error ?? `Deploy failed (${response.status})`;
+      const ctx = (error as unknown as { context?: Response }).context;
+      if (ctx) {
+        const body = await ctx.json() as { error?: string; message?: string };
+        message = body.error ?? body.message ?? message;
+      }
     } catch {
-      errorMessage = `Deploy failed (${response.status})`;
+      // ignore — use the message we already have
     }
-    throw new Error(errorMessage);
+    throw new Error(message);
   }
 
-  const result = (await response.json()) as { url?: string };
-  if (!result.url) {
+  if (!data?.url) {
     throw new Error('Deploy succeeded but returned no URL');
   }
 
-  return { url: result.url };
+  return { url: data.url };
 }

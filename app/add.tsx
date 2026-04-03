@@ -28,6 +28,7 @@ import { Haptics, safeNotificationAsync } from '@/lib/haptics';
 import { log } from '@/lib/logger';
 import { supabase } from '@/services/supabase';
 import { track } from '@/services/analytics';
+import { posthog } from '../src/config/posthog';
 import { powerSyncDb } from '@/services/sync/PowerSyncProvider';
 import { detectPlatform, fetchUrlMetadata } from '@/services/urlFetcher';
 import { type ParsedBundle, extractAndBundle } from '@/services/zipInstaller';
@@ -730,15 +731,35 @@ function AddScreenContent() {
       const finalName = appName.trim() || bundle.name || 'My App';
 
       // For HTML apps, deploy to Cloudflare before writing to SQLite so the
-      // source_url is available. On deploy failure, we fall back to local-only
-      // (bundle_html still loads the app in the WebView without a network URL).
+      // source_url is available for sharing. Without a cloud URL, other users
+      // who join a shared version of this app will get a blank screen.
       let finalBundle = bundle;
       if (bundle.sourceType === 'html' && bundle.html) {
-        try {
-          const { url: cfUrl } = await deployHtml(bundle.appId, bundle.html);
-          finalBundle = { ...bundle, sourceUrl: cfUrl };
-        } catch (deployErr) {
-          log.warn('[AddScreen] Cloudflare deploy failed, installing locally only:', deployErr);
+        const { data: { session } } = await supabase.auth.getSession();
+        log.info('[AddScreen] HTML deploy — session:', session ? `uid=${session.user.id}` : 'NONE');
+
+        if (!session) {
+          // Not signed in — install locally. The lazy-deploy path in
+          // handleCollaborate will deploy when they first try to share.
+          log.info('[AddScreen] Skipping cloud deploy — not signed in');
+          showToast('Saved locally. Sign in to enable sharing.', 'success');
+        } else {
+          try {
+            log.info('[AddScreen] Deploying HTML to Cloudflare, appId:', bundle.appId);
+            const { url: cfUrl } = await deployHtml(bundle.appId, bundle.html);
+            finalBundle = { ...bundle, sourceUrl: cfUrl };
+            log.info('[AddScreen] HTML deployed successfully:', cfUrl);
+          } catch (deployErr) {
+            const reason = deployErr instanceof Error ? deployErr.message : String(deployErr);
+            log.warn('[AddScreen] Cloudflare deploy failed:', reason);
+            await new Promise<void>((resolve) => {
+              Alert.alert(
+                'Cloud Deploy Failed',
+                `The app was saved on this device but could not be deployed to the cloud.\n\nReason: ${reason}\n\nSharing won't work until redeployed. Tap "Edit HTML" from the app menu to retry.`,
+                [{ text: 'OK', onPress: () => resolve() }]
+              );
+            });
+          }
         }
       }
 
@@ -801,6 +822,7 @@ function AddScreenContent() {
 
       if (!replaceAppId) {
         void track('app_installed', { source_type: finalBundle.sourceType });
+        posthog.capture('app_installed', { source_type: finalBundle.sourceType });
       }
       void safeNotificationAsync(Haptics.NotificationFeedbackType.Success);
       showToast(replaceAppId ? 'App updated ✓' : 'App installed ✓', 'success');
@@ -979,6 +1001,19 @@ function AddScreenContent() {
                       </TouchableOpacity>
                     </View>
 
+                    <TouchableOpacity
+                      onPress={handleHtmlNext}
+                      disabled={htmlContent.trim().length === 0}
+                      activeOpacity={0.8}
+                      style={[
+                        styles.primaryBtn,
+                        htmlContent.trim().length === 0 && styles.primaryBtnDisabled,
+                        { marginBottom: 8 },
+                      ]}
+                    >
+                      <Text style={styles.primaryBtnText}>Next</Text>
+                    </TouchableOpacity>
+
                     <View style={styles.htmlInnerDivider} />
 
                     {/* Paste area */}
@@ -996,18 +1031,6 @@ function AddScreenContent() {
                       autoCorrect={false}
                       spellCheck={false}
                     />
-
-                    <TouchableOpacity
-                      onPress={handleHtmlNext}
-                      disabled={htmlContent.trim().length === 0}
-                      activeOpacity={0.8}
-                      style={[
-                        styles.primaryBtn,
-                        htmlContent.trim().length === 0 && styles.primaryBtnDisabled,
-                      ]}
-                    >
-                      <Text style={styles.primaryBtnText}>Next</Text>
-                    </TouchableOpacity>
                   </View>
                 </View>
               )}

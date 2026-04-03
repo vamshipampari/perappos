@@ -29,6 +29,7 @@ import { usePowerSync } from '@/services/sync/PowerSyncProvider';
 import { handleVaultMessage } from '@/lib/vaultBridge';
 import { log } from '@/lib/logger';
 import { track } from '@/services/analytics';
+import { posthog } from '../../src/config/posthog';
 import { useTheme, type Colors } from '@/lib/theme';
 
 // ── Viewport fix (all platforms) ─────────────────────────────────────────────
@@ -312,12 +313,20 @@ export default function AppScreen() {
 
   // ── Render: viewer ────────────────────────────────────────────────────────
 
+  // Priority:
+  // 1. URL apps (source_type === 'url') → always load from network URI
+  // 2. HTML/ZIP apps with a local bundle → load from device (offline-capable)
+  // 3. HTML apps with a Cloudflare source_url but no local bundle
+  //    (e.g. a shared-app joiner, or the owner's bundle_html was cleared)
+  //    → fall back to the cloud URL so shared users always see the app
   const webViewSource =
     app.source_type === 'url' && app.source_url
       ? { uri: app.source_url }
       : bundleHtml
         ? { html: bundleHtml, baseUrl: '' as const }
-        : { html: '<!doctype html><html><body></body></html>', baseUrl: '' as const };
+        : app.source_url
+          ? { uri: app.source_url }
+          : { html: '<!doctype html><html><body></body></html>', baseUrl: '' as const };
 
   return (
     <SafeAreaView style={styles.root} edges={['top', 'bottom']}>
@@ -423,7 +432,10 @@ export default function AppScreen() {
                 hasLoadedOnceRef.current = true;
                 setWebLoading(false);
                 webOpacity.value = withTiming(1, { duration: 380 });
-                if (app) void track('app_opened_webview', { app_id: app.app_id });
+                if (app) {
+                  void track('app_opened_webview', { app_id: app.app_id });
+                  posthog.capture('app_opened_webview', { app_id: app.app_id, source_type: app.source_type });
+                }
                 // Flush buffered remote updates that arrived before WebView was ready
                 if (pendingRemoteUpdates.current.length > 0 && webViewRef.current) {
                   log.info('[live-push] onLoadEnd flushing', pendingRemoteUpdates.current.length, 'buffered update(s)');
@@ -439,6 +451,12 @@ export default function AppScreen() {
                 hasLoadedOnceRef.current = true;
                 setWebLoading(false);
                 setWebError(e.nativeEvent.description ?? 'Failed to load');
+                posthog.capture('webview_load_error', {
+                  app_id: app.app_id,
+                  app_name: app.name,
+                  url: app.source_url ?? app.bundle_path,
+                  error_description: e.nativeEvent.description ?? 'Failed to load',
+                });
               }}
               onHttpError={(e) => {
                 hasLoadedOnceRef.current = true;
@@ -481,6 +499,9 @@ export default function AppScreen() {
             disabled: checkingUpdate,
           },
           { label: 'App Info', onPress: handleAppInfo },
+          ...(app.source_type === 'html'
+            ? [{ label: 'Edit HTML', onPress: () => { setMenuVisible(false); router.push(`/edit-html/${app.app_id}`); } }]
+            : []),
         ]}
         destructiveActions={[
           { label: 'Delete App', onPress: handleDelete },

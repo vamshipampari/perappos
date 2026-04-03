@@ -20,6 +20,7 @@ import {
 } from '@/lib/appUpdates';
 import { log } from '@/lib/logger';
 import { createSharedInstanceForApp } from '@/services/collaborationService';
+import { deployHtml } from '@/services/htmlDeployer';
 import { supabase } from '@/services/supabase';
 import type { InstalledApp } from '@/types';
 
@@ -101,10 +102,45 @@ export function useAppMenuActions({
       // If profile check fails, allow the action (don't block on network errors)
     }
 
+    // For HTML apps that were installed without internet, source_url may be null,
+    // which means joiners would get a blank screen. Deploy now before continuing.
+    // Use a local `liveApp` so the alert callback always has the fresh source_url.
+    let liveApp = app;
+    if (app.source_type === 'html' && !app.source_url) {
+      if (!app.bundle_html) {
+        setMenuVisible(false);
+        Alert.alert(
+          'Cannot Share',
+          'This app has no cloud URL and no local HTML to deploy. Try reinstalling it.',
+          [{ text: 'OK' }]
+        );
+        return;
+      }
+      try {
+        const { url: cfUrl } = await deployHtml(app.app_id, app.bundle_html);
+        await db.runAsync(
+          `UPDATE apps SET source_url = ?, updated_at = datetime('now') WHERE app_id = ?`,
+          cfUrl,
+          app.app_id
+        );
+        liveApp = { ...app, source_url: cfUrl };
+        setApp(liveApp);
+      } catch (deployErr) {
+        log.error('[handleCollaborate] pre-share deploy failed:', deployErr);
+        setMenuVisible(false);
+        Alert.alert(
+          'Deploy Failed',
+          'Could not upload this app to the cloud. Please check your internet connection and try again.',
+          [{ text: 'OK' }]
+        );
+        return;
+      }
+    }
+
     setMenuVisible(false);
     Alert.alert(
       'Create Shared App?',
-      `Create a shared version of "${app.name}"?\n\nOther people can join with an invite code and you'll all share the same data.`,
+      `Create a shared version of "${liveApp.name}"?\n\nOther people can join with an invite code and you'll all share the same data.`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -154,12 +190,12 @@ export function useAppMenuActions({
                 return;
               }
 
-              const result = await createSharedInstanceForApp(db, syncDb, app);
+              const result = await createSharedInstanceForApp(db, syncDb, liveApp);
               if (result.created) {
                 void supabase.rpc('increment_shared_instance_count', { delta: 1 }).then(undefined, () => {});
               }
               const inviteCode = result.inviteCode.toUpperCase();
-              const updatedApp = { ...app, instance_id: result.instanceId };
+              const updatedApp = { ...liveApp, instance_id: result.instanceId };
               setApp(updatedApp);
               await rebuildShimForApp(updatedApp);
               log.info('[share] shim rebuilt for shared instance, reloading WebView');

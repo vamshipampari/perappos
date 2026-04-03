@@ -1,0 +1,5 @@
+# Copy this file to .dev.vars and fill in your values.
+# .dev.vars is gitignored — never commit real secrets.
+# In production, set secrets with: wrangler secret put <KEY>
+
+UPDATE_API_KEY=your-secret-key-here
