@@ -17,6 +17,7 @@
 - useColorScheme() RN New Arch: programmatic Appearance.setColorScheme() doesn't re-render unfocused tabs → use ThemeContext backed by React state, wrap app in ThemeProvider
 - tabBarIcon color prop: Expo Router passes color to tabBarIcon render fn — always forward it to Text/Icon, never rely on default color
 - React state + async picker: closeMenu()/setState(null) batches before async resolves → capture target in useRef synchronously before calling close
+- Supabase edge functions from app: use supabase.functions.invoke() not manual fetch() → manual fetch() causes Invalid JWT from gateway; refreshSession() triggers PowerSync reconnect + hang
 
 ## Architecture decisions (why, not what — see docs/context.md for detail)
 

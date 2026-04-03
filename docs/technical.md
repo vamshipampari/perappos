@@ -434,6 +434,12 @@ Service-role API keys use `{ role: "service_role" }`. User JWTs (ES256) use `{ a
 **Deploy edge functions with `--no-verify-jwt` for user JWT callers**
 Supabase's API gateway validates JWTs using the project's HS256 JWT secret. User JWTs are ES256 and fail this check before the function runs. Solution: `supabase functions deploy <name> --no-verify-jwt`. The function handles its own auth via local JWT decode.
 
+**Calling edge functions from the mobile app — use `supabase.functions.invoke()`**
+Symptom: manual `fetch()` to `${SUPABASE_URL}/functions/v1/<name>` with `Authorization: Bearer <token>` returns `Invalid JWT` (401) even with a valid, signed-in session. Calling `refreshSession()` to obtain a fresh token fires a Supabase auth-state-change event → PowerSync sees the new session and starts reconnecting → the subsequent `fetch()` to the edge function hangs indefinitely.
+Root cause: the Supabase API gateway runs its own HS256 JWT verification pass before the function code ever executes. User JWTs (ES256) fail this check; no client-side token refresh can fix it.
+Fix: replace all edge function `fetch()` calls with `supabase.functions.invoke('fn-name', { body })` — the SDK handles auth, token auto-refresh, and the correct `Authorization`/`apikey` headers internally, with no PowerSync side-effects.
+Prevention: never call Supabase edge functions with raw `fetch()` from the mobile app. If `invoke()` still returns Invalid JWT, run `supabase functions deploy <name> --no-verify-jwt` once to remove the redundant gateway check (safe when the function validates the JWT itself).
+
 **Decode JWT locally in edge functions — don't use `auth.getUser()`**
 `supabase.auth.getUser()` makes a network call to GoTrue that can fail (timing, ES256 mismatch). Since the gateway already validated the signature (for HS256 tokens) or `--no-verify-jwt` was used, decode the payload locally:
 ```typescript
