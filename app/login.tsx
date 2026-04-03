@@ -15,6 +15,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { supabase } from '../services/supabase';
 import { track } from '../services/analytics';
 import { useTheme } from '@/lib/theme';
+import { posthog } from '../src/config/posthog';
 
 const RESEND_COOLDOWN = 60;
 
@@ -147,6 +148,13 @@ export default function LoginScreen() {
         setError(verifyError.message);
       } else {
         void track('signup_completed');
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+          posthog.identify(user.id, {
+            email: user.email ?? null,
+          });
+          posthog.capture('user_signed_up', { email: user.email ?? null, first_signup_date: new Date().toISOString() });
+        }
         setLoading(false);
         router.replace('/(tabs)');
         return;

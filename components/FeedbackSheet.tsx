@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 
 import { track } from '@/services/analytics';
+import { posthog } from '../src/config/posthog';
 import { supabase } from '@/services/supabase';
 import { useTheme, type Colors } from '@/lib/theme';
 
@@ -165,6 +166,7 @@ export function FeedbackSheet({ visible, onClose }: FeedbackSheetProps) {
       });
       if (error) throw error;
       void track('feedback_submitted', { type });
+      posthog.capture('feedback_submitted', { type });
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setSubmitted(true);
       setTimeout(() => {

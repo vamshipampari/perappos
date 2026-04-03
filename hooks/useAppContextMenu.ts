@@ -14,6 +14,7 @@ import * as Haptics from 'expo-haptics';
 import { applyUrlAppUpdate, checkForUpdates } from '@/lib/appUpdates';
 import { safeImpactAsync } from '@/lib/haptics';
 import { supabase } from '@/services/supabase';
+import { posthog } from '../src/config/posthog';
 import { powerSyncDb } from '@/services/sync/PowerSyncProvider';
 import { shareApp } from '@/services/shareService';
 import type { InstalledApp } from '@/types';
@@ -188,10 +189,23 @@ export function useAppContextMenu({
           style: 'destructive',
           onPress: async () => {
             try {
+              const { data: { session } } = await supabase.auth.getSession();
+              const userId = session?.user.id;
               await db.runAsync('DELETE FROM app_data WHERE app_id = ?', menuTargetApp.app_id);
               await db.runAsync('DELETE FROM apps WHERE app_id = ?', menuTargetApp.app_id);
-              void powerSyncDb.execute('DELETE FROM installed_apps WHERE id = ?', [menuTargetApp.app_id]);
+              void powerSyncDb.execute('DELETE FROM installed_apps WHERE id = ?', [
+                userId ? `${userId}/${menuTargetApp.app_id}` : menuTargetApp.app_id,
+              ]);
               void supabase.rpc('increment_app_count', { delta: -1 }).then(undefined, () => {});
+              posthog.capture('app_deleted', {
+                app_id: menuTargetApp.app_id,
+                app_name: menuTargetApp.name,
+                source_type: menuTargetApp.source_type,
+                open_count: menuTargetApp.open_count,
+                days_installed: Math.floor(
+                  (Date.now() - new Date(menuTargetApp.installed_at).getTime()) / 86400000
+                ),
+              });
               setUpdatesAvailable((prev) => {
                 const next = { ...prev };
                 delete next[menuTargetApp.app_id];

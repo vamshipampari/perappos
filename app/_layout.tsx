@@ -2,11 +2,12 @@ import '../global.css';
 
 import * as Linking from 'expo-linking';
 import * as LocalAuthentication from 'expo-local-authentication';
-import { Stack, useRouter } from 'expo-router';
+import { Stack, usePathname, useGlobalSearchParams, useRouter } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { SQLiteProvider, useSQLiteContext } from 'expo-sqlite';
 import { Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, AppState, Text, TouchableOpacity, View } from 'react-native';
+import { PostHogProvider } from 'posthog-react-native';
 
 import { UserChangeWarningModal } from '@/components/UserChangeWarningModal';
 import { useUserChangeGuard } from '@/hooks/useUserChangeGuard';
@@ -19,6 +20,7 @@ import { seedDemoApps } from '@/utils/createDemoApp';
 import { PowerSyncProvider } from '../services/sync/PowerSyncProvider';
 import { supabase } from '../services/supabase';
 import { track } from '../services/analytics';
+import { posthog } from '../src/config/posthog';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -265,6 +267,26 @@ function AuthChangeGuard({ children }: { children: React.ReactNode }) {
   );
 }
 
+// ── Screen tracking for PostHog ───────────────────────────────────────────────
+// Must live inside RootLayout so it has access to router pathname.
+function ScreenTracker() {
+  const pathname = usePathname();
+  const params = useGlobalSearchParams();
+  const previousPathname = useRef<string | undefined>(undefined);
+
+  useEffect(() => {
+    if (previousPathname.current !== pathname) {
+      posthog.screen(pathname, {
+        previous_screen: previousPathname.current ?? null,
+        ...params,
+      });
+      previousPathname.current = pathname;
+    }
+  }, [pathname, params]);
+
+  return null;
+}
+
 export default function RootLayout() {
   const router = useRouter();
   const [isDeepLinkReady, setIsDeepLinkReady] = useState(false);
@@ -288,8 +310,15 @@ export default function RootLayout() {
       setHasSession(!!session);
       if (event === 'SIGNED_IN') {
         void track('login_completed');
+        if (session?.user) {
+          posthog.identify(session.user.id, {
+            email: session.user.email ?? null,
+          });
+          posthog.capture('user_logged_in', { email: session.user.email ?? null });
+        }
       }
       if (event === 'SIGNED_OUT') {
+        posthog.reset();
         router.replace('/login');
       }
     });
@@ -379,6 +408,14 @@ export default function RootLayout() {
   }
 
   return (
+    <PostHogProvider
+      client={posthog}
+      autocapture={{
+        captureScreens: false,
+        captureTouches: true,
+        propsToCapture: ['testID'],
+      }}
+    >
     <ThemeProvider>
     <Suspense
       fallback={
@@ -393,6 +430,7 @@ export default function RootLayout() {
           <AuthChangeGuard>
             <ToastProvider>
               <AppLockGate>
+                <ScreenTracker />
                 <Stack>
                   <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
                 <Stack.Screen
@@ -458,5 +496,6 @@ export default function RootLayout() {
       </SQLiteProvider>
     </Suspense>
     </ThemeProvider>
+    </PostHogProvider>
   );
 }

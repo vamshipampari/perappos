@@ -19,7 +19,7 @@ NATIVE FEATURES (all optional — use window.VaultAPI?.X so the app still works 
 - Notifications: await window.VaultAPI?.device.notify({ title, body, delay_seconds? })
 - Share sheet:   await window.VaultAPI?.device.share({ text?, url? })
 - Auth:          await window.VaultAPI?.auth.getUser() → { id, email } | null
-- Secure API calls: await window.VaultAPI?.secrets.fetch('MY_KEY', { url, method, headers: { 'Authorization': 'Bearer {{secret}}' }, body })
+- Secure API calls: await VaultAPI.secrets.has('MY_KEY') → bool | .set('MY_KEY', val) | .fetch('MY_KEY', { url, method, headers: { 'Authorization': 'Bearer {{secret}}' }, body })
 - Image upload:  const { uri } = await window.VaultAPI?.storage.upload(); const { url } = await window.VaultAPI?.storage.getUrl(uri)
 
 CONSTRAINTS:
@@ -120,6 +120,9 @@ API keys are stored in the device keychain. The value **never appears in JS** �
 Keys are **global** — saved once, usable in all mini-apps on that device.
 
 ```js
+// Check if a key is already saved (works even if saved from another app or Settings)
+const exists = await VaultAPI.secrets.has('ANTHROPIC_API_KEY')  // → true | false
+
 // Save a key (show this UI to the user once)
 await VaultAPI.secrets.set('ANTHROPIC_API_KEY', 'sk-ant-...')   // → true
 
@@ -227,6 +230,7 @@ await VaultAPI.auth.getUser()                       // → { id, email } | null
 await VaultAPI.app.getInfo()                        // → { app_id, name, instance_id, ... }
 
 // Secrets
+await VaultAPI.secrets.has('KEY')                               // → true/false
 await VaultAPI.secrets.set('KEY', 'value')
 await VaultAPI.secrets.fetch('KEY', { url, method, headers: { 'X-Key': '{{secret}}' }, body })
 

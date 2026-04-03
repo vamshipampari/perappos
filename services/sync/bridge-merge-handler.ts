@@ -21,6 +21,7 @@
  */
 
 import { log } from '@/lib/logger';
+import { posthog } from '../../src/config/posthog';
 import { classifyShape, shapesCompatible } from './shape-classifier';
 import { mergeArraysById, mergeObjectFields } from './three-way-merge';
 import { deepEqual, quickHash } from './merge-utils';
@@ -345,6 +346,14 @@ export async function handleSharedWrite(
   } catch (error) {
     log.error('[merge] Error in handleSharedWrite:', error);
     logTelemetry('lww', 0, ['error'], message, appId, instanceId, startTime);
+    posthog.capture('collab_write_rejected', {
+      instance_id: instanceId,
+      app_id: appId,
+      key: message.key,
+      base_version: message.baseVersion,
+      current_version: _versionCache.get(`${instanceId}/${appId}/${message.key}`) ?? 0,
+      strategy,
+    });
     return {
       success: false,
       newVersion: 0,

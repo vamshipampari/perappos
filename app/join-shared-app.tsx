@@ -24,6 +24,7 @@ import {
 import { reconnectPowerSync } from '@/services/sync/PowerSyncProvider';
 import { supabase } from '@/services/supabase';
 import { track } from '@/services/analytics';
+import { posthog } from '../src/config/posthog';
 
 export default function JoinSharedAppScreen() {
   const db = useDatabase();
@@ -146,6 +147,7 @@ export default function JoinSharedAppScreen() {
         await reconnectPowerSync();
         await refresh();
         void track('share_joined', { instance_id: result.instance.instance_id });
+        posthog.capture('share_joined', { instance_id: result.instance.instance_id });
         setJoining(false);
         router.replace(`/app/${result.appId}`);
         return;
@@ -155,6 +157,7 @@ export default function JoinSharedAppScreen() {
         // Request submitted (or still pending) — persist so Settings can show it.
         await savePendingJoin(result.instance);
         void track('share_join_requested', { instance_id: result.instance.instance_id });
+        posthog.capture('share_join_requested', { instance_id: result.instance.instance_id });
         setJoining(false);
         return;
       }

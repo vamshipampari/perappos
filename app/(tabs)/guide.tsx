@@ -95,11 +95,14 @@ export default function GuideScreen() {
       </View>
 
       {/* Section tab pills */}
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={{ paddingHorizontal: 16, gap: 8, flexDirection: 'row' }}
-        style={{ flexGrow: 0, marginBottom: 14 }}
+      <View
+        style={{
+          paddingHorizontal: 16,
+          marginBottom: 14,
+          flexDirection: 'row',
+          flexWrap: 'wrap',
+          gap: 8,
+        }}
       >
         {SECTIONS.map(section => {
           const active = activeSection === section.id;
@@ -115,6 +118,7 @@ export default function GuideScreen() {
                 paddingHorizontal: 14,
                 paddingVertical: 8,
                 borderRadius: 20,
+                minHeight: 36,
                 backgroundColor: active ? theme.primary : theme.surface,
                 borderWidth: active ? 0 : 1,
                 borderColor: theme.separator,
@@ -126,13 +130,20 @@ export default function GuideScreen() {
               }}
             >
               <Text style={{ fontSize: 13 }}>{section.icon}</Text>
-              <Text style={{ fontSize: 13, fontWeight: '600', color: active ? '#FFFFFF' : theme.labelSecondary }}>
+              <Text
+                style={{
+                  fontSize: 13,
+                  fontWeight: '600',
+                  color: active ? '#FFFFFF' : theme.labelSecondary,
+                  flexShrink: 1,
+                }}
+              >
                 {section.label}
               </Text>
             </TouchableOpacity>
           );
         })}
-      </ScrollView>
+      </View>
 
       {/* Content */}
       <ScrollView

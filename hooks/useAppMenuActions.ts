@@ -22,6 +22,7 @@ import { log } from '@/lib/logger';
 import { createSharedInstanceForApp } from '@/services/collaborationService';
 import { deployHtml } from '@/services/htmlDeployer';
 import { supabase } from '@/services/supabase';
+import { posthog } from '@/src/config/posthog';
 import type { InstalledApp } from '@/types';
 
 interface UseAppMenuActionsInput {
@@ -383,9 +384,16 @@ export function useAppMenuActions({
             try {
               await db.runAsync('UPDATE apps SET instance_id = NULL WHERE app_id = ?', app.app_id);
               await syncDb.execute('DELETE FROM app_data WHERE app_id = ?', [app.app_id]);
-              await syncDb.execute('DELETE FROM installed_apps WHERE id = ?', [app.app_id]);
+              await syncDb.execute('DELETE FROM installed_apps WHERE id = ?', [
+                signedInUserId ? `${signedInUserId}/${app.app_id}` : app.app_id,
+              ]);
               await db.runAsync('DELETE FROM apps WHERE app_id = ?', app.app_id);
               void supabase.rpc('increment_app_count', { delta: -1 }).then(undefined, () => {});
+              posthog.capture('app_deleted', {
+                app_id: app.app_id,
+                app_name: app.name,
+                source_type: app.source_type,
+              });
             } catch {
               // ignore
             }

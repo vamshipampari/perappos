@@ -25,6 +25,7 @@ import { useUserProfile, type PlanType } from '@/hooks/useUserProfile';
 import { log } from '@/lib/logger';
 import { useTheme, useSetTheme, type Colors, type ThemeMode } from '@/lib/theme';
 import { track } from '@/services/analytics';
+import { posthog } from '../../src/config/posthog';
 import { supabase } from '../../services/supabase';
 import { usePowerSync } from '../../services/sync/PowerSyncProvider';
 
@@ -1129,6 +1130,7 @@ export default function SettingsScreen() {
           const result = await redeemPromoCode(code);
           if (result.success) {
             void track('promo_redeemed', { code, plan_granted: profile?.plan });
+            posthog.capture('promo_code_redeemed', { code, plan_granted: profile?.plan ?? null });
           }
           return result;
         }}
