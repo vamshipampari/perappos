@@ -56,7 +56,16 @@ function safeErrorLogPayload(error: unknown): string {
 
 function throwWithStage(stage: string, error: unknown): never {
   log.error('Create shared error:', safeErrorLogPayload(error));
-  const message = error instanceof Error ? error.message : String(error);
+  let message: string;
+  if (error instanceof Error) {
+    message = error.message;
+  } else if (typeof error === 'object' && error !== null) {
+    // PostgrestError: { message, code, details, hint }
+    const e = error as Record<string, unknown>;
+    message = String(e.message ?? e.code ?? JSON.stringify(error));
+  } else {
+    message = String(error);
+  }
   throw new Error(`${stage}: ${message}`);
 }
 
