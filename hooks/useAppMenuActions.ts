@@ -73,39 +73,6 @@ export function useAppMenuActions({
       return;
     }
 
-    // Check shared instance limit before proceeding
-    try {
-      const { data: profileData } = await supabase.rpc('get_user_profile');
-      if (profileData) {
-        const p = profileData as {
-          shared_instance_limit: number | null;
-          shared_instance_count: number;
-        };
-        const limit = p.shared_instance_limit;
-        const count = p.shared_instance_count;
-        if (limit === 0) {
-          setMenuVisible(false);
-          Alert.alert(
-            'Upgrade Required',
-            'Sharing apps requires a Pro or Beta plan. Redeem a promo code in Settings to unlock this feature.',
-            [{ text: 'OK' }]
-          );
-          return;
-        }
-        if (limit !== null && count >= limit) {
-          setMenuVisible(false);
-          Alert.alert(
-            'Shared Instance Limit Reached',
-            `Your plan allows up to ${limit} shared instances. Upgrade to Team for unlimited.`,
-            [{ text: 'OK' }]
-          );
-          return;
-        }
-      }
-    } catch {
-      // If profile check fails, allow the action (don't block on network errors)
-    }
-
     // For HTML apps that were installed without internet, source_url may be null,
     // which means joiners would get a blank screen. Deploy now before continuing.
     // Use a local `liveApp` so the alert callback always has the fresh source_url.
@@ -194,19 +161,36 @@ export function useAppMenuActions({
                 return;
               }
 
-              const result = await createSharedInstanceForApp(db, syncDb, liveApp);
-              if (result.created) {
-                supabase.rpc('increment_shared_instance_count', { delta: 1 }).then(({ data }) => {
-                  const r = data as { error?: string; limit?: number } | null;
-                  if (r?.error === 'shared_instance_limit_exceeded') {
-                    Alert.alert(
-                      'Shared Instance Limit Reached',
-                      `Your plan allows up to ${r.limit} shared instances. Upgrade to Team for unlimited.`,
-                      [{ text: 'OK' }]
-                    );
-                  }
-                }, () => {});
+              // Backend enforces the limit atomically — check AND increment before creating.
+              // This is the sole limit gate; no client-side plan/count checks.
+              const { data: incrData } = await supabase.rpc('increment_shared_instance_count', { delta: 1 });
+              const incrResult = incrData as { success?: boolean; error?: string; limit?: number } | null;
+              if (incrResult?.error === 'shared_instance_limit_exceeded') {
+                const limitVal = incrResult.limit;
+                Alert.alert(
+                  limitVal === 0 ? 'Upgrade Required' : 'Shared Instance Limit Reached',
+                  limitVal === 0
+                    ? 'Sharing apps requires a Pro or Beta plan. Redeem a promo code in Settings to unlock this feature.'
+                    : `Your plan allows up to ${limitVal} shared instances. Upgrade to Team for unlimited.`,
+                  [{ text: 'OK' }]
+                );
+                return;
               }
+
+              let result;
+              try {
+                result = await createSharedInstanceForApp(db, syncDb, liveApp);
+              } catch (createError) {
+                // Roll back the pre-increment since creation failed.
+                void supabase.rpc('increment_shared_instance_count', { delta: -1 }).then(undefined, () => {});
+                throw createError;
+              }
+
+              if (!result.created) {
+                // An existing instance was found (no new instance) — undo the pre-increment.
+                void supabase.rpc('increment_shared_instance_count', { delta: -1 }).then(undefined, () => {});
+              }
+
               const inviteCode = result.inviteCode.toUpperCase();
               const updatedApp = { ...liveApp, instance_id: result.instanceId };
               setApp(updatedApp);
