@@ -793,17 +793,17 @@ export default function SettingsScreen() {
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
                   <Text style={{ fontSize: 13, color: theme.labelSecondary }}>Apps installed</Text>
                   <Text style={{ fontSize: 13, fontWeight: '600', color: theme.label }}>
-                    {localAppCount} / {limits.maxApps === Infinity ? '∞' : limits.maxApps}
+                    {localAppCount} / {limits.appLimit === null ? '∞' : limits.appLimit}
                   </Text>
                 </View>
-                {limits.maxApps !== Infinity && (
+                {limits.appLimit !== null && (
                   <View style={{ height: 4, backgroundColor: theme.separator, borderRadius: 2, overflow: 'hidden' }}>
                     <View
                       style={{
                         height: 4,
                         borderRadius: 2,
-                        backgroundColor: localAppCount >= limits.maxApps ? theme.destructive : theme.primary,
-                        width: `${Math.min((localAppCount / limits.maxApps) * 100, 100)}%`,
+                        backgroundColor: localAppCount >= (limits.appLimit ?? 0) ? theme.destructive : theme.primary,
+                        width: `${Math.min((localAppCount / (limits.appLimit ?? 1)) * 100, 100)}%`,
                       }}
                     />
                   </View>

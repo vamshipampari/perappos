@@ -2,39 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { log } from '@/lib/logger';
 import { supabase } from '../services/supabase';
 
-// Plan limits configuration
-const PLAN_LIMITS = {
-  free: {
-    maxApps: 5,
-    canCreateSharedInstances: false,
-    maxSharedInstances: 0,
-    maxMembersPerInstance: 0,
-    label: 'Free',
-  },
-  beta: {
-    maxApps: Infinity,
-    canCreateSharedInstances: true,
-    maxSharedInstances: 5,
-    maxMembersPerInstance: 5,
-    label: 'Beta',
-  },
-  pro: {
-    maxApps: Infinity,
-    canCreateSharedInstances: true,
-    maxSharedInstances: 5,
-    maxMembersPerInstance: 5,
-    label: 'Pro',
-  },
-  team: {
-    maxApps: Infinity,
-    canCreateSharedInstances: true,
-    maxSharedInstances: Infinity,
-    maxMembersPerInstance: 20,
-    label: 'Team',
-  },
-} as const;
-
-export type PlanType = keyof typeof PLAN_LIMITS;
+export type PlanType = 'free' | 'beta' | 'pro' | 'team';
 
 export interface UserProfile {
   user_id: string;
@@ -48,11 +16,23 @@ export interface UserProfile {
   app_install_count: number;
   shared_instance_count: number;
   created_at: string;
+  // Limit columns — sourced from Supabase, null = unlimited
+  app_limit: number | null;
+  shared_instance_limit: number | null;
+  members_per_instance_limit: number | null;
+  storage_limit_mb: number | null;
+}
+
+export interface Limits {
+  appLimit: number | null;
+  sharedInstanceLimit: number | null;
+  membersPerInstanceLimit: number | null;
+  storageLimitMb: number | null;
 }
 
 export interface UserProfileState {
   profile: UserProfile | null;
-  limits: typeof PLAN_LIMITS[PlanType];
+  limits: Limits;
   loading: boolean;
   error: string | null;
   isProOrAbove: boolean;
@@ -94,7 +74,26 @@ export function useUserProfile(): UserProfileState {
   }, [fetchProfile]);
 
   const plan = profile?.plan ?? 'free';
-  const limits = PLAN_LIMITS[plan] ?? PLAN_LIMITS.free;
+
+  // Limits come directly from the profile row — null means unlimited.
+  const limits: Limits = {
+    appLimit: profile?.app_limit ?? null,
+    sharedInstanceLimit: profile?.shared_instance_limit ?? null,
+    membersPerInstanceLimit: profile?.members_per_instance_limit ?? null,
+    storageLimitMb: profile?.storage_limit_mb ?? null,
+  };
+
+  const appCount = profile?.app_install_count ?? 0;
+  const sharedCount = profile?.shared_instance_count ?? 0;
+
+  // null = unlimited → can always install
+  const canInstallMoreApps =
+    limits.appLimit === null || appCount < limits.appLimit;
+
+  // 0 = sharing disabled; null = unlimited; N = can create up to N
+  const canCreateSharedInstance =
+    limits.sharedInstanceLimit !== 0 &&
+    (limits.sharedInstanceLimit === null || sharedCount < limits.sharedInstanceLimit);
 
   const redeemPromoCode = useCallback(async (code: string) => {
     try {
@@ -144,11 +143,8 @@ export function useUserProfile(): UserProfileState {
     loading,
     error,
     isProOrAbove: plan === 'pro' || plan === 'team' || plan === 'beta',
-    canInstallMoreApps: limits.maxApps === Infinity || (profile?.app_install_count ?? 0) < limits.maxApps,
-    canCreateSharedInstance: limits.canCreateSharedInstances && (
-      limits.maxSharedInstances === Infinity ||
-      (profile?.shared_instance_count ?? 0) < limits.maxSharedInstances
-    ),
+    canInstallMoreApps,
+    canCreateSharedInstance,
     refresh: fetchProfile,
     redeemPromoCode,
     updateDisplayName,

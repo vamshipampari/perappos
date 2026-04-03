@@ -24,14 +24,14 @@ export function useGatekeeper() {
    */
   const gateAppInstall = (localCount?: number): boolean => {
     const atLimit = localCount !== undefined
-      ? (limits.maxApps !== Infinity && localCount >= limits.maxApps)
+      ? (limits.appLimit !== null && localCount >= limits.appLimit)
       : !canInstallMoreApps;
 
     if (!atLimit) return true;
 
     Alert.alert(
       'App Limit Reached',
-      `The Free plan allows up to ${limits.maxApps} apps. Redeem a promo code or upgrade to Pro for unlimited apps.`,
+      `Your plan allows up to ${limits.appLimit} apps. Redeem a promo code or upgrade to Pro for unlimited apps.`,
       [{ text: 'OK' }]
     );
     return false;
@@ -40,7 +40,7 @@ export function useGatekeeper() {
   const gateSharedInstanceCreate = (): boolean => {
     if (canCreateSharedInstance) return true;
 
-    if (!limits.canCreateSharedInstances) {
+    if (limits.sharedInstanceLimit === 0) {
       Alert.alert(
         'Upgrade Required',
         'Sharing apps requires a Pro or Beta plan. Redeem a promo code to unlock this feature.',
@@ -49,7 +49,7 @@ export function useGatekeeper() {
     } else {
       Alert.alert(
         'Shared Instance Limit Reached',
-        `Your plan allows up to ${limits.maxSharedInstances} shared instances. Upgrade to Team for unlimited.`,
+        `Your plan allows up to ${limits.sharedInstanceLimit} shared instances. Upgrade to Team for unlimited.`,
         [{ text: 'OK' }]
       );
     }

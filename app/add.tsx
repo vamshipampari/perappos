@@ -815,9 +815,19 @@ function AddScreenContent() {
         ]
       ).catch(() => {}); // fire-and-forget, non-critical
 
-      // Increment app count for new installs (fire-and-forget)
+      // Increment app count for new installs. Backend enforces the limit and
+      // returns an error object if it is exceeded (e.g. client-side gate drifted).
       if (!replaceAppId) {
-        void supabase.rpc('increment_app_count', { delta: 1 }).then(undefined, () => {});
+        supabase.rpc('increment_app_count', { delta: 1 }).then(({ data }) => {
+          const result = data as { error?: string; limit?: number } | null;
+          if (result?.error === 'app_limit_exceeded') {
+            Alert.alert(
+              'App Limit Reached',
+              `Your plan allows up to ${result.limit} apps. Redeem a promo code or upgrade for unlimited apps.`,
+              [{ text: 'OK' }]
+            );
+          }
+        }, () => {});
       }
 
       if (!replaceAppId) {

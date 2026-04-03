@@ -76,9 +76,13 @@ export function useAppMenuActions({
     try {
       const { data: profileData } = await supabase.rpc('get_user_profile');
       if (profileData) {
-        const plan = (profileData as { plan: string }).plan;
-        const count = (profileData as { shared_instance_count: number }).shared_instance_count;
-        if (plan === 'free') {
+        const p = profileData as {
+          shared_instance_limit: number | null;
+          shared_instance_count: number;
+        };
+        const limit = p.shared_instance_limit;
+        const count = p.shared_instance_count;
+        if (limit === 0) {
           setMenuVisible(false);
           Alert.alert(
             'Upgrade Required',
@@ -87,8 +91,7 @@ export function useAppMenuActions({
           );
           return;
         }
-        const limit = plan === 'team' ? Infinity : 5;
-        if (count >= limit) {
+        if (limit !== null && count >= limit) {
           setMenuVisible(false);
           Alert.alert(
             'Shared Instance Limit Reached',
@@ -192,7 +195,16 @@ export function useAppMenuActions({
 
               const result = await createSharedInstanceForApp(db, syncDb, liveApp);
               if (result.created) {
-                void supabase.rpc('increment_shared_instance_count', { delta: 1 }).then(undefined, () => {});
+                supabase.rpc('increment_shared_instance_count', { delta: 1 }).then(({ data }) => {
+                  const r = data as { error?: string; limit?: number } | null;
+                  if (r?.error === 'shared_instance_limit_exceeded') {
+                    Alert.alert(
+                      'Shared Instance Limit Reached',
+                      `Your plan allows up to ${r.limit} shared instances. Upgrade to Team for unlimited.`,
+                      [{ text: 'OK' }]
+                    );
+                  }
+                }, () => {});
               }
               const inviteCode = result.inviteCode.toUpperCase();
               const updatedApp = { ...liveApp, instance_id: result.instanceId };
