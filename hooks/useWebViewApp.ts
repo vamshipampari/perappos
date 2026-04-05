@@ -199,23 +199,35 @@ export function useWebViewApp(
         ).catch(() => {});
 
         if (foundApp.source_type !== 'url') {
-          const normalized = foundApp.bundle_path.replace(/^file:\/\//, '').replace(/\/$/, '');
-          const htmlPath = normalized.toLowerCase().endsWith('.html')
-            ? normalized
-            : `${normalized}/index.html`;
-
           let html: string | null = null;
-          try {
-            html = await FileSystem.readAsStringAsync(htmlPath, {
-              encoding: FileSystem.EncodingType.UTF8,
-            });
-          } catch {
+
+          // Only attempt a filesystem read when bundle_path is non-empty.
+          // Empty bundle_path = HTML-only app (paste/edit flow) — go straight
+          // to bundle_html. On physical devices, '/index.html' may resolve to
+          // an Expo web asset rather than throwing, corrupting the loaded HTML.
+          if (foundApp.bundle_path) {
+            const normalized = foundApp.bundle_path.replace(/^file:\/\//, '').replace(/\/$/, '');
+            const htmlPath = normalized.toLowerCase().endsWith('.html')
+              ? normalized
+              : `${normalized}/index.html`;
+
+            try {
+              html = await FileSystem.readAsStringAsync(htmlPath, {
+                encoding: FileSystem.EncodingType.UTF8,
+              });
+            } catch {
+              // File not found — fall through to bundle_html below
+            }
+          }
+
+          if (!html) {
             html =
               foundApp.bundle_html ??
               (foundApp.source_type === 'demo'
                 ? DEMO_HTML_BY_NAME[foundApp.name] ?? null
                 : null);
           }
+
           if (html) setBundleHtml(html);
         } else {
           setBundleHtml(null);
