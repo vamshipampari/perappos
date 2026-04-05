@@ -301,8 +301,18 @@ export default function RootLayout() {
 
   // Check auth session on mount and subscribe to changes.
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setHasSession(!!session);
+    supabase.auth.getSession().then(({ data: { session }, error }) => {
+      if (error) {
+        // Stale/invalid token — clear it so the user isn't stuck on splash
+        void supabase.auth.signOut();
+        setHasSession(false);
+      } else {
+        setHasSession(!!session);
+      }
+      setSessionChecked(true);
+    }).catch(() => {
+      // Network error during refresh — treat as unauthenticated
+      setHasSession(false);
       setSessionChecked(true);
     });
 
