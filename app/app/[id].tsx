@@ -323,10 +323,10 @@ export default function AppScreen() {
     app.source_type === 'url' && app.source_url
       ? { uri: app.source_url }
       : bundleHtml
-        ? { html: bundleHtml, baseUrl: '' as const }
+        ? { html: bundleHtml, baseUrl: 'http://localhost/' as const }
         : app.source_url
           ? { uri: app.source_url }
-          : { html: '<!doctype html><html><body></body></html>', baseUrl: '' as const };
+          : { html: '<!doctype html><html><body></body></html>', baseUrl: 'http://localhost/' as const };
 
   return (
     <SafeAreaView style={styles.root} edges={['top', 'bottom']}>
