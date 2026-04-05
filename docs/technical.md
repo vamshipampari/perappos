@@ -249,6 +249,9 @@ For shared apps, `lib/vaultShimSync.ts` is used instead of the basic shim. It ad
 
 ### WebView UX Gotchas
 
+**HTML-bundle baseUrl and external resource loading**
+Symptom: HTML-paste apps show a blank screen despite the HTML being stored and loaded correctly. Root cause: loading HTML with `baseUrl: ''` places the page in a null-origin context; iOS WKWebView silently stalls outbound HTTPS requests (e.g. Google Fonts) from null-origin pages. Since `<link rel="stylesheet">` in `<head>` is render-blocking, a hanging CSS request prevents the inline `<script>` at the end of `<body>` from running — leaving the page permanently blank. Fix: use `baseUrl: 'http://localhost/'` so the page has a real origin and external requests proceed normally. Prevention: never use `baseUrl: ''` for HTML bundles.
+
 **Live sync re-render: `window.name` reload (final approach)**
 Most vibe-coded apps use `useState(() => localStorage.getItem('key'))` — these initializers only run on component mount. No external event (StorageEvent, visibilitychange, focus/blur) can force React to re-run them. The only universal approach: after `_VaultSyncPush` updates `_cache`, save the full cache to `window.name` (persists across same-origin `location.reload()`), call `location.reload()` with 800ms debounce. On reload the shim checks `window.name` for a `__vault` marker and uses the saved cache/versions instead of stale preloaded data. Trade-off: app navigates to its landing screen (in-app navigation state is lost). Route restoration was attempted (intercepting `history.pushState`/`replaceState`) but fails for local bundle apps loaded via `{ html: bundleHtml }` where URL context is `about:blank` and apps may use `MemoryRouter`.
 
