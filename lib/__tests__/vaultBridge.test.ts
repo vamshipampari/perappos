@@ -10,6 +10,7 @@
 // Never reference outer `const`/`let` variables inside factory functions.
 
 jest.mock('expo-haptics', () => ({
+  __esModule: true,
   notificationAsync: jest.fn().mockResolvedValue(undefined),
   impactAsync: jest.fn().mockResolvedValue(undefined),
   NotificationFeedbackType: { Success: 'success', Warning: 'warning', Error: 'error' },
@@ -38,6 +39,9 @@ jest.mock('@/services/supabase', () => ({
     auth: {
       getSession: jest.fn().mockResolvedValue({
         data: { session: { user: { id: 'user-123', email: 'test@example.com' } } },
+      }),
+      onAuthStateChange: jest.fn().mockReturnValue({
+        data: { subscription: { unsubscribe: jest.fn() } },
       }),
     },
   },
@@ -281,7 +285,8 @@ describe('ls_set_sync — shared app', () => {
       expect.objectContaining({ key: 'score', value: '100', clientWriteId: 'wid-abc' }),
       'inst-1',
       'app-abc',
-      'user-123'
+      'user-123',
+      expect.any(String)
     );
 
     const js = (wvRef.current?.injectJavaScript as jest.Mock).mock.calls[0]?.[0] as string;
