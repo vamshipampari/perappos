@@ -18,6 +18,9 @@
 - tabBarIcon color prop: Expo Router passes color to tabBarIcon render fn — always forward it to Text/Icon, never rely on default color
 - React state + async picker: closeMenu()/setState(null) batches before async resolves → capture target in useRef synchronously before calling close
 - Supabase edge functions from app: use supabase.functions.invoke() not manual fetch() → manual fetch() causes Invalid JWT from gateway; refreshSession() triggers PowerSync reconnect + hang
+- Supabase RPC INSERT: never cast gen_random_uuid()::TEXT when column is UUID → use gen_random_uuid() directly; always check actual column type before casting
+- Supabase error handling: PostgrestError is not an Error instance → extract .message via (e as Record<string,unknown>).message, never String(error) which gives '[object Object]'
+- Forgot password mobile: resetPasswordForEmail sends magic link (opens browser, no in-app handler) → use signInWithOtp(shouldCreateUser:false) + verifyOtp(type:'email') + updateUser({password}) for full in-app OTP reset flow
 
 ## Architecture decisions (why, not what — see docs/context.md for detail)
 
@@ -28,6 +31,7 @@
 
 ## Session log (rolling — keep last 30 days only)
 
+2026-04-03: Forgot password OTP flow (magic link → signInWithOtp in-app) · shared_instance_limit data fix migration · add_instance_member UUID cast bug · PostgrestError message extraction fix
 2026-04-01: Folders (local SQLite, home browser, move picker) · Join approval (pending/active status, owner UI, Realtime auto-complete) · ThemeContext dark theme fix · Tab bar icon color · Member email in approval UI
 2026-03-31: Login UX (forgot password, show/hide, duplicate email) · Settings fixes (app lock, edit profile, appearance) · Dark theme system (lib/theme.ts + 15 files)
 2026-03-31: Write attribution (shared_app_data + history table) · _addedBy stamping · VaultAPI.collaboration · activity panel on Manage Group
