@@ -21,6 +21,7 @@
 - Supabase RPC INSERT: never cast gen_random_uuid()::TEXT when column is UUID → use gen_random_uuid() directly; always check actual column type before casting
 - Supabase error handling: PostgrestError is not an Error instance → extract .message via (e as Record<string,unknown>).message, never String(error) which gives '[object Object]'
 - Forgot password mobile: resetPasswordForEmail sends magic link (opens browser, no in-app handler) → use signInWithOtp(shouldCreateUser:false) + verifyOtp(type:'email') + updateUser({password}) for full in-app OTP reset flow
+- useWebViewApp bundle load: never call FileSystem.readAsStringAsync when bundle_path is '' → guard with if (bundle_path) before read; empty path resolves to Expo web asset on physical device instead of throwing
 
 ## Architecture decisions (why, not what — see docs/context.md for detail)
 
