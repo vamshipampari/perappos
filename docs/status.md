@@ -312,10 +312,7 @@
 
 ### 🔜 Next Up
 - [ ] **RUN MIGRATION**: `supabase/migrations/20260330_attribution.sql` in Supabase SQL Editor (adds attribution columns + history table + updated RPC)
-- [ ] **UPDATE POWERSYNC SYNC RULES** (dashboard):
-  - [ ] Add `last_editor_user_id`, `last_editor_display_name` to `shared_app_data` SELECT projection
-  - [ ] Add `is_frozen`, `frozen_at`, `frozen_reason` to `shared_instances` SELECT projection
-  - [ ] Add `shared_app_data_history` as a new synced table (SELECT all columns, filter by instance membership)
+- [x] **UPDATE POWERSYNC SYNC RULES** (dashboard) — all columns confirmed present in deployed config
 - [ ] Deploy `deploy-html` edge function: `supabase functions deploy deploy-html`
 - [ ] HTML/ZIP apps cross-device: show "Re-install required" overlay on tile when `bundle_html` is NULL after restore (currently opens with error)
 - [ ] Complete `npx expo prebuild --clean` (downloading NDK, ~5-15 min)
