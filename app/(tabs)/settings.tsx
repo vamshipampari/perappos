@@ -548,9 +548,14 @@ export default function SettingsScreen() {
 
   const handleExportData = async () => {
     try {
+      // app_data lives in PowerSync (syncDb), not expo-sqlite — the bridge writes
+      // via syncDb.execute('INSERT OR REPLACE INTO app_data ...'), so db.getAllAsync
+      // on the expo-sqlite handle always returns an empty array.
       const [appRows, dataRows] = await Promise.all([
         db.getAllAsync('SELECT * FROM apps'),
-        db.getAllAsync('SELECT * FROM app_data'),
+        syncDb.getAll<{ app_id: string; key: string; value: string; updated_at: string }>(
+          'SELECT app_id, key, value, updated_at FROM app_data'
+        ),
       ]);
 
       const payload = JSON.stringify({ apps: appRows, app_data: dataRows }, null, 2);
@@ -593,8 +598,15 @@ export default function SettingsScreen() {
                 DELETE FROM shared_data WHERE category != 'settings';
                 DELETE FROM apps;
               `);
-              // Remove from PowerSync so the deletion syncs to other devices
+              // Remove from PowerSync local table
               await syncDb.execute('DELETE FROM installed_apps');
+              // Also delete from Supabase so PowerSync has nothing to re-sync.
+              // Without this, the sync engine re-fetches the rows and useRestoreApps
+              // puts them back into the local apps table within seconds.
+              const { data: { session } } = await supabase.auth.getSession();
+              if (session?.user?.id) {
+                await supabase.from('installed_apps').delete().eq('user_id', session.user.id);
+              }
               setStorageUsed(0);
               // Reset app count in profile
               if (countRow && countRow.n > 0) {

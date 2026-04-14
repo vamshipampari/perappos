@@ -517,12 +517,33 @@ function AddScreenContent() {
     if (prefillName) setAppName(prefillName);
     if (prefillEmoji) setSelectedEmoji(prefillEmoji);
     if (prefillColor) setSelectedBg(prefillColor);
-    // Kick off the URL fetch automatically
     const trimmedUrl = prefillUrl.trim();
     if (!trimmedUrl.startsWith('http')) return;
     setError(null);
+
+    // When all metadata is already provided (e.g. from Create with AI), skip
+    // fetchUrlMetadata entirely. That call does a 30-second network round-trip
+    // just to get a title and hash we already have — if the Cloudflare URL
+    // hasn't propagated yet it throws and leaves the user stuck on the input step.
+    if (prefillName && prefillEmoji && prefillColor) {
+      const appId = Crypto.randomUUID();
+      setBundle({
+        appId,
+        html: null,
+        name: prefillName,
+        hash: '',
+        size: 0,
+        sourceType: 'url',
+        sourceUrl: trimmedUrl,
+        bundlePath: '',
+      });
+      setStep('details');
+      return;
+    }
+
+    // Partial prefill (prefillUrl only) — fetch metadata from the URL.
     setStep('processing');
-    const appId = require('expo-crypto').randomUUID();
+    const appId = Crypto.randomUUID();
     fetchUrlMetadata(trimmedUrl, setProcessingMsg)
       .then((metadata) => {
         setBundle({
