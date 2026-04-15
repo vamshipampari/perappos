@@ -497,3 +497,14 @@ export ANDROID_HOME="/Users/vamshipampari/Library/Android/sdk"
 export PATH="$ANDROID_HOME/tools:$ANDROID_HOME/platform-tools:$PATH"
 ```
 After adding: `source ~/.zshrc`. First build requires `npx expo prebuild --clean` which downloads the Android NDK (one-time, ~5–15 min). Test with `echo $ANDROID_HOME`.
+
+**`wrangler deploy` picks up the nearest config — always pass `--config`**
+Running `wrangler deploy` without a `--config` flag walks up the directory tree and picks up the nearest `wrangler.toml` / `wrangler.jsonc`. From the project root this will find the Expo web app config and deploy that instead of `cottix-generator`. No error is shown — it just silently deploys the wrong worker. Always deploy the CF Worker explicitly: `wrangler deploy --config cottix-generator/wrangler.toml`.
+
+## Cloudflare Worker (`cottix-generator`)
+
+**Modify job `appId` must equal `conversationId`, not a derived value**
+Symptom: Edit-with-AI generation completes server-side (status=`complete`, progress_chars=N in Supabase) but `create.tsx` stays stuck on the generating screen — never transitions to preview.
+Root cause: The worker used `appIdFromJobId(jobId)` for all jobs. For modify jobs this produced a new `appId` written to `generation_jobs.app_id`, but the `generated_apps` row was updated at `conversationId`. The hook's metadata fetch (`WHERE app_id = job.app_id`) found nothing → `meta` stayed null → the `isComplete && meta && hosted_url` guard in `create.tsx` never fired.
+Fix: `const appId = conversationId ?? appIdFromJobId(jobId)` — modify jobs reuse the original `appId` so the KV key, `hosted_url`, and `generated_apps` row all stay consistent with the installed app on the user's home screen.
+Prevention: any time a modify flow overwrites an existing resource, the resource key must stay the same throughout the pipeline — job row, KV write, DB row, and hook lookup must all use the same identifier.

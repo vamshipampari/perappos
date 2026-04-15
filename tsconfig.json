@@ -20,6 +20,7 @@
     "node_modules",
     "**/__tests__/**",
     "cottix-apps-worker",
+    "cottix-generator",
     "supabase"
   ]
 }

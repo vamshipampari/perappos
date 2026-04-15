@@ -10,6 +10,8 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+
+import { supabase } from '@/services/supabase';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Animated, {
   useAnimatedStyle,
@@ -234,6 +236,33 @@ export default function AppScreen() {
     rebuildShimForApp,
     refreshWebView,
   });
+
+  // ── Edit with AI ──────────────────────────────────────────────────────────
+  const handleEditWithAI = async () => {
+    if (!app) return;
+    posthog.capture('edit_with_ai_tapped', {
+      app_id: app.app_id,
+      app_name: app.name,
+    });
+    const { data } = await supabase
+      .from('generated_apps')
+      .select('app_id, html_content')
+      .eq('hosted_url', app.source_url ?? '')
+      .single();
+
+    if (!data?.html_content) {
+      Alert.alert(
+        'Not Available',
+        "This app was generated before HTML backup was enabled. Regenerate it first using Create with AI.",
+      );
+      return;
+    }
+
+    router.push({
+      pathname: '/create',
+      params: { mode: 'modify', conversationId: data.app_id as string },
+    });
+  };
 
   // ── Android hardware back button ──────────────────────────────────────────
   useEffect(() => {
@@ -499,6 +528,9 @@ export default function AppScreen() {
             disabled: checkingUpdate,
           },
           { label: 'App Info', onPress: handleAppInfo },
+          ...(app.source_url?.includes('apps.cottix.co')
+            ? [{ label: 'Edit with AI', onPress: () => { setMenuVisible(false); void handleEditWithAI(); } }]
+            : []),
           ...(app.source_type === 'html'
             ? [{ label: 'Edit HTML', onPress: () => { setMenuVisible(false); router.push(`/edit-html/${app.app_id}`); } }]
             : []),

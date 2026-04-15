@@ -1,7 +1,8 @@
-import { router, Stack } from 'expo-router';
+import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -17,14 +18,12 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import WebView from 'react-native-webview';
 
 import { useToast } from '@/components/Toast';
-import { log } from '@/lib/logger';
-import { supabase } from '@/services/supabase';
 import { useTheme, type Colors } from '@/lib/theme';
+import { useGenerateApp } from '@/hooks/useGenerateApp';
+import { useDatabase } from '@/hooks/useDatabase';
+import { posthog } from '@/src/config/posthog';
 
 // ---------- Constants ----------
-
-const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL!;
-const SUPABASE_ANON_KEY = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY!;
 
 const LOADING_MESSAGES = [
   'Understanding your idea...',
@@ -34,9 +33,13 @@ const LOADING_MESSAGES = [
   'Publishing your app...',
 ];
 
+// Estimated max chars for a full app — used to fill the progress bar.
+// Capped at 95% until the job status flips to 'complete'.
+const PROGRESS_MAX_CHARS = 8000;
+
 // ---------- Types ----------
 
-type Status = 'idle' | 'generating' | 'preview' | 'error';
+type Status = 'idle' | 'submitting' | 'generating' | 'preview' | 'error';
 
 interface GenerateResult {
   url: string;
@@ -45,12 +48,6 @@ interface GenerateResult {
   description: string;
   icon: string;
   color: string;
-  htmlSize: number;
-}
-
-interface Message {
-  role: 'user' | 'assistant';
-  content: string;
 }
 
 // ---------- Styles ----------
@@ -102,6 +99,19 @@ function makeStyles(theme: Colors) {
       fontSize: 13,
       color: theme.labelSecondary,
       marginTop: 8,
+    },
+    progressBarTrack: {
+      width: '100%',
+      height: 4,
+      backgroundColor: theme.separator,
+      borderRadius: 2,
+      marginTop: 20,
+      overflow: 'hidden',
+    },
+    progressBarFill: {
+      height: 4,
+      backgroundColor: theme.primary,
+      borderRadius: 2,
     },
 
     // Scroll content
@@ -344,17 +354,30 @@ export default function CreateScreen() {
   const { showToast } = useToast();
   const theme = useTheme();
   const styles = makeStyles(theme);
+  const db = useDatabase();
+
+  // "Edit with AI" entry point passes these params
+  const params = useLocalSearchParams<{ mode?: string; conversationId?: string }>();
+  const editConversationId = params.mode === 'modify' ? (params.conversationId ?? null) : null;
+
+  const { generate, clearJob, activeJob, meta, isActive, isComplete, isFailed } = useGenerateApp();
 
   const [prompt, setPrompt] = useState('');
   const [status, setStatus] = useState<Status>('idle');
   const [result, setResult] = useState<GenerateResult | null>(null);
-  const [conversationHistory, setConversationHistory] = useState<Message[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loadingMsgIndex, setLoadingMsgIndex] = useState(0);
-  const [charsGenerated, setCharsGenerated] = useState(0);
 
   const inputRef = useRef<TextInput>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Track screen open
+  useEffect(() => {
+    posthog.capture('ai_create_screen_opened', {
+      mode: editConversationId ? 'modify' : 'create',
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Cycle loading messages while generating
   useEffect(() => {
@@ -374,128 +397,96 @@ export default function CreateScreen() {
     };
   }, [status]);
 
+  // Drive UI status from PowerSync job updates
+  useEffect(() => {
+    if (!activeJob) return;
+
+    if (
+      activeJob.status === 'pending' ||
+      activeJob.status === 'generating' ||
+      activeJob.status === 'deploying'
+    ) {
+      setStatus('generating');
+    } else if (activeJob.status === 'complete') {
+      // Meta arrives a fraction of a second after status=complete via the Supabase fetch in the hook
+    } else if (activeJob.status === 'failed') {
+      setError(activeJob.error_message ?? 'Generation failed. Please try again.');
+      setStatus('error');
+    }
+  }, [activeJob?.status]);
+
+  // Transition to preview once we have both complete status + metadata
+  useEffect(() => {
+    if (isComplete && meta && activeJob?.hosted_url) {
+      setResult({
+        url: activeJob.hosted_url,
+        appId: activeJob.app_id ?? '',
+        title: meta.title,
+        description: meta.description,
+        icon: meta.icon,
+        color: meta.color,
+      });
+      setStatus('preview');
+    }
+  }, [isComplete, meta, activeJob?.hosted_url, activeJob?.app_id]);
+
   const handleGenerate = async () => {
     const trimmed = prompt.trim();
-    if (!trimmed || status === 'generating') return;
+    if (!trimmed || status === 'submitting' || status === 'generating') return;
 
-    setStatus('generating');
+    setStatus('submitting');
     setError(null);
 
     try {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-
-      if (!session) {
-        setError('Please sign in to create apps.');
-        setStatus('error');
-        return;
-      }
-
-      const body: Record<string, unknown> = { prompt: trimmed };
-      if (result?.appId) body.appId = result.appId;
-      if (conversationHistory.length > 0) body.conversationHistory = conversationHistory;
-
-      log.info('[create] fetching generate-app (SSE), userId:', session.user.id);
-      setCharsGenerated(0);
-
-      // React Native's fetch polyfill doesn't expose response.body as a ReadableStream.
-      // Use XMLHttpRequest which supports incremental responseText via onprogress.
-      const finalResult = await new Promise<GenerateResult>((resolve, reject) => {
-        const xhr = new XMLHttpRequest();
-        xhr.open('POST', `${SUPABASE_URL}/functions/v1/generate-app`);
-        xhr.setRequestHeader('Content-Type', 'application/json');
-        xhr.setRequestHeader('Authorization', `Bearer ${session.access_token}`);
-        xhr.setRequestHeader('apikey', SUPABASE_ANON_KEY);
-        xhr.timeout = 150_000;
-
-        let processedLen = 0;
-        let sseBuffer = '';
-        let currentEvent = '';
-        let doneResult: GenerateResult | null = null;
-
-        const processSSEChunk = (newText: string) => {
-          sseBuffer += newText;
-          const lines = sseBuffer.split('\n');
-          sseBuffer = lines.pop() ?? '';
-
-          for (const line of lines) {
-            if (line.startsWith('event: ')) {
-              currentEvent = line.slice(7).trim();
-            } else if (line.startsWith('data: ')) {
-              const raw = line.slice(6).trim();
-              try {
-                const payload = JSON.parse(raw);
-                if (currentEvent === 'progress') {
-                  setCharsGenerated(payload.chars ?? 0);
-                } else if (currentEvent === 'done') {
-                  doneResult = payload as GenerateResult;
-                } else if (currentEvent === 'error') {
-                  reject(new Error(payload.message ?? 'Generation failed'));
-                }
-              } catch {
-                // ignore SSE JSON parse noise
-              }
-              currentEvent = '';
-            }
-          }
-        };
-
-        xhr.onprogress = () => {
-          const newText = xhr.responseText.slice(processedLen);
-          processedLen = xhr.responseText.length;
-          processSSEChunk(newText);
-        };
-
-        xhr.onload = () => {
-          if (xhr.status !== 200) {
-            try {
-              const errData = JSON.parse(xhr.responseText);
-              reject(new Error(errData.error ?? `Server error ${xhr.status}`));
-            } catch {
-              reject(new Error(`Server error ${xhr.status}`));
-            }
-            return;
-          }
-          // Flush any remaining buffered text
-          const remaining = xhr.responseText.slice(processedLen);
-          if (remaining) processSSEChunk(remaining);
-
-          if (doneResult) resolve(doneResult);
-          else reject(new Error('Generation ended without a result'));
-        };
-
-        xhr.onerror = () => reject(new Error('Network error. Please check your connection.'));
-        xhr.ontimeout = () => reject(new Error('Request timed out. Try a simpler prompt.'));
-
-        xhr.send(JSON.stringify(body));
-      });
-
-      setResult(finalResult);
-      setConversationHistory((prev) => [
-        ...prev,
-        { role: 'user', content: trimmed },
-        { role: 'assistant', content: `[Generated: ${finalResult!.title}]` },
-      ]);
+      // For refinement: pass the current result's appId as conversationId.
+      // For "Edit with AI" entry: pass the param conversationId.
+      const conversationId = result?.appId ?? editConversationId ?? undefined;
+      await generate({ prompt: trimmed, conversationId });
       setPrompt('');
-      setStatus('preview');
+      setStatus('generating');
     } catch (e) {
-      log.error('[create] error:', e);
       const msg = e instanceof Error ? e.message : 'Network error. Please try again.';
       setError(msg);
       setStatus('error');
     }
   };
 
-  const handleInstall = () => {
+  const handleInstall = async () => {
     if (!result) return;
+
+    // For the "Edit with AI" modify flow: find the already-installed app by its source_url
+    // and pass replace_app_id so /add updates the existing row instead of inserting a new one.
+    let replaceAppId: string | undefined;
+    if (editConversationId) {
+      try {
+        const existing = await db.getFirstAsync<{ app_id: string }>(
+          'SELECT app_id FROM apps WHERE source_url = ?',
+          [result.url],
+        );
+        if (existing?.app_id) {
+          replaceAppId = existing.app_id;
+        }
+      } catch {
+        // Best-effort — if lookup fails, fall back to normal install (may create duplicate)
+      }
+    }
+
+    posthog.capture('ai_app_installed_from_preview', {
+      mode: editConversationId ? 'modify' : 'create',
+      app_title: result.title,
+      app_id: result.appId,
+    });
+
     router.push({
       pathname: '/add',
       params: {
+        ...(replaceAppId ? { replace_app_id: replaceAppId } : {}),
         prefillUrl: result.url,
         prefillName: result.title,
         prefillEmoji: result.icon,
         prefillColor: result.color,
+        // After install close the whole create+add modal stack → go straight to home
+        return_to: '/(tabs)',
       },
     });
   };
@@ -512,26 +503,51 @@ export default function CreateScreen() {
     }
   };
 
+  const handleBack = () => {
+    if (isActive) {
+      Alert.alert(
+        'Generation in Progress',
+        "Your app is still being built. It will finish even if you close this screen — you'll see it in the Add App flow when it's ready.",
+        [
+          { text: 'Stay', style: 'cancel' },
+          {
+            text: 'Close Anyway',
+            onPress: () => {
+              clearJob();
+              router.dismiss();
+            },
+          },
+        ],
+      );
+    } else {
+      clearJob();
+      router.dismiss();
+    }
+  };
+
+  const progressFraction = isActive
+    ? Math.min((activeJob?.progress_chars ?? 0) / PROGRESS_MAX_CHARS, 0.95)
+    : isComplete
+      ? 1
+      : 0;
+
   const isInPreview = status === 'preview' && result;
-  const previewUrl = result
-    ? `${result.url}?v=${Date.now()}`
-    : null;
+  const previewUrl = result ? `${result.url}?v=${Date.now()}` : null;
+  const showInputBar = status !== 'submitting' && status !== 'generating';
 
   return (
     <>
       <Stack.Screen
         options={{
-          title: 'Create with AI',
+          title: editConversationId ? 'Edit with AI' : 'Create with AI',
           headerShown: true,
           headerStyle: { backgroundColor: theme.surface },
           headerTitleStyle: { color: theme.label, fontWeight: '600' },
           headerLeft: () => (
-            <TouchableOpacity
-              onPress={() => router.back()}
-              hitSlop={8}
-              style={{ paddingHorizontal: 4 }}
-            >
-              <Text style={styles.cancelBtn}>Cancel</Text>
+            <TouchableOpacity onPress={handleBack} hitSlop={8} style={{ paddingHorizontal: 4 }}>
+              <Text style={styles.cancelBtn}>
+                {isActive ? 'Close' : 'Cancel'}
+              </Text>
             </TouchableOpacity>
           ),
         }}
@@ -552,25 +568,34 @@ export default function CreateScreen() {
                 <Text style={styles.generatingMsg}>
                   {LOADING_MESSAGES[loadingMsgIndex]}
                 </Text>
-                {charsGenerated > 0 ? (
+                {(activeJob?.progress_chars ?? 0) > 0 ? (
                   <Text style={styles.generatingHint}>
-                    {charsGenerated.toLocaleString()} chars written…
+                    {(activeJob?.progress_chars ?? 0).toLocaleString()} chars written…
                   </Text>
                 ) : (
                   <Text style={styles.generatingHint}>Starting up…</Text>
                 )}
+                {/* Progress bar */}
+                <View style={styles.progressBarTrack}>
+                  <View
+                    style={[
+                      styles.progressBarFill,
+                      { width: `${Math.round(progressFraction * 100)}%` },
+                    ]}
+                  />
+                </View>
               </View>
             </View>
           )}
 
-          {/* ── Main content ───────────────────────────────────────────── */}
+          {/* ── Main scroll content ────────────────────────────────────── */}
           {status !== 'generating' && (
             <ScrollView
               contentContainerStyle={styles.scrollContent}
               keyboardShouldPersistTaps="handled"
               showsVerticalScrollIndicator={false}
             >
-              {/* ── Idle: prompt inspiration ──────────────────────────── */}
+              {/* ── Idle: examples ───────────────────────────────────── */}
               {status === 'idle' && (
                 <View style={styles.idleHero}>
                   <Text style={styles.heroEmoji}>✨</Text>
@@ -590,7 +615,10 @@ export default function CreateScreen() {
                       <Pressable
                         key={ex}
                         onPress={() => setPrompt(ex)}
-                        style={({ pressed }) => [styles.exampleRow, pressed && styles.exampleRowPressed]}
+                        style={({ pressed }) => [
+                          styles.exampleRow,
+                          pressed && styles.exampleRowPressed,
+                        ]}
                       >
                         <Text style={styles.exampleText}>"{ex}"</Text>
                       </Pressable>
@@ -605,7 +633,10 @@ export default function CreateScreen() {
                   <Text style={styles.errorTitle}>⚠ Generation failed</Text>
                   <Text style={styles.errorMsg}>{error}</Text>
                   <TouchableOpacity
-                    onPress={() => setStatus(result ? 'preview' : 'idle')}
+                    onPress={() => {
+                      clearJob();
+                      setStatus(result ? 'preview' : 'idle');
+                    }}
                     style={styles.errorRetryBtn}
                   >
                     <Text style={styles.errorRetryText}>Try again</Text>
@@ -631,7 +662,7 @@ export default function CreateScreen() {
                     </View>
                   </View>
 
-                  {/* WebView */}
+                  {/* WebView preview */}
                   <View style={styles.webViewWrapper}>
                     <WebView
                       source={{ uri: previewUrl! }}
@@ -662,7 +693,7 @@ export default function CreateScreen() {
                       <Text style={styles.shareBtnText}>Share Link</Text>
                     </TouchableOpacity>
                     <TouchableOpacity
-                      onPress={handleInstall}
+                      onPress={() => { void handleInstall(); }}
                       activeOpacity={0.8}
                       style={styles.installBtn}
                     >
@@ -674,8 +705,8 @@ export default function CreateScreen() {
             </ScrollView>
           )}
 
-          {/* ── Prompt input — always at bottom ───────────────────────── */}
-          {status !== 'generating' && (
+          {/* ── Prompt input bar — hidden while generating ─────────────── */}
+          {showInputBar && (
             <View style={styles.inputBar}>
               <TextInput
                 ref={inputRef}
@@ -684,7 +715,9 @@ export default function CreateScreen() {
                 placeholder={
                   status === 'preview'
                     ? 'Refine: "Make buttons bigger", "Add dark mode"...'
-                    : 'Describe the app you want to create...'
+                    : editConversationId
+                      ? 'Describe the changes you want...'
+                      : 'Describe the app you want to create...'
                 }
                 placeholderTextColor={theme.labelTertiary}
                 style={styles.promptInput}
@@ -692,9 +725,12 @@ export default function CreateScreen() {
                 returnKeyType="default"
                 blurOnSubmit={false}
                 maxLength={2000}
+                autoCorrect={false}
+                spellCheck={false}
+                autoCapitalize="sentences"
               />
               <TouchableOpacity
-                onPress={handleGenerate}
+                onPress={() => { void handleGenerate(); }}
                 disabled={prompt.trim().length === 0}
                 activeOpacity={0.8}
                 style={[

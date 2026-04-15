@@ -224,8 +224,26 @@ Active codes: `BETA2026` (90d, 100 max) · `PERAPPOS` (lifetime, 50 max) · `VIB
 | html_size | INTEGER | Bytes |
 | hosted_url | TEXT | `https://apps.cottix.co/{appId}` |
 | conversation_history | jsonb | For iterative refinement |
+| html_content | TEXT | Full HTML stored for modify/edit flow |
 
-Rate limit: 20 generations/user/day (enforced in edge function).
+Rate limit: 20 generations/user/day (enforced in CF Worker).
+
+### generation_jobs (PowerSync-synced)
+
+Job status table — CF Worker inserts on enqueue, patches on completion. PowerSync syncs to device for real-time status delivery.
+
+| Column | Type | Notes |
+|---|---|---|
+| id | TEXT PK | Job UUID |
+| user_id | TEXT | auth.uid() |
+| app_id | TEXT | Cloudflare KV key (= `conversationId` for modify jobs) |
+| status | TEXT | `'pending'` \| `'processing'` \| `'complete'` \| `'error'` |
+| progress_chars | INTEGER | Characters written so far (updated every ~2000 chars) |
+| error | TEXT | Error message if status = `'error'` |
+| created_at | TEXT | ISO8601 |
+| conversation_id | TEXT | For modify jobs: original `app_id` to reuse |
+
+> PowerSync sync rule: filter by `user_id = auth.uid()`, auto_subscribe: true.
 
 ### beta_signups
 
@@ -299,5 +317,9 @@ USING (bucket_id = 'user-media');
   - Add `last_editor_user_id`, `last_editor_display_name` to `shared_app_data` SELECT projection
   - Add `is_frozen`, `frozen_at`, `frozen_reason` to `shared_instances` SELECT projection
   - Add `shared_app_data_history` as a new synced table (SELECT projection: all columns)
+  - Add `generation_jobs` as a new synced table (SELECT all columns, filter by `user_id = auth.uid()`)
+- **RUN MIGRATION**: `supabase/migrations/20260414_generation_jobs.sql` — creates `generation_jobs` table; adds `html_content` to `generated_apps`
+- **RUN MIGRATION**: `supabase/migrations/20260405_fix_updated_by_cast.sql` — fix `updated_by` cast in SupabaseConnector
+- **DEPLOY**: `wrangler deploy --config cottix-generator/wrangler.toml` — CF Queue worker (replaces SSE edge function)
 - Deploy `deploy-html` edge function: `supabase functions deploy deploy-html`
 - Create `beta_signups` table via migration (Phase 3 Step 3.4)

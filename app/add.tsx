@@ -470,6 +470,7 @@ function AddScreenContent() {
     prefillName?: string;
     prefillEmoji?: string;
     prefillColor?: string;
+    return_to?: string;   // If set, navigate here after install instead of router.back()
   }>();
   const db = useDatabase();
   const { refresh, apps } = useInstalledApps();
@@ -486,6 +487,7 @@ function AddScreenContent() {
   const prefillName = typeof params.prefillName === 'string' ? params.prefillName : null;
   const prefillEmoji = typeof params.prefillEmoji === 'string' ? params.prefillEmoji : null;
   const prefillColor = typeof params.prefillColor === 'string' ? params.prefillColor : null;
+  const returnTo = typeof params.return_to === 'string' ? params.return_to : null;
 
   const [step, setStep] = useState<Step>('input');
   const [url, setUrl] = useState('');
@@ -859,7 +861,13 @@ function AddScreenContent() {
       showToast(replaceAppId ? 'App updated ✓' : 'App installed ✓', 'success');
       setTimeout(() => {
         try {
-          router.back();
+          if (returnTo) {
+            // Caller (e.g. create.tsx) wants us to go straight to home after install,
+            // dismissing the whole create+add modal stack in one shot.
+            router.navigate(returnTo as Parameters<typeof router.navigate>[0]);
+          } else {
+            router.back();
+          }
         } catch (navErr) {
           log.error('[AddScreen] router.back() failed after install:', navErr);
           router.push('/(tabs)');
@@ -1066,7 +1074,7 @@ function AddScreenContent() {
                 </View>
               )}
 
-              {/* ── Create with AI card (Coming Soon) ───────────────────── */}
+              {/* ── Create with AI card ──────────────────────────────────── */}
               {step === 'input' && (
                 <View style={styles.section}>
                   <View style={styles.dividerRow}>
@@ -1076,9 +1084,9 @@ function AddScreenContent() {
                   </View>
 
                   <TouchableOpacity
-                    onPress={() => Alert.alert('Coming Soon', 'Create with AI is coming soon!')}
+                    onPress={() => { router.push('/create'); }}
                     activeOpacity={0.7}
-                    style={[styles.aiCard, styles.aiCardDisabled]}
+                    style={styles.aiCard}
                   >
                     <Text style={styles.aiCardEmoji}>✨</Text>
                     <View style={styles.aiCardText}>
@@ -1086,9 +1094,6 @@ function AddScreenContent() {
                       <Text style={styles.aiCardSubtitle}>
                         Describe what you want — get an app in seconds
                       </Text>
-                    </View>
-                    <View style={styles.comingSoonBadge}>
-                      <Text style={styles.comingSoonText}>Soon</Text>
                     </View>
                   </TouchableOpacity>
                 </View>

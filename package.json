@@ -11,7 +11,9 @@
     "lint": "eslint . --ext .ts,.tsx",
     "format": "prettier --write \"**/*.{ts,tsx}\" --ignore-path .gitignore",
     "build:ios:testflight": "eas build --platform ios --profile testflight",
-    "submit:ios:testflight": "eas submit --platform ios --profile testflight"
+    "submit:ios:testflight": "eas submit --platform ios --profile testflight",
+    "deploy": "npx expo export -p web && wrangler deploy",
+    "preview": "npx expo export -p web && wrangler dev"
   },
   "dependencies": {
     "@azure/core-asynciterator-polyfill": "^1.0.2",
@@ -69,7 +71,8 @@
     "eslint-plugin-react-hooks": "4",
     "jest": "^30.3.0",
     "prettier": "^3.8.1",
-    "typescript": "~5.9.2"
+    "typescript": "~5.9.2",
+    "wrangler": "^4.82.2"
   },
   "expo": {
     "install": {

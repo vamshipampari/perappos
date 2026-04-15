@@ -598,6 +598,11 @@ export default function SettingsScreen() {
                 DELETE FROM shared_data WHERE category != 'settings';
                 DELETE FROM apps;
               `);
+              // Prevent demo apps from being re-seeded on next app launch.
+              await db.runAsync(
+                `INSERT OR REPLACE INTO shared_data (category, key, value, source_app, updated_at)
+                 VALUES ('settings', 'skip_demo_seed', '1', 'system', datetime('now'))`
+              );
               // Remove from PowerSync local table
               await syncDb.execute('DELETE FROM installed_apps');
               // Also delete from Supabase so PowerSync has nothing to re-sync.

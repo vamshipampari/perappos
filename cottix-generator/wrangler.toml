@@ -1,0 +1,36 @@
+name = "cottix-generator"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+compatibility_flags = ["nodejs_compat"]
+
+[observability]
+enabled = true
+
+# ── Queue: producer (HTTP receiver enqueues) + consumer (generator processes) ──
+[[queues.producers]]
+queue = "generation-queue"
+binding = "GENERATION_QUEUE"
+
+[[queues.consumers]]
+queue = "generation-queue"
+max_batch_size = 1          # process one job at a time — each job is a full LLM call
+max_batch_timeout = 5
+max_retries = 2
+dead_letter_queue = "generation-dlq"
+
+# ── KV: same namespace as cottix-apps-worker — generator writes, server reads ──
+[[kv_namespaces]]
+binding = "APPS_KV"
+id = "f176620f8f9c4cae9b773e70299a63d5"
+
+# ── Non-secret vars — override in Cloudflare dashboard for production ──
+[vars]
+SUPABASE_URL = "https://fpfobytbawcjuextxlfx.supabase.co"
+APPS_HOST = "https://apps.cottix.co"
+POSTHOG_HOST = "https://us.i.posthog.com"
+# Set POSTHOG_PROJECT_TOKEN in Cloudflare dashboard (not secret — safe in vars)
+POSTHOG_PROJECT_TOKEN = "phc_your_token_here"
+
+# ── Secrets (set via `wrangler secret put`) ──
+# ANTHROPIC_API_KEY
+# SUPABASE_SERVICE_ROLE_KEY
