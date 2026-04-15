@@ -6,6 +6,7 @@
 - PowerSync row IDs: always `${instanceId}/${appId}/${key}` not UUID
 - useCallback + PowerSync db: use useRef(db), empty [] deps → prevents re-fire on sync
 - PowerSync missing sync rule column: columns absent from sync rules projection return NULL locally → query Supabase directly for those columns instead
+- PowerSync db.watch(): result shape is `{ rows: { _array: T[] } }` not `T[]` → always use `result.rows?._array ?? []` or you silently get undefined
 - Supabase upsert: onConflict col must have matching UNIQUE constraint in Postgres
 - After Supabase write: don't query PowerSync local immediately → pre-seed or use fallback
 - StyleSheet.create(): evaluated at load time, can't use hooks → use makeStyles(theme: Colors) called inside component

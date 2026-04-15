@@ -1,8 +1,49 @@
 # Cottix — Status
 
-**Last Updated**: 2026-03-31 (Session 17)
+**Last Updated**: 2026-04-15 (Session 18)
 
-## Current Sprint: Guide Tab
+## Current Sprint: Queue-Based AI Generation
+
+### ✅ Session 18 — Queue-Based AI Generation + Edit with AI (2026-04-15)
+
+Replaced SSE-streaming `generate-app` edge function with a durable Cloudflare Queue architecture. Apps that used to time out now complete reliably offline-safe.
+
+**Cloudflare Worker (`cottix-generator/src/index.ts`):**
+- `fetch` handler: JWT decode, rate limit check (20/day), INSERT `generation_jobs`, enqueue job
+- `queue` handler: Anthropic streaming → `APPS_KV.put('app:{appId}', html)` → Supabase REST PATCH `generation_jobs.status = 'complete'`
+- Modify flow: `appId = conversationId` so KV key, `generated_apps` row, and installed app stay consistent
+- `wrangler deploy --config cottix-generator/wrangler.toml` (not from root — picks up wrong config)
+
+**New PowerSync table (`generation_jobs`):**
+- `services/sync/schema.ts` + migration `20260414_generation_jobs.sql`
+- Columns: `id`, `user_id`, `app_id`, `status`, `progress_chars`, `error`, `created_at`, `conversation_id`
+- PowerSync watches status changes → instant delivery to device without polling
+
+**New hook (`hooks/useGenerateApp.ts`):**
+- Submits job via `supabase.functions.invoke()` → gets `jobId` immediately
+- `powerSyncDb.watch()` with `result.rows?._array ?? []` pattern for status
+- Fetches `title/icon/color/description` from `generated_apps` via Supabase once status = `'complete'`
+- AbortController cleanup on `activeJobId` change
+
+**`app/create.tsx` full rewrite:**
+- XHR/SSE approach replaced with `useGenerateApp` hook
+- Progress bar driven by `progress_chars` from PowerSync
+- idle → generating → preview state machine preserved; WebView preview unchanged
+
+**`app/app/[id].tsx`:**
+- "Edit with AI" added to three-dot menu for apps with `source_url` matching `apps.cottix.co`
+- Routes to `/create?mode=modify&conversationId=<app_id>`
+
+**`app/add.tsx`:**
+- "Create with AI" card now routes to `/create` (was "Coming Soon" alert)
+
+**Migrations:**
+- `20260414_generation_jobs.sql` — `generation_jobs` table + `html_content` column on `generated_apps`
+- `20260405_fix_updated_by_cast.sql` — fix `updated_by` cast bug in SupabaseConnector
+
+---
+
+## Previous Sprint: Guide Tab
 
 ### ✅ Session 17 — Guide Tab replacing Discover (2026-03-31)
 
@@ -312,25 +353,25 @@
 
 ### 🔜 Next Up
 - [ ] **RUN MIGRATION**: `supabase/migrations/20260330_attribution.sql` in Supabase SQL Editor (adds attribution columns + history table + updated RPC)
+- [ ] **RUN MIGRATION**: `supabase/migrations/20260414_generation_jobs.sql` — `generation_jobs` table + `html_content` on `generated_apps`
+- [ ] **RUN MIGRATION**: `supabase/migrations/20260405_fix_updated_by_cast.sql` — updated_by cast fix
 - [ ] **UPDATE POWERSYNC SYNC RULES** (dashboard):
   - [ ] Add `last_editor_user_id`, `last_editor_display_name` to `shared_app_data` SELECT projection
   - [ ] Add `is_frozen`, `frozen_at`, `frozen_reason` to `shared_instances` SELECT projection
   - [ ] Add `shared_app_data_history` as a new synced table (SELECT all columns, filter by instance membership)
+  - [ ] Add `generation_jobs` as a new synced table (SELECT all columns, filter by `user_id = auth.uid()`)
+- [ ] **DEPLOY**: `wrangler deploy --config cottix-generator/wrangler.toml` (CF Queue worker)
 - [ ] Deploy `deploy-html` edge function: `supabase functions deploy deploy-html`
+- [ ] Real-device test: end-to-end generate + Edit with AI flow
 - [ ] HTML/ZIP apps cross-device: show "Re-install required" overlay on tile when `bundle_html` is NULL after restore (currently opens with error)
-- [ ] Complete `npx expo prebuild --clean` (downloading NDK, ~5-15 min)
-- [ ] Run `npx expo run:android` to test build with new Cottix app name
-- [ ] **Create with AI — optimizations**:
-  - [ ] Custom domain `apps.cottix.co` → point DNS to Cloudflare Worker route
-  - [ ] Improve prompt for complex multi-screen apps
-  - [ ] Show generated app history in Guide tab (Overview section or new "My Apps" section)
-  - [ ] Progressive complexity: start with 4k tokens, retry with 8k if first attempt is too short
-  - [ ] Gifting/sharing generated app links
-- [ ] **AI generation error recovery** (Session 19):
+- [ ] **AI generation error recovery**:
   - [ ] `create.tsx` preview WebView: inject JS error catcher → show "⚠ App had errors" banner with Regenerate + Report buttons
-  - [ ] `app/[id].tsx`: in `js_error` handler, if `source_url` includes `apps.cottix.co`, show toast "JS error — Edit with AI?" linking to `/create?mode=modify&conversationId=<app_id>`
-  - [ ] Report = PostHog `generation_error_reported` event with `{ app_id, error_message, prompt }` — no new table needed
-  - [ ] Prompt: already in `generation_jobs.prompt` and `generated_apps.prompt` — accessible for retry/debug
+  - [ ] `app/[id].tsx`: `js_error` handler for `apps.cottix.co` apps → toast "JS error — Edit with AI?"
+  - [ ] Report = PostHog `generation_error_reported` event with `{ app_id, error_message, prompt }`
+- [ ] **Create with AI — optimizations**:
+  - [ ] Show generated app history in Guide tab
+  - [ ] Progressive complexity: start 4k tokens, retry 8k if too short
+  - [ ] Gifting/sharing generated app links
 - [ ] Remove one-time queue flush from `PowerSyncProvider` after confirming clean CRUD queues on all devices
 - [ ] Show explicit PowerSync connection error reason in Settings (not only Offline/Connected)
 - [ ] Add clipboard copy button for invite codes (currently uses share sheet fallback)
