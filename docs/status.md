@@ -326,6 +326,11 @@
   - [ ] Show generated app history in Guide tab (Overview section or new "My Apps" section)
   - [ ] Progressive complexity: start with 4k tokens, retry with 8k if first attempt is too short
   - [ ] Gifting/sharing generated app links
+- [ ] **AI generation error recovery** (Session 19):
+  - [ ] `create.tsx` preview WebView: inject JS error catcher → show "⚠ App had errors" banner with Regenerate + Report buttons
+  - [ ] `app/[id].tsx`: in `js_error` handler, if `source_url` includes `apps.cottix.co`, show toast "JS error — Edit with AI?" linking to `/create?mode=modify&conversationId=<app_id>`
+  - [ ] Report = PostHog `generation_error_reported` event with `{ app_id, error_message, prompt }` — no new table needed
+  - [ ] Prompt: already in `generation_jobs.prompt` and `generated_apps.prompt` — accessible for retry/debug
 - [ ] Remove one-time queue flush from `PowerSyncProvider` after confirming clean CRUD queues on all devices
 - [ ] Show explicit PowerSync connection error reason in Settings (not only Offline/Connected)
 - [ ] Add clipboard copy button for invite codes (currently uses share sheet fallback)

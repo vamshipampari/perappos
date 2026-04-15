@@ -249,6 +249,9 @@ For shared apps, `lib/vaultShimSync.ts` is used instead of the basic shim. It ad
 
 ### WebView UX Gotchas
 
+**HTML-bundle baseUrl and external resource loading**
+Symptom: HTML-paste apps show a blank screen despite the HTML being stored and loaded correctly. Root cause: loading HTML with `baseUrl: ''` places the page in a null-origin context; iOS WKWebView silently stalls outbound HTTPS requests (e.g. Google Fonts) from null-origin pages. Since `<link rel="stylesheet">` in `<head>` is render-blocking, a hanging CSS request prevents the inline `<script>` at the end of `<body>` from running — leaving the page permanently blank. Fix: use `baseUrl: 'http://localhost/'` so the page has a real origin and external requests proceed normally. Prevention: never use `baseUrl: ''` for HTML bundles.
+
 **Live sync re-render: `window.name` reload (final approach)**
 Most vibe-coded apps use `useState(() => localStorage.getItem('key'))` — these initializers only run on component mount. No external event (StorageEvent, visibilitychange, focus/blur) can force React to re-run them. The only universal approach: after `_VaultSyncPush` updates `_cache`, save the full cache to `window.name` (persists across same-origin `location.reload()`), call `location.reload()` with 800ms debounce. On reload the shim checks `window.name` for a `__vault` marker and uses the saved cache/versions instead of stale preloaded data. Trade-off: app navigates to its landing screen (in-app navigation state is lost). Route restoration was attempted (intercepting `history.pushState`/`replaceState`) but fails for local bundle apps loaded via `{ html: bundleHtml }` where URL context is `about:blank` and apps may use `MemoryRouter`.
 
@@ -494,3 +497,14 @@ export ANDROID_HOME="/Users/vamshipampari/Library/Android/sdk"
 export PATH="$ANDROID_HOME/tools:$ANDROID_HOME/platform-tools:$PATH"
 ```
 After adding: `source ~/.zshrc`. First build requires `npx expo prebuild --clean` which downloads the Android NDK (one-time, ~5–15 min). Test with `echo $ANDROID_HOME`.
+
+**`wrangler deploy` picks up the nearest config — always pass `--config`**
+Running `wrangler deploy` without a `--config` flag walks up the directory tree and picks up the nearest `wrangler.toml` / `wrangler.jsonc`. From the project root this will find the Expo web app config and deploy that instead of `cottix-generator`. No error is shown — it just silently deploys the wrong worker. Always deploy the CF Worker explicitly: `wrangler deploy --config cottix-generator/wrangler.toml`.
+
+## Cloudflare Worker (`cottix-generator`)
+
+**Modify job `appId` must equal `conversationId`, not a derived value**
+Symptom: Edit-with-AI generation completes server-side (status=`complete`, progress_chars=N in Supabase) but `create.tsx` stays stuck on the generating screen — never transitions to preview.
+Root cause: The worker used `appIdFromJobId(jobId)` for all jobs. For modify jobs this produced a new `appId` written to `generation_jobs.app_id`, but the `generated_apps` row was updated at `conversationId`. The hook's metadata fetch (`WHERE app_id = job.app_id`) found nothing → `meta` stayed null → the `isComplete && meta && hosted_url` guard in `create.tsx` never fired.
+Fix: `const appId = conversationId ?? appIdFromJobId(jobId)` — modify jobs reuse the original `appId` so the KV key, `hosted_url`, and `generated_apps` row all stay consistent with the installed app on the user's home screen.
+Prevention: any time a modify flow overwrites an existing resource, the resource key must stay the same throughout the pipeline — job row, KV write, DB row, and hook lookup must all use the same identifier.

@@ -76,6 +76,12 @@ export async function seedDemoApps(db: SQLiteDatabase): Promise<void> {
     }
   }
 
+  // If the user explicitly cleared all data, don't re-seed demos.
+  const skipFlag = await db.getFirstAsync<{ value: string }>(
+    "SELECT value FROM shared_data WHERE category = 'settings' AND key = 'skip_demo_seed'"
+  );
+  if (skipFlag?.value === '1') return;
+
   // If we already have apps (even after backfill), don't re-seed.
   const result = await db.getFirstAsync<{ count: number }>('SELECT COUNT(*) as count FROM apps');
   if (result && result.count > 0) return;

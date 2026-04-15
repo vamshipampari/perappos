@@ -840,7 +840,7 @@ export default function HomeScreen() {
           }
         />
 
-        {(currentApps.length > 0 || currentFolderId !== null) && <FAB theme={theme} />}
+        <FAB theme={theme} />
       </View>
 
       {/* ── App long-press context menu ────────────────────────────────── */}

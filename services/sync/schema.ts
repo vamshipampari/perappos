@@ -102,6 +102,24 @@ const sharedAppDataHistory = new Table(
   { indexes: { by_instance_time: ["instance_id", "written_at"] } },
 );
 
+// AI generation jobs — synced so the device can watch progress without polling.
+// Worker writes status via service role; RLS allows user to read own rows only.
+const generationJobs = new Table(
+  {
+    user_id:         column.text,
+    status:          column.text,   // pending | generating | deploying | complete | failed
+    prompt:          column.text,
+    app_id:          column.text,   // set on complete
+    hosted_url:      column.text,   // set on complete
+    progress_chars:  column.integer,
+    error_message:   column.text,
+    conversation_id: column.text,   // app_id of existing app being modified
+    created_at:      column.text,
+    completed_at:    column.text,
+  },
+  { indexes: { by_status: ["status"] } },
+);
+
 export const PowerSyncSchema = new Schema({
   app_data: appData,
   installed_apps: installedApps,
@@ -110,4 +128,5 @@ export const PowerSyncSchema = new Schema({
   instance_members: instanceMembers,
   shared_app_data: sharedAppData,
   shared_app_data_history: sharedAppDataHistory,
+  generation_jobs: generationJobs,
 });

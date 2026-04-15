@@ -162,6 +162,25 @@ export function useWebViewApp(
         preloadedData[row.key] = row.value;
       }
 
+      // Supabase fallback for the PowerSync post-upload clear gap (learning.md #3):
+      // After SupabaseConnector.uploadData() calls transaction.complete(), PowerSync
+      // removes the optimistic local row. If the app cold-starts before the confirmed
+      // Supabase row is re-synced, localRows is empty even though data exists remotely.
+      // Shared apps already have this fallback (lines above); mirror it for personal apps.
+      if (Object.keys(preloadedData).length === 0) {
+        try {
+          const { data: remoteRows } = await supabase
+            .from('app_data')
+            .select('key, value')
+            .eq('app_id', target.app_id);
+          for (const row of (remoteRows ?? [])) {
+            preloadedData[row.key] = row.value as string;
+          }
+        } catch {
+          // Network unavailable — proceed with empty preload; app may re-show onboarding
+        }
+      }
+
       return {
         shim: buildVaultShim(target.app_id, preloadedData),
         preloadSource: 'local',
