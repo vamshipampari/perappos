@@ -252,7 +252,7 @@ BEGIN
   END IF;
 
   INSERT INTO instance_members (id, instance_id, user_id, role, joined_at)
-  VALUES (gen_random_uuid()::TEXT, p_instance_id, p_user_id, p_role, NOW())
+  VALUES (gen_random_uuid(), p_instance_id, p_user_id, p_role, NOW())
   ON CONFLICT DO NOTHING;
 
   RETURN json_build_object('success', TRUE);

@@ -113,7 +113,7 @@ Managed by PowerSync (`powersync.db`) — separate from expo-sqlite. All writes 
 
 | Column | Type | Notes |
 |---|---|---|
-| id | TEXT PK | — |
+| id | UUID PK | — |
 | instance_id | TEXT | FK → shared_instances.instance_id |
 | user_id | TEXT | auth.uid() |
 | role | TEXT | 'owner' \| 'member' |
