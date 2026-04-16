@@ -267,6 +267,27 @@ function makeStyles(theme: Colors) {
       justifyContent: 'center',
       backgroundColor: theme.surface,
     },
+    previewErrorOverlay: {
+      ...StyleSheet.absoluteFillObject,
+      backgroundColor: 'rgba(255,255,255,0.92)',
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: 24,
+      gap: 8,
+    },
+    previewErrorEmoji: {
+      fontSize: 36,
+    },
+    previewErrorTitle: {
+      fontSize: 16,
+      fontWeight: '600',
+      color: theme.label,
+    },
+    previewErrorHint: {
+      fontSize: 13,
+      color: theme.labelSecondary,
+      textAlign: 'center',
+    },
     refineHint: {
       fontSize: 12,
       color: theme.labelSecondary,
@@ -367,6 +388,10 @@ export default function CreateScreen() {
   const [result, setResult] = useState<GenerateResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loadingMsgIndex, setLoadingMsgIndex] = useState(0);
+  const [previewHasError, setPreviewHasError] = useState(false);
+
+  // Generation timeout — if no progress after 90s, surface an actionable error
+  const generationStartRef = useRef<number | null>(null);
 
   const inputRef = useRef<TextInput>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -415,6 +440,27 @@ export default function CreateScreen() {
     }
   }, [activeJob?.status]);
 
+  // Timeout: if stuck generating with no progress for 90 s, surface an error.
+  useEffect(() => {
+    if (status !== 'generating' && status !== 'submitting') {
+      generationStartRef.current = null;
+      return;
+    }
+    if (generationStartRef.current === null) {
+      generationStartRef.current = Date.now();
+    }
+    const timer = setTimeout(() => {
+      const progressChars = activeJob?.progress_chars ?? 0;
+      if (progressChars === 0) {
+        clearJob();
+        setError('Generation timed out — the server may be busy. Please try again.');
+        setStatus('error');
+      }
+    }, 90_000);
+    return () => clearTimeout(timer);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status, activeJob?.progress_chars]);
+
   // Transition to preview once we have both complete status + metadata
   useEffect(() => {
     if (isComplete && meta && activeJob?.hosted_url) {
@@ -426,6 +472,7 @@ export default function CreateScreen() {
         icon: meta.icon,
         color: meta.color,
       });
+      setPreviewHasError(false);
       setStatus('preview');
     }
   }, [isComplete, meta, activeJob?.hosted_url, activeJob?.app_id]);
@@ -560,7 +607,7 @@ export default function CreateScreen() {
           keyboardVerticalOffset={88}
         >
           {/* ── Generating overlay ─────────────────────────────────────── */}
-          {status === 'generating' && (
+          {(status === 'submitting' || status === 'generating') && (
             <View style={styles.generatingOverlay}>
               <View style={styles.generatingCard}>
                 <Text style={styles.generatingEmoji}>✨</Text>
@@ -573,7 +620,9 @@ export default function CreateScreen() {
                     {(activeJob?.progress_chars ?? 0).toLocaleString()} chars written…
                   </Text>
                 ) : (
-                  <Text style={styles.generatingHint}>Starting up…</Text>
+                  <Text style={styles.generatingHint}>
+                    Starting up… (this can take 10–20 s)
+                  </Text>
                 )}
                 {/* Progress bar */}
                 <View style={styles.progressBarTrack}>
@@ -589,7 +638,7 @@ export default function CreateScreen() {
           )}
 
           {/* ── Main scroll content ────────────────────────────────────── */}
-          {status !== 'generating' && (
+          {status !== 'generating' && status !== 'submitting' && (
             <ScrollView
               contentContainerStyle={styles.scrollContent}
               keyboardShouldPersistTaps="handled"
@@ -675,7 +724,26 @@ export default function CreateScreen() {
                           <ActivityIndicator color={theme.primary} />
                         </View>
                       )}
+                      onError={() => setPreviewHasError(true)}
+                      onMessage={(e) => {
+                        try {
+                          const msg = JSON.parse(e.nativeEvent.data) as { type?: string };
+                          if (msg.type === 'js_error') setPreviewHasError(true);
+                        } catch { /* ignore */ }
+                      }}
+                      injectedJavaScriptBeforeContentLoaded={
+                        `(function(){window.onerror=function(m,s,l){window.ReactNativeWebView&&window.ReactNativeWebView.postMessage(JSON.stringify({type:'js_error',message:m,line:l}));};})();true;`
+                      }
                     />
+                    {previewHasError && (
+                      <View style={styles.previewErrorOverlay}>
+                        <Text style={styles.previewErrorEmoji}>⚠️</Text>
+                        <Text style={styles.previewErrorTitle}>App had errors</Text>
+                        <Text style={styles.previewErrorHint}>
+                          Describe what's wrong below and tap send to fix it
+                        </Text>
+                      </View>
+                    )}
                   </View>
 
                   {/* Refine hint */}

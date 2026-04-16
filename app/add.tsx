@@ -864,7 +864,7 @@ function AddScreenContent() {
           if (returnTo) {
             // Caller (e.g. create.tsx) wants us to go straight to home after install,
             // dismissing the whole create+add modal stack in one shot.
-            router.navigate(returnTo as Parameters<typeof router.navigate>[0]);
+            router.dismissAll();
           } else {
             router.back();
           }

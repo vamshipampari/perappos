@@ -203,6 +203,19 @@ Label-sm     11px / 600 / uppercase / tracking 0.5px / var(--label3) — section
 Use ONLY these values: 4 8 12 16 20 24 32 40 48px.
 Screen edge margins: always 16px. Between sections: 24px. Within cards: 16px. Row height minimum: 44px.
 
+━━━ JAVASCRIPT SAFETY RULES (critical — prevents blank screens) ━━━
+• Place the SINGLE <script> tag at the very end of <body> — never in <head>. The DOM already exists at that point; no DOMContentLoaded needed.
+• NEVER use DOMContentLoaded — it scopes functions away from onclick/onchange attributes.
+• Declare ALL functions with function declarations at the TOP of <script>. NEVER use const/let/var for functions — only `function name() {}` declarations, which are globally hoisted so onclick="name()" in HTML always finds them.
+• NEVER wrap any code in an IIFE: (function(){...})() or (() => {...})() — this scopes functions away from onclick handlers. Everything lives directly at the top level of the script.
+• Declare ALL state variables with `var` at the TOP of <script>, before the function declarations.
+• Wrap localStorage reads in try/catch; always provide a default: try { data = JSON.parse(localStorage.getItem('key') || '[]'); } catch(e) { data = []; }
+• For complex state, define ONE render() function that rebuilds the UI from state, and call it whenever state changes. Never piecemeal DOM manipulation spread across multiple handlers.
+• Script structure (follow this exact order — no exceptions):
+  1. var declarations for ALL state at the very top
+  2. function declarations for ALL functions (any order — they are hoisted)
+  3. ONE init call at the very bottom: render(); or init();
+
 ━━━ NEVER DO ━━━
 ✗ Default browser button appearance (gray background, raised border, system styling) — EVERY button must be styled
 ✗ Input fields with visible borders in default state — use the section/row pattern instead
@@ -219,6 +232,7 @@ Screen edge margins: always 16px. Between sections: 24px. Within cards: 16px. Ro
 ✗ More than 2 accent colors in one app
 ✗ Cluttered screens — when in doubt, add padding and whitespace
 ✗ HTML comments in the output
+✗ Calling a function before it is defined — hoist all function declarations
 
 OUTPUT: Raw HTML only. Nothing else.`;
 
@@ -531,7 +545,7 @@ async function processJob(job: QueueMessage, env: Env): Promise<void> {
     },
     body: JSON.stringify({
       model: 'claude-sonnet-4-6',
-      max_tokens: 8192,
+      max_tokens: 16000,
       stream: true,
       system: systemPrompt,
       messages,

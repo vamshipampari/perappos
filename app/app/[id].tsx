@@ -22,6 +22,7 @@ import WebView from 'react-native-webview';
 
 import { ActionSheet } from '@/components/ActionSheet';
 import { AppIcon } from '@/components/AppIcon';
+import { useToast } from '@/components/Toast';
 import { useDatabase } from '@/hooks/useDatabase';
 import { useWebViewApp } from '@/hooks/useWebViewApp';
 import { useLiveSyncPush } from '@/hooks/useLiveSyncPush';
@@ -155,6 +156,7 @@ export default function AppScreen() {
   const { db: syncDb } = usePowerSync();
   const theme = useTheme();
   const styles = makeStyles(theme);
+  const { showToast } = useToast();
 
   // Stable ref so loadShimPayload's useCallback can have empty deps.
   // See learning.md #15.
@@ -293,6 +295,9 @@ export default function AppScreen() {
         };
         if (parsed.type === 'js_error') {
           log.error('[webview] js error:', parsed.message, 'line:', parsed.line);
+          if (app?.source_url?.includes('apps.cottix.co')) {
+            showToast('App has errors — try "Edit with AI" to fix it', 'error');
+          }
           return;
         }
         if (parsed.type === 'shim_error') {
