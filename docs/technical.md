@@ -503,6 +503,12 @@ Running `wrangler deploy` without a `--config` flag walks up the directory tree 
 
 ## Cloudflare Worker (`cottix-generator`)
 
+**`create.tsx` `status === 'submitting'` gap shows blank screen**
+Between pressing send and the CF Worker returning a jobId (1–3 s), `status = 'submitting'`. The generating overlay only rendered for `'generating'`, and scroll content children only rendered for idle/error/preview — so `'submitting'` showed an empty ScrollView (blank screen). Fix: show the overlay for both `'submitting'` and `'generating'`; exclude `'submitting'` from the ScrollView condition. Apply the same pattern to any future async pre-submit states.
+
+**Generated HTML: DOMContentLoaded and IIFE wrappers break `onclick=` attributes**
+Symptom: `ReferenceError: Can't find variable: callNumber` (or similar) — app renders partially or blank. Root cause: wrapping all JS in `DOMContentLoaded` or `(function(){})()` scopes function declarations inside the callback/IIFE; `onclick="callNumber()"` runs in the global scope and cannot find them. Fix: place `<script>` at the end of `<body>` (DOM already exists, no DOMContentLoaded needed); declare all functions as top-level `function` declarations (hoisted globally); use `var` for state at the top of the script; call `render()` at the very bottom. Never use `const`/`let` for functions called from HTML attributes.
+
 **Modify job `appId` must equal `conversationId`, not a derived value**
 Symptom: Edit-with-AI generation completes server-side (status=`complete`, progress_chars=N in Supabase) but `create.tsx` stays stuck on the generating screen — never transitions to preview.
 Root cause: The worker used `appIdFromJobId(jobId)` for all jobs. For modify jobs this produced a new `appId` written to `generation_jobs.app_id`, but the `generated_apps` row was updated at `conversationId`. The hook's metadata fetch (`WHERE app_id = job.app_id`) found nothing → `meta` stayed null → the `isComplete && meta && hosted_url` guard in `create.tsx` never fired.
