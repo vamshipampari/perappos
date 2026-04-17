@@ -14,6 +14,7 @@ module.exports = {
     '/node_modules/',
     '/cottix-apps-worker/',
     '/supabase/',
+    '/.claude/worktrees/',
   ],
   moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json'],
 };

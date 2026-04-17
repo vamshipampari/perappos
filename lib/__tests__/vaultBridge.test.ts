@@ -56,6 +56,16 @@ jest.mock('@/services/sync/bridge-merge-handler', () => ({
   }),
 }));
 
+jest.mock('@/lib/sentry', () => ({
+  Sentry: {
+    captureException: jest.fn(),
+    captureMessage: jest.fn(),
+    wrap: (fn: unknown) => fn,
+  },
+  toError: (e: unknown) => (e instanceof Error ? e : new Error(String(e))),
+  truncateForSentry: (s: string) => s,
+}));
+
 // ── Imports ───────────────────────────────────────────────────────────────────
 
 import { handleVaultMessage } from '@/lib/vaultBridge';
