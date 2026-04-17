@@ -4,8 +4,11 @@ import {
   ActivityIndicator,
   Alert,
   BackHandler,
+  Modal,
   Platform,
+  ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TouchableOpacity,
   View,
@@ -28,6 +31,9 @@ import { useWebViewApp } from '@/hooks/useWebViewApp';
 import { useLiveSyncPush } from '@/hooks/useLiveSyncPush';
 import { useFreezeWatcher } from '@/hooks/useFreezeWatcher';
 import { useAppMenuActions } from '@/hooks/useAppMenuActions';
+import { enableOffline, disableOffline } from '@/lib/offlineBundle';
+import { getLatestBackup, revertToPreviousVersion } from '@/lib/appUpdates';
+import type { InstalledApp } from '@/types';
 import { usePowerSync } from '@/services/sync/PowerSyncProvider';
 import { handleVaultMessage } from '@/lib/vaultBridge';
 import { log } from '@/lib/logger';
@@ -145,6 +151,94 @@ function makeStyles(theme: Colors) {
       marginBottom: 16,
     },
     splashName: { fontSize: 17, fontWeight: '600', color: theme.label },
+
+    // Stale bundle banner
+    staleBanner: {
+      backgroundColor: '#EFF6FF',
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: '#93C5FD',
+      paddingVertical: 8,
+      paddingHorizontal: 16,
+    },
+    staleBannerText: { fontSize: 13, color: '#1D4ED8', textAlign: 'center' },
+
+    // App Info modal
+    modalBackdrop: {
+      ...StyleSheet.absoluteFillObject,
+      backgroundColor: 'rgba(0,0,0,0.4)',
+    },
+    infoSheet: {
+      position: 'absolute',
+      bottom: 0,
+      left: 0,
+      right: 0,
+      backgroundColor: theme.surface,
+      borderTopLeftRadius: 20,
+      borderTopRightRadius: 20,
+      paddingBottom: 36,
+      maxHeight: '80%',
+    },
+    infoSheetPill: {
+      width: 36,
+      height: 4,
+      borderRadius: 2,
+      backgroundColor: theme.separator,
+      alignSelf: 'center',
+      marginTop: 8,
+      marginBottom: 4,
+    },
+    infoSheetHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+      paddingHorizontal: 20,
+      paddingVertical: 14,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: theme.separator,
+    },
+    infoSheetTitle: { flex: 1, fontSize: 17, fontWeight: '600', color: theme.label },
+    infoSheetClose: { fontSize: 17, color: theme.labelSecondary, padding: 4 },
+    infoGroup: {
+      marginHorizontal: 16,
+      marginTop: 12,
+      backgroundColor: theme.groupedBackground,
+      borderRadius: 12,
+      overflow: 'hidden',
+    },
+    infoRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingHorizontal: 16,
+      paddingVertical: 12,
+    },
+    infoRowLabel: { fontSize: 15, color: theme.label },
+    infoRowValue: { fontSize: 15, color: theme.labelSecondary, maxWidth: '55%', textAlign: 'right' },
+    infoRowValueSmall: { fontSize: 12 },
+    infoSeparator: {
+      height: StyleSheet.hairlineWidth,
+      backgroundColor: theme.separator,
+      marginLeft: 16,
+    },
+    offlineRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingHorizontal: 16,
+      paddingVertical: 14,
+      gap: 12,
+    },
+    offlineLabel: { fontSize: 16, color: theme.label },
+    offlineSubLabel: { fontSize: 12, color: theme.labelSecondary, marginTop: 2 },
+    revertBtn: {
+      marginHorizontal: 16,
+      marginTop: 12,
+      paddingVertical: 14,
+      backgroundColor: theme.groupedBackground,
+      borderRadius: 12,
+      alignItems: 'center',
+    },
+    revertBtnText: { fontSize: 16, color: '#F59E0B', fontWeight: '500' },
   });
 }
 
@@ -168,6 +262,21 @@ export default function AppScreen() {
   const [webError, setWebError] = useState<string | null>(null);
   const [webCanGoBack, setWebCanGoBack] = useState(false);
   const [menuVisible, setMenuVisible] = useState(false);
+
+  // App Info modal state
+  const [appInfoVisible, setAppInfoVisible] = useState(false);
+  const [infoEntries, setInfoEntries] = useState<number | null>(null);
+  const [infoHasBackup, setInfoHasBackup] = useState(false);
+  const [offlineEnabled, setOfflineEnabled] = useState(false);
+  const [offlineLoading, setOfflineLoading] = useState(false);
+
+  // Stale offline bundle detection
+  const [hasStaleBundle, setHasStaleBundle] = useState(false);
+
+  // True during the ~8-second window after WebView load where we accept a
+  // late PowerSync sync as a reason to silently reload the WebView.
+  // Prevents spurious reloads after the user has started interacting.
+  const dataWatchWindowRef = useRef(false);
 
   // Buffer for remote updates that arrive before the WebView has loaded
   const pendingRemoteUpdates = useRef<Array<{
@@ -195,6 +304,7 @@ export default function AppScreen() {
     shimJS,
     bundleHtml,
     signedInUserId,
+    hadEmptyPreload,
     rebuildShimForApp,
     webViewRef,
     hasLoadedOnceRef,
@@ -235,9 +345,87 @@ export default function AppScreen() {
     signedInUserId,
     setApp,
     setMenuVisible,
+    setAppInfoVisible,
     rebuildShimForApp,
     refreshWebView,
   });
+
+  // ── App Info modal: load data when it opens ───────────────────────────────
+  useEffect(() => {
+    if (!appInfoVisible || !app) return;
+    setOfflineEnabled(app.offline_enabled === 1);
+    setInfoEntries(null);
+    setInfoHasBackup(false);
+
+    (async () => {
+      const [countRow, backup] = await Promise.all([
+        app.instance_id
+          ? syncDb.getOptional<{ n: number }>(
+              'SELECT COUNT(*) AS n FROM shared_app_data WHERE instance_id = ? AND app_id = ?',
+              [app.instance_id, app.app_id]
+            )
+          : syncDb.getOptional<{ n: number }>(
+              'SELECT COUNT(*) AS n FROM app_data WHERE app_id = ?',
+              [app.app_id]
+            ),
+        getLatestBackup(db, app.app_id),
+      ]);
+      setInfoEntries(countRow?.n ?? 0);
+      setInfoHasBackup(backup !== null);
+    })();
+  }, [appInfoVisible, app, db, syncDb]);
+
+  // ── Offline toggle handler ────────────────────────────────────────────────
+  const handleToggleOffline = useCallback(async (val: boolean) => {
+    if (!app || !app.source_url) return;
+    setOfflineLoading(true);
+    try {
+      if (val) {
+        await enableOffline(app.app_id, app.source_url, db);
+      } else {
+        await disableOffline(app.app_id, db);
+      }
+      setOfflineEnabled(val);
+      if (val) setHasStaleBundle(false);
+      const refreshed = await db.getFirstAsync<InstalledApp>(
+        'SELECT * FROM apps WHERE app_id = ?',
+        app.app_id
+      );
+      if (refreshed) {
+        setApp(refreshed);
+        void rebuildShimForApp(refreshed);
+      }
+    } catch (e) {
+      setOfflineEnabled(!val); // revert toggle
+      Alert.alert(
+        val ? 'Could not download app for offline use' : 'Could not remove offline copy',
+        e instanceof Error ? e.message : 'Please try again.'
+      );
+    } finally {
+      setOfflineLoading(false);
+    }
+  }, [app, db, setApp, rebuildShimForApp]);
+
+  // ── Revert to previous version (from App Info modal) ─────────────────────
+  const handleRevertVersion = useCallback(async () => {
+    if (!app) return;
+    try {
+      const ok = await revertToPreviousVersion(db, app.app_id);
+      if (!ok) {
+        Alert.alert('No backup', 'No previous version is available.');
+        return;
+      }
+      const refreshed = await db.getFirstAsync<InstalledApp>(
+        'SELECT * FROM apps WHERE app_id = ?',
+        app.app_id
+      );
+      if (refreshed) setApp(refreshed);
+      setAppInfoVisible(false);
+      Alert.alert('Restored', 'Reverted to previous version ✓');
+    } catch {
+      Alert.alert('Revert failed', 'Could not restore previous version.');
+    }
+  }, [app, db, setApp]);
 
   // ── Edit with AI ──────────────────────────────────────────────────────────
   const handleEditWithAI = async () => {
@@ -278,6 +466,41 @@ export default function AppScreen() {
     });
     return () => sub.remove();
   }, [webCanGoBack, webViewRef]);
+
+  // ── Late-sync recovery watcher ───────────────────────────────────────────
+  // When the shim was built with zero preloaded keys for a personal app, it
+  // means PowerSync hadn't delivered the data yet at load time (cold-start
+  // gap, learning.md #3). This watcher listens for rows to arrive in
+  // app_data. If they appear within the watch window (opened in onLoadEnd
+  // and kept open for 8 s), we rebuild the shim and silently reload so the
+  // app gets its data without the user having to redo onboarding.
+  useEffect(() => {
+    if (!hadEmptyPreload || !app || app.instance_id || app.source_type === 'url') return;
+    const controller = new AbortController();
+    (async () => {
+      try {
+        for await (const result of syncDb.watch(
+          'SELECT key, value FROM app_data WHERE app_id = ? LIMIT 1',
+          [app.app_id],
+          { signal: controller.signal }
+        )) {
+          const rows = (result.rows?._array ?? []) as { key: string; value: string }[];
+          if (rows.length > 0 && dataWatchWindowRef.current) {
+            log.info('[webview] late-sync recovery: data arrived, rebuilding shim + reloading');
+            controller.abort();
+            await rebuildShimForApp(app);
+            // Small delay so React re-renders with the new shimJS before reload.
+            setTimeout(() => { webViewRef.current?.reload(); }, 50);
+            return;
+          }
+        }
+      } catch {
+        // AbortError on cleanup — expected.
+      }
+    })();
+    return () => controller.abort();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hadEmptyPreload, app?.app_id]);
 
   // ── Bridge: WebView → native ──────────────────────────────────────────────
   const handleMessage = useCallback(
@@ -410,6 +633,34 @@ export default function AppScreen() {
         </View>
       )}
 
+      {/* ── Stale offline bundle banner ──────────────────────────────────── */}
+      {hasStaleBundle && (
+        <TouchableOpacity
+          style={styles.staleBanner}
+          onPress={async () => {
+            if (!app.source_url) return;
+            setHasStaleBundle(false);
+            setOfflineLoading(true);
+            try {
+              await enableOffline(app.app_id, app.source_url, db);
+              const refreshed = await db.getFirstAsync<InstalledApp>(
+                'SELECT * FROM apps WHERE app_id = ?',
+                app.app_id
+              );
+              if (refreshed) { setApp(refreshed); void rebuildShimForApp(refreshed); }
+            } catch {
+              setHasStaleBundle(true);
+            } finally {
+              setOfflineLoading(false);
+            }
+          }}
+        >
+          <Text style={styles.staleBannerText}>
+            {offlineLoading ? 'Updating…' : 'A newer version is available — tap to update.'}
+          </Text>
+        </TouchableOpacity>
+      )}
+
       {/* ── WebView + overlays ───────────────────────────────────────────── */}
       <View style={styles.webContainer}>
         {webError ? (
@@ -470,6 +721,21 @@ export default function AppScreen() {
                   void track('app_opened_webview', { app_id: app.app_id });
                   posthog.capture('app_opened_webview', { app_id: app.app_id, source_type: app.source_type });
                 }
+                // Background stale-bundle check — fire-and-forget, never blocks load
+                if (app?.offline_enabled === 1 && app.source_url) {
+                  (async () => {
+                    try {
+                      const headRes = await fetch(app.source_url!, { method: 'HEAD' });
+                      const contentLength = headRes.headers.get('content-length');
+                      if (contentLength && parseInt(contentLength, 10) !== app.bundle_size) {
+                        setHasStaleBundle(true);
+                      }
+                    } catch {
+                      // Network failure — silent. Offline is the whole point.
+                    }
+                  })();
+                }
+
                 // Flush buffered remote updates that arrived before WebView was ready
                 if (pendingRemoteUpdates.current.length > 0 && webViewRef.current) {
                   log.info('[live-push] onLoadEnd flushing', pendingRemoteUpdates.current.length, 'buffered update(s)');
@@ -478,6 +744,14 @@ export default function AppScreen() {
                     `window._VaultSyncPush && window._VaultSyncPush(${payload});true;`
                   );
                   pendingRemoteUpdates.current = [];
+                }
+                // Open the late-sync recovery window for 8 seconds.
+                // If PowerSync delivers missing data within this window the
+                // recovery watcher will rebuild the shim and reload silently.
+                // After 8 s we assume the user is actively using the app.
+                if (hadEmptyPreload) {
+                  dataWatchWindowRef.current = true;
+                  setTimeout(() => { dataWatchWindowRef.current = false; }, 8000);
                 }
               }}
               onError={(e) => {
@@ -544,6 +818,118 @@ export default function AppScreen() {
           { label: 'Delete App', onPress: handleDelete },
         ]}
       />
+
+      {/* ── App Info modal ───────────────────────────────────────────────── */}
+      <Modal
+        visible={appInfoVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setAppInfoVisible(false)}
+      >
+        <TouchableOpacity
+          style={styles.modalBackdrop}
+          activeOpacity={1}
+          onPress={() => setAppInfoVisible(false)}
+        />
+        <View style={styles.infoSheet}>
+          {/* Drag pill */}
+          <View style={styles.infoSheetPill} />
+
+          {/* Header */}
+          <View style={styles.infoSheetHeader}>
+            <AppIcon emoji={app.icon_emoji} bgColor={app.icon_bg_color} size={28} />
+            <Text style={styles.infoSheetTitle} numberOfLines={1}>{app.name}</Text>
+            <TouchableOpacity onPress={() => setAppInfoVisible(false)} hitSlop={8}>
+              <Text style={styles.infoSheetClose}>✕</Text>
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView contentContainerStyle={{ paddingBottom: 16 }}>
+            {/* Info rows */}
+            <View style={styles.infoGroup}>
+              <View style={styles.infoRow}>
+                <Text style={styles.infoRowLabel}>Type</Text>
+                <Text style={styles.infoRowValue} numberOfLines={1}>
+                  {app.source_type === 'html' ? 'AI-generated' : app.source_type === 'url' ? 'Web URL' : 'Local bundle'}
+                </Text>
+              </View>
+              <View style={styles.infoSeparator} />
+              <View style={styles.infoRow}>
+                <Text style={styles.infoRowLabel}>Source</Text>
+                <Text style={[styles.infoRowValue, styles.infoRowValueSmall]} numberOfLines={2}>
+                  {app.source_url ?? app.bundle_path}
+                </Text>
+              </View>
+              <View style={styles.infoSeparator} />
+              <View style={styles.infoRow}>
+                <Text style={styles.infoRowLabel}>Installed</Text>
+                <Text style={styles.infoRowValue}>
+                  {new Date(app.installed_at).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })}
+                </Text>
+              </View>
+              <View style={styles.infoSeparator} />
+              <View style={styles.infoRow}>
+                <Text style={styles.infoRowLabel}>Opened</Text>
+                <Text style={styles.infoRowValue}>
+                  {app.open_count} time{app.open_count === 1 ? '' : 's'}
+                </Text>
+              </View>
+              {infoEntries !== null && (
+                <>
+                  <View style={styles.infoSeparator} />
+                  <View style={styles.infoRow}>
+                    <Text style={styles.infoRowLabel}>Stored data</Text>
+                    <Text style={styles.infoRowValue}>
+                      {infoEntries} entr{infoEntries === 1 ? 'y' : 'ies'}
+                    </Text>
+                  </View>
+                </>
+              )}
+            </View>
+
+            {/* Available Offline toggle — only for html-type apps */}
+            {app.source_type === 'html' && (
+              <View style={styles.infoGroup}>
+                <View style={styles.offlineRow}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.offlineLabel}>Available Offline</Text>
+                    {offlineEnabled && app.bundle_size > 0 && (
+                      <Text style={styles.offlineSubLabel}>
+                        {formatBytes(app.bundle_size)} stored locally
+                      </Text>
+                    )}
+                  </View>
+                  {offlineLoading ? (
+                    <ActivityIndicator size="small" color={theme.primary} />
+                  ) : (
+                    <Switch
+                      value={offlineEnabled}
+                      onValueChange={(val) => { void handleToggleOffline(val); }}
+                      disabled={offlineLoading}
+                    />
+                  )}
+                </View>
+              </View>
+            )}
+
+            {/* Revert to previous version */}
+            {infoHasBackup && (
+              <TouchableOpacity
+                style={styles.revertBtn}
+                onPress={() => { void handleRevertVersion(); }}
+              >
+                <Text style={styles.revertBtnText}>Revert to Previous Version</Text>
+              </TouchableOpacity>
+            )}
+          </ScrollView>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }

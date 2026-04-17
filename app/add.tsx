@@ -33,6 +33,7 @@ import { powerSyncDb } from '@/services/sync/PowerSyncProvider';
 import { detectPlatform, fetchUrlMetadata } from '@/services/urlFetcher';
 import { type ParsedBundle, extractAndBundle } from '@/services/zipInstaller';
 import { useTheme, type Colors } from '@/lib/theme';
+import { Sentry, toError, truncateForSentry } from '@/lib/sentry';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -435,6 +436,10 @@ class AddScreenErrorBoundary extends Component<
 
   componentDidCatch(error: Error, info: ErrorInfo) {
     log.error('[AddScreen] Unhandled render error:', error, info);
+    Sentry.captureException(error, {
+      tags: { screen: 'add_app', boundary: 'render' },
+      extra: { componentStack: info.componentStack },
+    });
   }
 
   render() {
@@ -622,6 +627,10 @@ function AddScreenContent() {
       setStep('details');
     } catch (e) {
       log.error('[AddScreen] URL import flow failed:', e);
+      Sentry.captureException(toError(e), {
+        tags: { screen: 'add_app', source: 'url', step: 'metadata_fetch' },
+        extra: { url: truncateForSentry(url.trim(), 200) },
+      });
       setError(e instanceof Error ? e.message : 'Failed to read app metadata');
       setStep('input');
     }
@@ -656,6 +665,10 @@ function AddScreenContent() {
       setAppName(result.name);
       setStep('details');
     } catch (e) {
+      Sentry.captureException(toError(e), {
+        tags: { screen: 'add_app', source: 'zip', step: 'extract_bundle' },
+        extra: { assetName: asset.name ?? null },
+      });
       setError(e instanceof Error ? e.message : 'Failed to extract ZIP');
       setStep('input');
     }
@@ -775,6 +788,10 @@ function AddScreenContent() {
           } catch (deployErr) {
             const reason = deployErr instanceof Error ? deployErr.message : String(deployErr);
             log.warn('[AddScreen] Cloudflare deploy failed:', reason);
+            Sentry.captureException(toError(deployErr), {
+              tags: { screen: 'add_app', source: 'html', step: 'deploy_html' },
+              extra: { appId: bundle.appId },
+            });
             await new Promise<void>((resolve) => {
               Alert.alert(
                 'Cloud Deploy Failed',
@@ -873,7 +890,15 @@ function AddScreenContent() {
           router.push('/(tabs)');
         }
       }, 300);
-    } catch {
+    } catch (error) {
+      Sentry.captureException(toError(error), {
+        tags: { screen: 'add_app', source: bundle.sourceType, step: 'install' },
+        extra: {
+          appId: bundle.appId,
+          url: truncateForSentry(bundle.sourceUrl ?? url.trim(), 200),
+          replaceAppId,
+        },
+      });
       setStep('details');
       void safeNotificationAsync(Haptics.NotificationFeedbackType.Error);
       showToast('Could not install app', 'error');

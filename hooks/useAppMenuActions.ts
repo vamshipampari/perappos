@@ -15,8 +15,6 @@ import type { AbstractPowerSyncDatabase } from '@powersync/react-native';
 import {
   applyUrlAppUpdate,
   checkForUpdates,
-  getLatestBackup,
-  revertToPreviousVersion,
 } from '@/lib/appUpdates';
 import { log } from '@/lib/logger';
 import { createSharedInstanceForApp } from '@/services/collaborationService';
@@ -32,6 +30,7 @@ interface UseAppMenuActionsInput {
   signedInUserId: string | null;
   setApp: (app: InstalledApp) => void;
   setMenuVisible: (v: boolean) => void;
+  setAppInfoVisible: (v: boolean) => void;
   rebuildShimForApp: (app: InstalledApp) => Promise<void>;
   refreshWebView: () => void;
 }
@@ -41,7 +40,7 @@ interface UseAppMenuActionsResult {
   handleCollaborate: () => Promise<void>;
   handleManageGroup: () => void;
   handleCheckUpdate: () => Promise<void>;
-  handleAppInfo: () => Promise<void>;
+  handleAppInfo: () => void;
   handleDelete: () => void;
 }
 
@@ -52,6 +51,7 @@ export function useAppMenuActions({
   signedInUserId,
   setApp,
   setMenuVisible,
+  setAppInfoVisible,
   rebuildShimForApp,
   refreshWebView,
 }: UseAppMenuActionsInput): UseAppMenuActionsResult {
@@ -291,67 +291,11 @@ export function useAppMenuActions({
     }
   }, [app, checkingUpdate, db, setApp, setMenuVisible]);
 
-  const handleAppInfo = useCallback(async () => {
+  const handleAppInfo = useCallback(() => {
     if (!app) return;
     setMenuVisible(false);
-    try {
-      const [countRow, backup] = await Promise.all([
-        app.instance_id
-          ? syncDb.getOptional<{ n: number }>(
-              'SELECT COUNT(*) AS n FROM shared_app_data WHERE instance_id = ? AND app_id = ?',
-              [app.instance_id, app.app_id]
-            )
-          : syncDb.getOptional<{ n: number }>(
-              'SELECT COUNT(*) AS n FROM app_data WHERE app_id = ?',
-              [app.app_id]
-            ),
-        getLatestBackup(db, app.app_id),
-      ]);
-      const entries = countRow?.n ?? 0;
-      const installed = new Date(app.installed_at).toLocaleDateString(undefined, {
-        year: 'numeric',
-        month: 'short',
-        day: 'numeric',
-      });
-      Alert.alert(
-        app.name,
-        [
-          `Source: ${app.source_url ?? app.bundle_path}`,
-          `Type: ${app.source_type === 'url' ? 'Web URL' : 'Local bundle'}`,
-          `Installed: ${installed}`,
-          `Opened: ${app.open_count} time${app.open_count === 1 ? '' : 's'}`,
-          `Stored data: ${entries} entr${entries === 1 ? 'y' : 'ies'}`,
-        ].join('\n'),
-        [
-          { text: 'Close' },
-          ...(backup
-            ? [{
-                text: 'Revert to Previous Version',
-                onPress: async () => {
-                  try {
-                    const ok = await revertToPreviousVersion(db, app.app_id);
-                    if (!ok) {
-                      Alert.alert('No backup', 'No previous version is available.');
-                      return;
-                    }
-                    const refreshed = await db.getFirstAsync<InstalledApp>(
-                      'SELECT * FROM apps WHERE app_id = ?',
-                      app.app_id
-                    );
-                    if (refreshed) setApp(refreshed);
-                    Alert.alert('Restored', 'Reverted to previous version ✓');
-                  } catch {
-                    Alert.alert('Revert failed', 'Could not restore previous version.');
-                  }
-                },
-              } as const]
-            : []),
-        ]
-      );
-    } catch {
-      // non-critical
-    }
-  }, [app, db, setApp, setMenuVisible, syncDb]);
+    setAppInfoVisible(true);
+  }, [app, setMenuVisible, setAppInfoVisible]);
 
   const handleDelete = useCallback(() => {
     if (!app) return;

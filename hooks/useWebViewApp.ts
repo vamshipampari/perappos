@@ -35,10 +35,18 @@ interface UseWebViewAppResult {
   setShimJS: (js: string) => void;
   bundleHtml: string | null;
   signedInUserId: string | null;
+  /**
+   * True when the shim was built with zero preloaded keys for a personal,
+   * non-URL app — indicates a PowerSync cold-start gap where data may arrive
+   * shortly after the WebView loads. Used to trigger the late-sync recovery
+   * watcher in the screen component.
+   */
+  hadEmptyPreload: boolean;
   /** Stable reference — empty deps. See learning.md #15. */
   loadShimPayload: (target: InstalledApp) => Promise<{
     shim: string;
     preloadSource: 'shared' | 'personal-fallback' | 'local';
+    preloadedKeyCount: number;
   }>;
   rebuildShimForApp: (target: InstalledApp) => Promise<void>;
   webViewRef: RefObject<WebView | null>;
@@ -62,11 +70,15 @@ export function useWebViewApp(
   const [shimJS, setShimJS] = useState('');
   const [bundleHtml, setBundleHtml] = useState<string | null>(null);
   const [signedInUserId, setSignedInUserId] = useState<string | null>(null);
+  // True when the shim was built with zero keys for a personal non-URL app,
+  // signalling a possible PowerSync cold-start gap (see learning.md #3).
+  const [hadEmptyPreload, setHadEmptyPreload] = useState(false);
 
   const loadShimPayload = useCallback(
     async (target: InstalledApp): Promise<{
       shim: string;
       preloadSource: 'shared' | 'personal-fallback' | 'local';
+      preloadedKeyCount: number;
     }> => {
       const db = syncDbRef.current;
       const preloadedData: Record<string, string> = {};
@@ -129,6 +141,7 @@ export function useWebViewApp(
             return {
               shim: buildSyncShim(target.app_id, preloadedData, preloadedVersions, preloadedAttribution, target.instance_id ?? ''),
               preloadSource: 'shared',
+              preloadedKeyCount: Object.keys(preloadedData).length,
             };
           }
 
@@ -145,12 +158,14 @@ export function useWebViewApp(
           return {
             shim: buildSyncShim(target.app_id, preloadedData, preloadedVersions, preloadedAttribution, target.instance_id ?? ''),
             preloadSource: 'personal-fallback',
+            preloadedKeyCount: Object.keys(preloadedData).length,
           };
         }
 
         return {
           shim: buildSyncShim(target.app_id, preloadedData, preloadedVersions, preloadedAttribution, target.instance_id ?? ''),
           preloadSource: 'shared',
+          preloadedKeyCount: Object.keys(preloadedData).length,
         };
       }
 
@@ -176,14 +191,19 @@ export function useWebViewApp(
           for (const row of (remoteRows ?? [])) {
             preloadedData[row.key] = row.value as string;
           }
+          if (Object.keys(preloadedData).length > 0) {
+            log.info('[webview] preload: Supabase fallback found', Object.keys(preloadedData).length, 'key(s)');
+          }
         } catch {
-          // Network unavailable — proceed with empty preload; app may re-show onboarding
+          // Network unavailable — proceed with empty preload; recovery watcher will
+          // detect when PowerSync re-syncs the data and reload the WebView.
         }
       }
 
       return {
         shim: buildVaultShim(target.app_id, preloadedData),
         preloadSource: 'local',
+        preloadedKeyCount: Object.keys(preloadedData).length,
       };
     },
     // Empty deps: syncDbRef.current is always up-to-date; stable reference
@@ -208,7 +228,16 @@ export function useWebViewApp(
         }
 
         const isShared = !!foundApp.instance_id;
-        const { shim: generatedShimJS, preloadSource } = await loadShimPayload(foundApp);
+        const { shim: generatedShimJS, preloadSource, preloadedKeyCount } = await loadShimPayload(foundApp);
+
+        // Flag a possible cold-start race: personal non-URL app with no preloaded data.
+        // The recovery watcher in the screen component will reload the WebView if
+        // PowerSync delivers the missing rows within a short window after load.
+        const emptyPersonalPreload =
+          preloadedKeyCount === 0 &&
+          !foundApp.instance_id &&
+          foundApp.source_type !== 'url';
+        setHadEmptyPreload(emptyPersonalPreload);
 
         // Record open (non-blocking)
         db.runAsync(
@@ -305,6 +334,7 @@ export function useWebViewApp(
     setShimJS,
     bundleHtml,
     signedInUserId,
+    hadEmptyPreload,
     loadShimPayload,
     rebuildShimForApp,
     webViewRef,

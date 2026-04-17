@@ -208,6 +208,9 @@ Using table aliases in PowerSync sync rules (`FROM instance_members im`) causes 
 **Boolean columns: `column.integer` only**
 PowerSync has no `column.boolean`. Supabase `BOOLEAN` columns that sync through PowerSync must be declared `column.integer` in `schema.ts`. Compare with `=== 1` (not `=== true`): `instanceRows[0].is_frozen === 1`.
 
+**Cold-start sync gap — mini-app onboarding repeats**
+On a cold start after days of inactivity, `loadShimPayload` queries the PowerSync local SQLite before the initial sync completes. If the `app_data` rows haven't been re-delivered yet (post-upload clear gap or first connect), the shim is built with empty data and the mini-app sees no `localStorage` state — triggering onboarding again. Primary fix: Supabase direct-query fallback in `loadShimPayload` (already in place). Safety-net fix: `hadEmptyPreload` flag from `useWebViewApp` + a `db.watch('app_data WHERE app_id = ?')` watcher in `[id].tsx` that reloads the WebView if rows arrive within 8 seconds of `onLoadEnd`. The 8-second window (`dataWatchWindowRef`) prevents spurious reloads after the user has started interacting.
+
 **`installed_apps` must be written in every install path**
 The PowerSync `installed_apps` table and `SupabaseConnector` handler existed from the start, but nothing ever inserted rows — it was dead code. Every install path must fire-and-forget `powerSyncDb.execute('INSERT OR REPLACE INTO installed_apps ...')`. Affected paths: `app/add.tsx` `handleInstall()`, `services/appInstaller.ts` `installUrlApp()`, and any future install entry point.
 

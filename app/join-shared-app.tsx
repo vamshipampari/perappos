@@ -16,6 +16,7 @@ import { useDatabase } from '@/hooks/useDatabase';
 import { useInstalledApps } from '@/hooks/useInstalledApps';
 import { log } from '@/lib/logger';
 import { useTheme } from '@/lib/theme';
+import { Sentry, toError } from '@/lib/sentry';
 import {
   joinSharedAppByCode,
   type JoinStatus,
@@ -115,7 +116,11 @@ export default function JoinSharedAppScreen() {
       } catch { /* non-critical */ }
 
       setPreview(instance);
-    } catch {
+    } catch (error) {
+      Sentry.captureException(toError(error), {
+        tags: { screen: 'join_shared_app', step: 'lookup' },
+        extra: { inviteCode: normalizedCode },
+      });
       Alert.alert('Lookup failed', 'Could not verify invite code right now.');
     } finally {
       setChecking(false);
@@ -167,6 +172,13 @@ export default function JoinSharedAppScreen() {
       } catch {
         log.error('Join error:', String(err));
       }
+      Sentry.captureException(toError(err), {
+        tags: { screen: 'join_shared_app', step: 'join' },
+        extra: {
+          inviteCode: normalizedCode,
+          previewInstanceId: preview?.instance_id ?? null,
+        },
+      });
       Alert.alert('Error', String(err));
       setJoining(false);
     } finally {

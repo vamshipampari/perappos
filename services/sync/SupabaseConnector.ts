@@ -5,6 +5,7 @@ import {
 } from "@powersync/react-native";
 import { log } from "@/lib/logger";
 import { supabase } from "../supabase";
+import { Sentry, toError } from "@/lib/sentry";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -202,6 +203,24 @@ export class SupabaseConnector implements PowerSyncBackendConnector {
       log.info("[PowerSync] upload complete");
     } catch (error) {
       log.error("[PowerSync] upload error:", error);
+
+      let pendingCrudCount: number | null = null;
+      try {
+        const pendingRows = await database.execute('SELECT COUNT(*) AS count FROM ps_crud');
+        const row = pendingRows.rows?._array?.[0] as { count?: number | string } | undefined;
+        pendingCrudCount = row?.count == null ? null : Number(row.count);
+      } catch {
+        pendingCrudCount = null;
+      }
+
+      Sentry.captureException(toError(error), {
+        tags: { sync_error: 'upload_failed' },
+        extra: {
+          pendingCrudCount,
+          transactionCrudCount: transaction.crud.length,
+        },
+      });
+
       throw error;
     }
   }

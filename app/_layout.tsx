@@ -15,6 +15,7 @@ import { useUserChangeGuard } from '@/hooks/useUserChangeGuard';
 import { ToastProvider } from '@/components/Toast';
 import { cleanupExpiredUpdateBackups } from '@/lib/appUpdates';
 import { log } from '@/lib/logger';
+import { initSentry, Sentry } from '@/lib/sentry';
 import { ThemeProvider, useSetTheme, type ThemeMode } from '@/lib/theme';
 import { seedDemoApps } from '@/utils/createDemoApp';
 import { PowerSyncProvider } from '../services/sync/PowerSyncProvider';
@@ -23,6 +24,7 @@ import { track } from '../services/analytics';
 import { posthog } from '../src/config/posthog';
 
 SplashScreen.preventAutoHideAsync();
+initSentry();
 
 const DB_NAME = 'cottix.db';
 
@@ -91,6 +93,11 @@ const initializeDatabase = async (db: import('expo-sqlite').SQLiteDatabase) => {
   }
   try {
     await db.execAsync('ALTER TABLE apps ADD COLUMN folder_id TEXT');
+  } catch {
+    // Column already exists — safe to ignore.
+  }
+  try {
+    await db.execAsync('ALTER TABLE apps ADD COLUMN offline_enabled INTEGER DEFAULT 0');
   } catch {
     // Column already exists — safe to ignore.
   }
@@ -287,7 +294,7 @@ function ScreenTracker() {
   return null;
 }
 
-export default function RootLayout() {
+function RootLayout() {
   const router = useRouter();
   const [isDeepLinkReady, setIsDeepLinkReady] = useState(false);
   const [sessionChecked, setSessionChecked] = useState(false);
@@ -509,3 +516,5 @@ export default function RootLayout() {
     </PostHogProvider>
   );
 }
+
+export default Sentry.wrap(RootLayout);

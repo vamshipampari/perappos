@@ -22,6 +22,7 @@ import { useTheme, type Colors } from '@/lib/theme';
 import { useGenerateApp } from '@/hooks/useGenerateApp';
 import { useDatabase } from '@/hooks/useDatabase';
 import { posthog } from '@/src/config/posthog';
+import { Sentry, toError, truncateForSentry } from '@/lib/sentry';
 
 // ---------- Constants ----------
 
@@ -492,6 +493,13 @@ export default function CreateScreen() {
       setPrompt('');
       setStatus('generating');
     } catch (e) {
+      Sentry.captureException(toError(e), {
+        tags: { screen: 'create', feature: 'ai_generation' },
+        extra: {
+          conversationId: result?.appId ?? editConversationId ?? null,
+          prompt: truncateForSentry(trimmed, 200),
+        },
+      });
       const msg = e instanceof Error ? e.message : 'Network error. Please try again.';
       setError(msg);
       setStatus('error');

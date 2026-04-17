@@ -27,6 +27,7 @@ export interface InstalledApp {
   open_count: number;
   instance_id: string | null;
   folder_id: string | null;
+  offline_enabled: number;
 }
 
 /** Row shape from the local `folders` SQLite table. */

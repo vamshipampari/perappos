@@ -32,6 +32,7 @@ import { handleSharedWrite } from '@/services/sync/bridge-merge-handler';
 import type { SharedWriteMessage } from '@/services/sync/bridge-merge-handler';
 import { supabase } from '../services/supabase';
 import type { AppManifest, RawMessage } from '@/types';
+import { Sentry, toError, truncateForSentry } from '@/lib/sentry';
 
 /** Supabase Storage bucket used for mini-app user file uploads. */
 const STORAGE_BUCKET = 'user-media';
@@ -731,6 +732,16 @@ export async function handleVaultMessage(
         break;
     }
   } catch (e) {
+    Sentry.captureException(toError(e), {
+      tags: {
+        bridge_type: type ?? 'unknown',
+        app_id: effectiveAppId ?? 'unknown',
+      },
+      extra: {
+        instance_id: instanceId ?? null,
+        payload: truncateForSentry(raw),
+      },
+    });
     respond(null, e instanceof Error ? e.message : String(e));
   }
 }
