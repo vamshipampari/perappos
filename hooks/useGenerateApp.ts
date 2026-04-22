@@ -84,9 +84,10 @@ export function useGenerateApp() {
         .select('*')
         .eq('id', activeJobId)
         .single()
-        .then(({ data }) => {
-          if (data) setJob(data as unknown as GenerationJob);
-        });
+        .then(
+          ({ data }) => { if (data) setJob(data as unknown as GenerationJob); },
+          () => {},
+        );
     }, 3000);
 
     return () => clearInterval(interval);

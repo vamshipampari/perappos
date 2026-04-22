@@ -1,7 +1,7 @@
 # Cottix — Security & Refactor Status
 
 Source audit: [docs/security-audit.md](security-audit.md)
-Last updated: 2026-04-22 — Phase 1 + 2 complete
+Last updated: 2026-04-22 — Phase 1 + 2 + 3 complete
 
 ---
 
@@ -15,10 +15,10 @@ Last updated: 2026-04-22 — Phase 1 + 2 complete
 - [x] S9: respond(false) on failed db_delete — wrapped in local try/catch; outer catch no longer reachable for this case
 - [x] C6: Distinct error codes — `'permission_denied'` vs `'module_unavailable'` for device_haptic + device_notify
 
-## Phase 3 — Crash / unhandled rejections `fix/security-phase-3`
-- [ ] C1: useGenerateApp polling .catch()
-- [ ] C2: useUserProfile mutators try/catch + typed error re-throw
-- [ ] C4: useRestoreApps async setState unmount guard
+## Phase 3 — Crash / unhandled rejections `fix/security-phase-3` ✅
+- [x] C1: useGenerateApp polling — two-arg .then(onFulfilled, onRejected) (PromiseLike has no .catch)
+- [x] C2: useUserProfile mutators try/catch + typed error re-throw
+- [x] C4: useRestoreApps async setState unmount guard (isMountedRef)
 
 ## Phase 4 — App Store compliance `fix/security-phase-4`
 - [ ] A4: Info.plist permission strings audit (app.json)

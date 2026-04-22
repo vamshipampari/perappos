@@ -118,23 +118,31 @@ export function useUserProfile(): UserProfileState {
   }, [fetchProfile]);
 
   const updateDisplayName = useCallback(async (name: string) => {
-    const { error: updateError } = await supabase
-      .from('user_profiles')
-      .update({ display_name: name })
-      .eq('user_id', profile?.user_id);
+    try {
+      const { error: updateError } = await supabase
+        .from('user_profiles')
+        .update({ display_name: name })
+        .eq('user_id', profile?.user_id);
 
-    if (updateError) throw updateError;
-    await fetchProfile();
+      if (updateError) throw updateError;
+      await fetchProfile();
+    } catch {
+      throw new Error('Failed to update display name');
+    }
   }, [profile?.user_id, fetchProfile]);
 
   const updateAvatarEmoji = useCallback(async (emoji: string) => {
-    const { error: updateError } = await supabase
-      .from('user_profiles')
-      .update({ avatar_emoji: emoji })
-      .eq('user_id', profile?.user_id);
+    try {
+      const { error: updateError } = await supabase
+        .from('user_profiles')
+        .update({ avatar_emoji: emoji })
+        .eq('user_id', profile?.user_id);
 
-    if (updateError) throw updateError;
-    await fetchProfile();
+      if (updateError) throw updateError;
+      await fetchProfile();
+    } catch {
+      throw new Error('Failed to update avatar');
+    }
   }, [profile?.user_id, fetchProfile]);
 
   return {

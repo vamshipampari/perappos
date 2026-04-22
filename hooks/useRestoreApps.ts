@@ -40,6 +40,9 @@ export function useRestoreApps() {
   const { apps, refresh } = useInstalledApps();
   const { showToast } = useToast();
   const restoredRef = useRef(false);
+  const isMounted = useRef(true);
+
+  useEffect(() => () => { isMounted.current = false; }, []);
 
   useEffect(() => {
     // If the user already has non-demo apps locally, nothing to restore.
@@ -79,8 +82,8 @@ export function useRestoreApps() {
       }
 
       if (restored > 0) {
-        await refresh();
-        showToast(`${restored} app${restored !== 1 ? 's' : ''} restored`, 'success');
+        if (isMounted.current) await refresh();
+        if (isMounted.current) showToast(`${restored} app${restored !== 1 ? 's' : ''} restored`, 'success');
         log.info(`[useRestoreApps] restored ${restored} apps from PowerSync`);
       }
     };
