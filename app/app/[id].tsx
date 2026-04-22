@@ -41,6 +41,26 @@ import { track } from '@/services/analytics';
 import { posthog } from '../../src/config/posthog';
 import { useTheme, type Colors } from '@/lib/theme';
 
+// ── CSP injection (permissive v1) ────────────────────────────────────────────
+// Injected before content loads so it applies to the full page lifecycle.
+// Policy rationale:
+//   default-src * data: blob: 'unsafe-inline' 'unsafe-eval'
+//     Permissive — vibe-coded apps need eval + inline scripts and call arbitrary
+//     external APIs (OpenAI, custom backends). Tighten connect-src in v2 once
+//     an allowlist UI is built (S3 / Phase 6).
+//   object-src 'none'  → blocks Flash / Java plugin embeds (real attack surface).
+//   base-uri 'self'    → prevents <base href="attacker.com"> injection.
+// Only injected when the page has no existing CSP (respects apps that set their own).
+const CSP_JS = `(function(){
+  if (!document.querySelector('meta[http-equiv="Content-Security-Policy"]')) {
+    var m = document.createElement('meta');
+    m.setAttribute('http-equiv', 'Content-Security-Policy');
+    m.setAttribute('content', "default-src * data: blob: 'unsafe-inline' 'unsafe-eval'; object-src 'none'; base-uri 'self';");
+    var h = document.head || document.querySelector('head');
+    if (h) h.insertBefore(m, h.firstChild);
+  }
+})();`;
+
 // ── Viewport fix (all platforms) ─────────────────────────────────────────────
 // • Creates the viewport meta if missing (external apps often omit it)
 // • maximum-scale=1.0 + user-scalable=no → prevents iOS auto-zoom on input focus
@@ -680,7 +700,7 @@ export default function AppScreen() {
               ref={webViewRef}
               source={webViewSource}
               style={styles.webView}
-              injectedJavaScriptBeforeContentLoaded={shimJS + VIEWPORT_FIX_JS}
+              injectedJavaScriptBeforeContentLoaded={shimJS + VIEWPORT_FIX_JS + CSP_JS}
               injectedJavaScript={`
                 window.onerror = function(msg, url, line, col, error) {
                   window.ReactNativeWebView.postMessage(JSON.stringify({

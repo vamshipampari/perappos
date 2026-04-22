@@ -1,7 +1,7 @@
 # Cottix — Security & Refactor Status
 
 Source audit: [docs/security-audit.md](security-audit.md)
-Last updated: 2026-04-22 — Phase 1 + 2 + 3 + 4 complete
+Last updated: 2026-04-22 — Phase 1 + 2 + 3 + 4 + 5 complete
 
 ---
 
@@ -24,8 +24,10 @@ Last updated: 2026-04-22 — Phase 1 + 2 + 3 + 4 complete
 - [x] A4: NSFaceIDUsageDescription added to app.json infoPlist — was missing for expo-local-authentication (biometric App Lock); NSPhotoLibraryUsageDescription already set via expo-image-picker plugin
 - [x] A3: Guide tab confirmed — 7 static help sections only, no community app list; compliance comment added to guide.tsx
 
-## Phase 5 — CSP injection `fix/security-phase-5`
-- [ ] S4/A1: WebView CSP meta injection (permissive v1 — test all demo apps after)
+## Phase 5 — CSP injection `fix/security-phase-5` ✅
+- [x] S4/A1: CSP_JS injected via injectedJavaScriptBeforeContentLoaded — permissive v1
+      Policy: default-src * data: blob: 'unsafe-inline' 'unsafe-eval'; object-src 'none'; base-uri 'self';
+      Skipped if app already sets its own CSP. Tighten connect-src in Phase 6 (after allowlist UI built).
 
 ## Phase 6 — Security hardening
 - [ ] S2: base64-encode injectJavaScript payloads — useLiveSyncPush.ts + vaultBridge.ts respond() `fix/security-phase-6a`
