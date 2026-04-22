@@ -35,7 +35,7 @@ import { enableOffline, disableOffline } from '@/lib/offlineBundle';
 import { getLatestBackup, revertToPreviousVersion } from '@/lib/appUpdates';
 import type { InstalledApp } from '@/types';
 import { usePowerSync } from '@/services/sync/PowerSyncProvider';
-import { handleVaultMessage } from '@/lib/vaultBridge';
+import { handleVaultMessage, safeInjectJson } from '@/lib/vaultBridge';
 import { log } from '@/lib/logger';
 import { track } from '@/services/analytics';
 import { posthog } from '../../src/config/posthog';
@@ -761,9 +761,8 @@ export default function AppScreen() {
                 // Flush buffered remote updates that arrived before WebView was ready
                 if (pendingRemoteUpdates.current.length > 0 && webViewRef.current) {
                   log.info('[live-push] onLoadEnd flushing', pendingRemoteUpdates.current.length, 'buffered update(s)');
-                  const payload = JSON.stringify(pendingRemoteUpdates.current);
                   webViewRef.current.injectJavaScript(
-                    `window._VaultSyncPush && window._VaultSyncPush(${payload});true;`
+                    `window._VaultSyncPush && window._VaultSyncPush(${safeInjectJson(pendingRemoteUpdates.current)});true;`
                   );
                   pendingRemoteUpdates.current = [];
                 }

@@ -37,6 +37,19 @@ import { Sentry, toError, truncateForSentry } from '@/lib/sentry';
 /** Supabase Storage bucket used for mini-app user file uploads. */
 const STORAGE_BUCKET = 'user-media';
 
+/**
+ * Safely serializes `data` for direct interpolation into an injectJavaScript
+ * template string.  JSON.stringify alone is insufficient: U+2028 (LINE
+ * SEPARATOR) and U+2029 (PARAGRAPH SEPARATOR) are valid JSON characters but
+ * are JavaScript line-terminators — they break a string literal and allow
+ * peer-controlled shared_app_data values to escape and execute arbitrary code.
+ */
+export function safeInjectJson(data: unknown): string {
+  return JSON.stringify(data)
+    .replace(/\u2028/g, '\\u2028')
+    .replace(/\u2029/g, '\\u2029');
+}
+
 export type { AppManifest };
 
 type WebViewRef = RefObject<WebView | null>;
@@ -138,11 +151,7 @@ export async function handleVaultMessage(
    */
   const respond = (result: unknown, error?: string): void => {
     if (!id) return;
-    const payload = JSON.stringify({
-      id,
-      result: result ?? null,
-      error: error ?? null,
-    });
+    const payload = safeInjectJson({ id, result: result ?? null, error: error ?? null });
     webViewRef.current?.injectJavaScript(`window.__vaultRespond(${payload}); true;`);
   };
 

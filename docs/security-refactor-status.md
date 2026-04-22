@@ -1,7 +1,7 @@
 # Cottix — Security & Refactor Status
 
 Source audit: [docs/security-audit.md](security-audit.md)
-Last updated: 2026-04-22 — Phase 1 + 2 + 3 + 4 + 5 complete
+Last updated: 2026-04-22 — Phase 1–5 complete; Phase 6a complete, 6b complete
 
 ---
 
@@ -29,9 +29,16 @@ Last updated: 2026-04-22 — Phase 1 + 2 + 3 + 4 + 5 complete
       Policy: default-src * data: blob: 'unsafe-inline' 'unsafe-eval'; object-src 'none'; base-uri 'self';
       Skipped if app already sets its own CSP. Tighten connect-src in Phase 6 (after allowlist UI built).
 
-## Phase 6 — Security hardening
-- [ ] S2: base64-encode injectJavaScript payloads — useLiveSyncPush.ts + vaultBridge.ts respond() `fix/security-phase-6a`
-- [ ] S3: secrets.fetch domain allowlist — vaultBridge.ts + both shims + MINIAPP_API.md `fix/security-phase-6b`
+## Phase 6a — injectJavaScript payload safety `fix/security-phase-6a` ✅
+- [x] S2: safeInjectJson() exported from vaultBridge.ts — escapes U+2028/U+2029 (JS line terminators valid in JSON but break string literals, allowing peer value injection)
+      Used in: respond() in vaultBridge.ts · flushUpdates() in useLiveSyncPush.ts · onLoadEnd buffer flush in app/app/[id].tsx
+
+## Phase 6b — secrets.fetch domain allowlist `fix/security-phase-6b` ✅
+- [x] S3: secrets_set stores allowedDomains[] in SecureStore alongside the secret value
+      secrets_fetch enforces it: rejects with 'domain_not_allowed' if URL hostname not in list
+      Legacy secrets (no domains stored) pass through unchanged (backwards compatible)
+      Both shims updated (secrets.set gains optional allowedDomains param)
+      MINIAPP_API.md docs updated
 
 ---
 

@@ -16,6 +16,7 @@ import type WebView from 'react-native-webview';
 import type { AbstractPowerSyncDatabase } from '@powersync/react-native';
 
 import { log } from '@/lib/logger';
+import { safeInjectJson } from '@/lib/vaultBridge';
 
 interface PendingUpdate {
   key: string;
@@ -58,9 +59,8 @@ export function useLiveSyncPush(
         return;
       }
 
-      const payload = JSON.stringify(pendingUpdates);
       webViewRef.current.injectJavaScript(
-        `window._VaultSyncPush && window._VaultSyncPush(${payload});true;`
+        `window._VaultSyncPush && window._VaultSyncPush(${safeInjectJson(pendingUpdates)});true;`
       );
       pendingUpdates = [];
     }
