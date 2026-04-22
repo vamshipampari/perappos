@@ -1,7 +1,7 @@
 # Cottix — Security & Refactor Status
 
 Source audit: [docs/security-audit.md](security-audit.md)
-Last updated: 2026-04-22 — Phase 1 + 2 + 3 complete
+Last updated: 2026-04-22 — Phase 1 + 2 + 3 + 4 complete
 
 ---
 
@@ -20,9 +20,9 @@ Last updated: 2026-04-22 — Phase 1 + 2 + 3 complete
 - [x] C2: useUserProfile mutators try/catch + typed error re-throw
 - [x] C4: useRestoreApps async setState unmount guard (isMountedRef)
 
-## Phase 4 — App Store compliance `fix/security-phase-4`
-- [ ] A4: Info.plist permission strings audit (app.json)
-- [ ] A3: Guide tab — verify no community app list, add compliance comment
+## Phase 4 — App Store compliance `fix/security-phase-4` ✅
+- [x] A4: NSFaceIDUsageDescription added to app.json infoPlist — was missing for expo-local-authentication (biometric App Lock); NSPhotoLibraryUsageDescription already set via expo-image-picker plugin
+- [x] A3: Guide tab confirmed — 7 static help sections only, no community app list; compliance comment added to guide.tsx
 
 ## Phase 5 — CSP injection `fix/security-phase-5`
 - [ ] S4/A1: WebView CSP meta injection (permissive v1 — test all demo apps after)

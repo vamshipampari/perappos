@@ -1,3 +1,6 @@
+// App Store compliance: this tab contains only static help documentation.
+// It must never list community apps, public galleries, or browseable app directories
+// (Apple guideline 4.2 / 4.7). Any curated content remains invite-only or web-only.
 import React, { useState } from 'react';
 import { ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';

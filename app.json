@@ -17,7 +17,8 @@
       "bundleIdentifier": "com.cottix.app",
       "icon": "./assets/icon.png",
       "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSFaceIDUsageDescription": "Cottix uses Face ID to lock your apps and keep them private."
       }
     },
     "android": {
