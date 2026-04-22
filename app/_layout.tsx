@@ -78,6 +78,13 @@ const initializeDatabase = async (db: import('expo-sqlite').SQLiteDatabase) => {
       expires_at TEXT NOT NULL,
       reverted_at TEXT
     );
+
+    CREATE INDEX IF NOT EXISTS idx_app_data_app_id ON app_data(app_id);
+    CREATE INDEX IF NOT EXISTS idx_apps_source_type ON apps(source_type);
+    CREATE INDEX IF NOT EXISTS idx_apps_last_opened ON apps(last_opened);
+    CREATE INDEX IF NOT EXISTS idx_apps_instance_id ON apps(instance_id);
+    CREATE INDEX IF NOT EXISTS idx_shared_data_category ON shared_data(category);
+    CREATE INDEX IF NOT EXISTS idx_app_updates_app_id ON app_updates(app_id);
   `);
 
   // Add bundle_html column if it doesn't exist yet (migration for existing DBs).
