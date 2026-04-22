@@ -79,6 +79,7 @@ export interface RawMessage {
   name?: string;     // secret name for secrets_* messages
   method?: string;   // HTTP method for secrets_fetch
   headers?: Record<string, string>; // HTTP headers for secrets_fetch
+  allowedDomains?: string[]; // domain allowlist for secrets_set (e.g. ['api.openai.com'])
   source?: string;   // picker source for storage_upload ('gallery' | 'files')
   [k: string]: unknown;
 }

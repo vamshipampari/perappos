@@ -208,9 +208,13 @@ export function buildVaultShim(
      * can read them and inject them into outgoing HTTP requests.
      */
     secrets: {
-      /** Persist a named secret for this app (e.g. an API key). */
-      set: function(name, value) {
-        return _bridge("secrets_set", { name: String(name), value: String(value) });
+      /** Persist a named secret for this app (e.g. an API key).
+       *  Pass allowedDomains to restrict which hosts secrets_fetch may contact.
+       *  Omit it for backwards-compatible unrestricted access. */
+      set: function(name, value, allowedDomains) {
+        var extra = { name: String(name), value: String(value) };
+        if (Array.isArray(allowedDomains)) { extra.allowedDomains = allowedDomains; }
+        return _bridge("secrets_set", extra);
       },
       /**
        * Make an HTTP request with a stored secret injected into the headers.
@@ -294,8 +298,9 @@ export interface VaultAPI {
     }>;
   };
   secrets: {
-    /** Store a named secret in native SecureStore for this app. */
-    set(name: string, value: string): Promise<boolean>;
+    /** Store a named secret in native SecureStore for this app.
+     *  Provide allowedDomains to restrict which hosts secrets_fetch may contact. */
+    set(name: string, value: string, allowedDomains?: string[]): Promise<boolean>;
     /**
      * Make an HTTP request natively with the stored secret injected
      * into any header value containing "{{secret}}".

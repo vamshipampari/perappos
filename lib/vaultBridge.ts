@@ -462,10 +462,20 @@ export async function handleVaultMessage(
           break;
         }
         const ss = await getSecureStore();
-        await ss.setItemAsync(
-          `vault_secret__global__${secretName}`,
-          secretValue
-        );
+        await ss.setItemAsync(`vault_secret__global__${secretName}`, secretValue);
+
+        // Persist domain allowlist when provided.
+        // Absent field  → legacy secret, no restriction (backwards compat).
+        // []            → caller explicitly opted out of restriction.
+        // ['api.x.com'] → enforced in secrets_fetch.
+        if (Array.isArray(msg.allowedDomains)) {
+          const domains = msg.allowedDomains.filter((d): d is string => typeof d === 'string');
+          await ss.setItemAsync(
+            `vault_secret__global__${secretName}__domains`,
+            JSON.stringify(domains)
+          );
+        }
+
         // Track the secret name in SQLite so Settings can list stored keys.
         await db.runAsync(
           `INSERT OR REPLACE INTO shared_data (category, key, value, source_app, updated_at)
@@ -491,13 +501,35 @@ export async function handleVaultMessage(
         }
 
         const ss2 = await getSecureStore();
-        const secretValue = await ss2.getItemAsync(
-          `vault_secret__global__${sfName}`
-        );
+        const secretValue = await ss2.getItemAsync(`vault_secret__global__${sfName}`);
         if (!secretValue) {
           // Return a structured error so the mini-app can prompt the user.
           respond({ error: 'secret_not_found' });
           break;
+        }
+
+        // Domain allowlist — enforced only when the secret was saved with one.
+        // Legacy secrets (no domains key in SecureStore) skip this check so
+        // existing mini-apps continue to work without code changes.
+        const domainsRaw = await ss2.getItemAsync(`vault_secret__global__${sfName}__domains`);
+        if (domainsRaw !== null) {
+          let allowedDomains: string[] = [];
+          try { allowedDomains = JSON.parse(domainsRaw) as string[]; } catch { /* use [] */ }
+          if (allowedDomains.length > 0) {
+            let reqHostname: string;
+            try { reqHostname = new URL(sfUrl).hostname; } catch {
+              respond(null, 'request_failed');
+              break;
+            }
+            const allowed = allowedDomains.some(
+              (d) => reqHostname === d || reqHostname.endsWith(`.${d}`)
+            );
+            if (!allowed) {
+              console.error('[vaultBridge] secrets_fetch blocked: domain not in allowlist', reqHostname);
+              respond(null, 'domain_not_allowed');
+              break;
+            }
+          }
         }
 
         // Substitute {{secret}} placeholder in every header value.

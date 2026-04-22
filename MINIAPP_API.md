@@ -27,7 +27,9 @@ CONSTRAINTS:
 - fetch() and WebSockets work normally
 - Geolocation works (user is prompted for permission)
 - The app bundle must be self-contained (no server needed to serve HTML/JS/CSS)
+- MOBILE: Design for mobile screens first. The UI must work well inside an iOS/Android WebView, be responsive on narrow widths, avoid desktop-only layouts, and use touch-friendly tap targets.
 - fetch() and API calls work fine at runtime — just handle offline/network errors gracefully
+- API KEYS: If the app needs API keys, explicitly tell the user which keys are required, the exact Cottix secret names to save (for example `OPENAI_API_KEY`), and which API calls use each key. Include a short setup section in the final output.
 - PRIVACY: In collaborative/shared mode, ALL members of a shared instance can see ALL data.
   There is no per-user data isolation. Do not build apps where users should only see their own
   data (e.g. a trainer tracking multiple clients — all clients would see each other's data).
@@ -125,6 +127,10 @@ const exists = await VaultAPI.secrets.has('ANTHROPIC_API_KEY')  // → true | fa
 
 // Save a key (show this UI to the user once)
 await VaultAPI.secrets.set('ANTHROPIC_API_KEY', 'sk-ant-...')   // → true
+
+// Recommended: restrict which domains this key may be sent to.
+// secrets_fetch will return { error: 'domain_not_allowed' } for any other host.
+await VaultAPI.secrets.set('ANTHROPIC_API_KEY', 'sk-ant-...', ['api.anthropic.com'])
 
 // Make an authenticated request
 const res = await VaultAPI.secrets.fetch('ANTHROPIC_API_KEY', {

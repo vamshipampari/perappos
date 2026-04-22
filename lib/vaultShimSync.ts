@@ -309,8 +309,10 @@ export function buildSyncShim(
       getInfo: function() { return _bridge("app_get_info", {}); }
     },
     secrets: {
-      set: function(name, value) {
-        return _bridge("secrets_set", { name: String(name), value: String(value) });
+      set: function(name, value, allowedDomains) {
+        var extra = { name: String(name), value: String(value) };
+        if (Array.isArray(allowedDomains)) { extra.allowedDomains = allowedDomains; }
+        return _bridge("secrets_set", extra);
       },
       fetch: function(name, opts) {
         return _bridge("secrets_fetch", {
