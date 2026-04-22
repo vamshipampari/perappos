@@ -337,6 +337,7 @@ export default function AppScreen() {
     handleManageGroup,
     handleCheckUpdate,
     handleAppInfo,
+    handleClearData,
     handleDelete,
   } = useAppMenuActions({
     app,
@@ -348,6 +349,7 @@ export default function AppScreen() {
     setAppInfoVisible,
     rebuildShimForApp,
     refreshWebView,
+    showToast,
   });
 
   // ── App Info modal: load data when it opens ───────────────────────────────
@@ -815,6 +817,7 @@ export default function AppScreen() {
             : []),
         ]}
         destructiveActions={[
+          { label: 'Clear App Data', onPress: handleClearData },
           { label: 'Delete App', onPress: handleDelete },
         ]}
       />

@@ -1,7 +1,8 @@
 /**
  * Menu action callbacks for the WebView app runner screen.
  *
- * Handles: Collaborate, Manage Group, Check for Update, App Info, Delete.
+ * Handles: Collaborate, Manage Group, Check for Update, App Info,
+ *          Clear App Data, Delete.
  * All actions are self-contained — they manage their own alerts and
  * call the provided setters when app state needs to change.
  */
@@ -16,8 +17,9 @@ import {
   applyUrlAppUpdate,
   checkForUpdates,
 } from '@/lib/appUpdates';
+import { clearAppData, isInstanceOwner } from '@/lib/clearAppData';
 import { log } from '@/lib/logger';
-import { createSharedInstanceForApp } from '@/services/collaborationService';
+import { createSharedInstanceForApp, leaveSharedGroup, stopSharingAsOwner } from '@/services/collaborationService';
 import { deployHtml } from '@/services/htmlDeployer';
 import { supabase } from '@/services/supabase';
 import { posthog } from '@/src/config/posthog';
@@ -33,6 +35,7 @@ interface UseAppMenuActionsInput {
   setAppInfoVisible: (v: boolean) => void;
   rebuildShimForApp: (app: InstalledApp) => Promise<void>;
   refreshWebView: () => void;
+  showToast: (message: string, type: 'success' | 'error') => void;
 }
 
 interface UseAppMenuActionsResult {
@@ -41,6 +44,7 @@ interface UseAppMenuActionsResult {
   handleManageGroup: () => void;
   handleCheckUpdate: () => Promise<void>;
   handleAppInfo: () => void;
+  handleClearData: () => void;
   handleDelete: () => void;
 }
 
@@ -54,6 +58,7 @@ export function useAppMenuActions({
   setAppInfoVisible,
   rebuildShimForApp,
   refreshWebView,
+  showToast,
 }: UseAppMenuActionsInput): UseAppMenuActionsResult {
   const [checkingUpdate, setCheckingUpdate] = useState(false);
 
@@ -297,40 +302,187 @@ export function useAppMenuActions({
     setAppInfoVisible(true);
   }, [app, setMenuVisible, setAppInfoVisible]);
 
-  const handleDelete = useCallback(() => {
+  const handleClearData = useCallback(() => {
     if (!app) return;
     setMenuVisible(false);
-    Alert.alert(
-      `Delete "${app.name}"?`,
-      'This will permanently remove the app and all its stored data.',
-      [
+
+    void (async () => {
+      let isOwner = false;
+      if (app.instance_id) {
+        if (!signedInUserId) {
+          Alert.alert('Sign in required', 'You must be signed in to clear app data.');
+          return;
+        }
+        isOwner = await isInstanceOwner(app.instance_id, signedInUserId, syncDb);
+        if (!isOwner) {
+          Alert.alert('Not allowed', 'Only the instance owner can clear shared data.');
+          return;
+        }
+      }
+
+      const msg = app.instance_id
+        ? `Clear all data for "${app.name}"? This will erase data for ALL members of this shared instance. This cannot be undone.`
+        : `Clear all data for "${app.name}"? This cannot be undone.`;
+      const btnLabel = app.instance_id ? 'Clear Shared Data' : 'Clear Data';
+
+      Alert.alert('Clear App Data', msg, [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Delete',
+          text: btnLabel,
           style: 'destructive',
           onPress: async () => {
             try {
-              await db.runAsync('UPDATE apps SET instance_id = NULL WHERE app_id = ?', app.app_id);
-              await syncDb.execute('DELETE FROM app_data WHERE app_id = ?', [app.app_id]);
-              await syncDb.execute('DELETE FROM installed_apps WHERE id = ?', [
-                signedInUserId ? `${signedInUserId}/${app.app_id}` : app.app_id,
-              ]);
-              await db.runAsync('DELETE FROM apps WHERE app_id = ?', app.app_id);
-              void supabase.rpc('increment_app_count', { delta: -1 }).then(undefined, () => {});
-              posthog.capture('app_deleted', {
-                app_id: app.app_id,
-                app_name: app.name,
-                source_type: app.source_type,
+              await clearAppData({
+                appId: app.app_id,
+                instanceId: app.instance_id,
+                isOwner,
+                db,
+                syncDb,
               });
-            } catch {
-              // ignore
+              showToast('App data cleared', 'success');
+              refreshWebView();
+            } catch (e) {
+              log.error('[handleClearData]', e);
+              showToast('Could not clear data', 'error');
             }
-            router.back();
           },
         },
-      ]
-    );
-  }, [app, db, setMenuVisible, syncDb]);
+      ]);
+    })();
+  }, [app, db, refreshWebView, setMenuVisible, showToast, signedInUserId, syncDb]);
+
+  const handleDelete = useCallback(() => {
+    if (!app) return;
+    setMenuVisible(false);
+
+    void (async () => {
+      const installedAppsId = signedInUserId
+        ? `${signedInUserId}/${app.app_id}`
+        : app.app_id;
+
+      if (app.instance_id) {
+        const owned = signedInUserId
+          ? await isInstanceOwner(app.instance_id, signedInUserId, syncDb)
+          : false;
+
+        if (owned) {
+          // Owner: double confirmation before destroying the shared instance
+          Alert.alert(
+            `Delete "${app.name}"?`,
+            'This will remove the app from your device.',
+            [
+              { text: 'Cancel', style: 'cancel' },
+              {
+                text: 'Continue',
+                onPress: () => {
+                  Alert.alert(
+                    'Destroy shared instance?',
+                    'This will permanently destroy the shared instance and erase all data for every member. This cannot be undone.',
+                    [
+                      { text: 'Cancel', style: 'cancel' },
+                      {
+                        text: 'Delete Everything',
+                        style: 'destructive',
+                        onPress: async () => {
+                          try {
+                            // stopSharingAsOwner: snapshots→personal, cascading Supabase delete,
+                            // sets instance_id=NULL, decrements shared_instance_count
+                            await stopSharingAsOwner(db, syncDb, app.app_id, app.instance_id!);
+                            // Clear PowerSync local shared_app_data (Supabase already cleared by above)
+                            await syncDb.execute(
+                              'DELETE FROM shared_app_data WHERE instance_id = ? AND app_id = ?',
+                              [app.instance_id, app.app_id]
+                            );
+                            await db.runAsync('DELETE FROM app_data WHERE app_id = ?', app.app_id);
+                            await syncDb.execute('DELETE FROM app_data WHERE app_id = ?', [app.app_id]);
+                            await syncDb.execute('DELETE FROM installed_apps WHERE id = ?', [installedAppsId]);
+                            await db.runAsync('DELETE FROM apps WHERE app_id = ?', app.app_id);
+                            void supabase.rpc('increment_app_count', { delta: -1 }).then(undefined, () => {});
+                            posthog.capture('app_deleted', {
+                              app_id: app.app_id,
+                              app_name: app.name,
+                              source_type: app.source_type,
+                            });
+                          } catch (e) {
+                            log.error('[handleDelete owner]', e);
+                          }
+                          router.back();
+                        },
+                      },
+                    ]
+                  );
+                },
+              },
+            ]
+          );
+        } else {
+          // Non-owner member: leave the shared group then delete local app
+          Alert.alert(
+            `Leave "${app.name}"?`,
+            "You'll lose access to the shared data.",
+            [
+              { text: 'Cancel', style: 'cancel' },
+              {
+                text: 'Leave',
+                style: 'destructive',
+                onPress: async () => {
+                  try {
+                    // leaveSharedGroup: snapshots shared→personal, removes from instance_members,
+                    // sets instance_id=NULL
+                    await leaveSharedGroup(db, syncDb, app.app_id, app.instance_id!);
+                    await db.runAsync('DELETE FROM app_data WHERE app_id = ?', app.app_id);
+                    await syncDb.execute('DELETE FROM app_data WHERE app_id = ?', [app.app_id]);
+                    await syncDb.execute('DELETE FROM installed_apps WHERE id = ?', [installedAppsId]);
+                    await db.runAsync('DELETE FROM apps WHERE app_id = ?', app.app_id);
+                    void supabase.rpc('increment_app_count', { delta: -1 }).then(undefined, () => {});
+                    posthog.capture('app_deleted', {
+                      app_id: app.app_id,
+                      app_name: app.name,
+                      source_type: app.source_type,
+                    });
+                  } catch (e) {
+                    log.error('[handleDelete non-owner]', e);
+                  }
+                  router.back();
+                },
+              },
+            ]
+          );
+        }
+        return;
+      }
+
+      // Personal app
+      Alert.alert(
+        `Delete "${app.name}"?`,
+        'This will permanently remove the app and all its stored data.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Delete',
+            style: 'destructive',
+            onPress: async () => {
+              try {
+                await db.runAsync('DELETE FROM app_data WHERE app_id = ?', app.app_id);
+                await syncDb.execute('DELETE FROM app_data WHERE app_id = ?', [app.app_id]);
+                await syncDb.execute('DELETE FROM installed_apps WHERE id = ?', [installedAppsId]);
+                await db.runAsync('DELETE FROM apps WHERE app_id = ?', app.app_id);
+                void supabase.rpc('increment_app_count', { delta: -1 }).then(undefined, () => {});
+                posthog.capture('app_deleted', {
+                  app_id: app.app_id,
+                  app_name: app.name,
+                  source_type: app.source_type,
+                });
+              } catch {
+                // ignore
+              }
+              router.back();
+            },
+          },
+        ]
+      );
+    })();
+  }, [app, db, setMenuVisible, signedInUserId, syncDb]);
 
   return {
     checkingUpdate,
@@ -338,6 +490,7 @@ export function useAppMenuActions({
     handleManageGroup,
     handleCheckUpdate,
     handleAppInfo,
+    handleClearData,
     handleDelete,
   };
 }

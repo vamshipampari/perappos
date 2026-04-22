@@ -553,6 +553,7 @@ export default function HomeScreen() {
     performMenuInfo,
     performMenuShare,
     performMenuExportData,
+    performMenuClearData,
     performMenuDelete,
   } = useAppContextMenu({
     db,
@@ -882,7 +883,10 @@ export default function HomeScreen() {
           { label: 'Export Data', onPress: performMenuExportData, disabled: menuBusy },
           { label: 'Share App', onPress: performMenuShare, disabled: menuBusy },
         ]}
-        destructiveActions={[{ label: 'Delete', onPress: performMenuDelete }]}
+        destructiveActions={[
+          { label: 'Clear App Data', onPress: performMenuClearData, disabled: menuBusy },
+          { label: 'Delete', onPress: performMenuDelete },
+        ]}
       />
 
       {/* ── Folder long-press context menu ─────────────────────────────── */}
