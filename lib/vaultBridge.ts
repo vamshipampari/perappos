@@ -314,18 +314,22 @@ export async function handleVaultMessage(
       }
 
       case 'db_delete':
-        if (isShared && instanceId) {
-          await syncDb.execute(
-            `DELETE FROM shared_app_data WHERE instance_id = ? AND app_id = ? AND key = ?`,
-            [instanceId, effectiveAppId, msg.key!]
-          );
-        } else {
-          await syncDb.execute(
-            `DELETE FROM app_data WHERE app_id = ? AND key = ?`,
-            [effectiveAppId, msg.key!]
-          );
+        try {
+          if (isShared && instanceId) {
+            await syncDb.execute(
+              `DELETE FROM shared_app_data WHERE instance_id = ? AND app_id = ? AND key = ?`,
+              [instanceId, effectiveAppId, msg.key!]
+            );
+          } else {
+            await syncDb.execute(
+              `DELETE FROM app_data WHERE app_id = ? AND key = ?`,
+              [effectiveAppId, msg.key!]
+            );
+          }
+          respond(true);
+        } catch {
+          respond(false, 'write_failed');
         }
-        respond(true);
         break;
 
       case 'db_get_all': {
@@ -345,37 +349,48 @@ export async function handleVaultMessage(
       // ── VaultAPI.device ───────────────────────────────────────────────────
 
       case 'device_haptic': {
-        const Haptics = await getHaptics();
-        const style = msg.style ?? 'medium';
-        if (style === 'success' || style === 'warning' || style === 'error') {
-          const notifType: Record<string, HapticsTypes.NotificationFeedbackType> = {
-            success: Haptics.NotificationFeedbackType.Success,
-            warning: Haptics.NotificationFeedbackType.Warning,
-            error: Haptics.NotificationFeedbackType.Error,
-          };
-          await Haptics.notificationAsync(notifType[style]);
-        } else {
-          const impactType: Record<string, HapticsTypes.ImpactFeedbackStyle> = {
-            light: Haptics.ImpactFeedbackStyle.Light,
-            medium: Haptics.ImpactFeedbackStyle.Medium,
-            heavy: Haptics.ImpactFeedbackStyle.Heavy,
-          };
-          await Haptics.impactAsync(
-            impactType[style] ?? Haptics.ImpactFeedbackStyle.Medium
-          );
+        // Haptics have no user permission — any failure is a module/hardware issue.
+        try {
+          const Haptics = await getHaptics();
+          const style = msg.style ?? 'medium';
+          if (style === 'success' || style === 'warning' || style === 'error') {
+            const notifType: Record<string, HapticsTypes.NotificationFeedbackType> = {
+              success: Haptics.NotificationFeedbackType.Success,
+              warning: Haptics.NotificationFeedbackType.Warning,
+              error: Haptics.NotificationFeedbackType.Error,
+            };
+            await Haptics.notificationAsync(notifType[style]);
+          } else {
+            const impactType: Record<string, HapticsTypes.ImpactFeedbackStyle> = {
+              light: Haptics.ImpactFeedbackStyle.Light,
+              medium: Haptics.ImpactFeedbackStyle.Medium,
+              heavy: Haptics.ImpactFeedbackStyle.Heavy,
+            };
+            await Haptics.impactAsync(
+              impactType[style] ?? Haptics.ImpactFeedbackStyle.Medium
+            );
+          }
+          respond(true);
+        } catch {
+          respond(false, 'module_unavailable');
         }
-        respond(true);
         break;
       }
 
       case 'device_notify': {
-        const Notifications = await getNotifications();
+        let Notifications: Awaited<ReturnType<typeof getNotifications>>;
+        try {
+          Notifications = await getNotifications();
+        } catch {
+          respond(false, 'module_unavailable');
+          break;
+        }
         // Request permission if not already granted
         const { granted } = await Notifications.getPermissionsAsync();
         if (!granted) {
           const { granted: newGranted } = await Notifications.requestPermissionsAsync();
           if (!newGranted) {
-            respond(false, 'Notification permission denied');
+            respond(false, 'permission_denied');
             break;
           }
         }
@@ -487,9 +502,17 @@ export async function handleVaultMessage(
           fetchInit.body = sfBody;
         }
 
-        const httpRes = await fetch(sfUrl, fetchInit);
-        const responseBody = await httpRes.text();
-        respond({ status: httpRes.status, body: responseBody });
+        // Make the HTTP request from native — secret value is substituted in
+        // headers but never sent back to the WebView. On any network failure
+        // we return a generic code so error strings can't echo the resolved URL.
+        try {
+          const httpRes = await fetch(sfUrl, fetchInit);
+          const responseBody = await httpRes.text();
+          respond({ status: httpRes.status, body: responseBody });
+        } catch (fetchErr) {
+          console.error('[vaultBridge] secrets_fetch network error for key:', sfName, fetchErr);
+          respond(null, 'request_failed');
+        }
         break;
       }
 

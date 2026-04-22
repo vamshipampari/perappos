@@ -1,7 +1,7 @@
 # Cottix — Security & Refactor Status
 
 Source audit: [docs/security-audit.md](security-audit.md)
-Last updated: 2026-04-22 — Phase 1 complete
+Last updated: 2026-04-22 — Phase 1 + 2 complete
 
 ---
 
@@ -10,10 +10,10 @@ Last updated: 2026-04-22 — Phase 1 complete
 - [x] P1: SQLite indexes on hot columns — idx_app_data_app_id, idx_apps_source_type, idx_apps_last_opened, idx_apps_instance_id, idx_shared_data_category, idx_app_updates_app_id
 - [x] C3: window.name JSON.parse try/catch — already implemented in vaultShimSync.ts (pre-resolved)
 
-## Phase 2 — Bridge hardening (vaultBridge.ts only) `fix/security-phase-2`
-- [ ] S5: Generic error strings for secrets_* failures (no e.message leak)
-- [ ] S9: respond(false) on failed db_delete / db_clear
-- [ ] C6: Distinct error codes — permission denied vs module unavailable
+## Phase 2 — Bridge hardening (vaultBridge.ts only) `fix/security-phase-2` ✅
+- [x] S5: Generic error strings for secrets_* failures — fetch errors now return `'request_failed'`; real error logged to console only
+- [x] S9: respond(false) on failed db_delete — wrapped in local try/catch; outer catch no longer reachable for this case
+- [x] C6: Distinct error codes — `'permission_denied'` vs `'module_unavailable'` for device_haptic + device_notify
 
 ## Phase 3 — Crash / unhandled rejections `fix/security-phase-3`
 - [ ] C1: useGenerateApp polling .catch()
