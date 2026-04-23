@@ -236,12 +236,6 @@ export function useAppContextMenu({
       ]);
     })();
   }, [db, menuTargetApp, showToast]);
-            }
-          },
-        },
-      ]);
-    })();
-  }, [db, menuTargetApp, showToast]);
 
   const performMenuCollaborate = useCallback(async () => {
     if (!menuTargetApp) return;
