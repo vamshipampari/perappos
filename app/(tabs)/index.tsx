@@ -554,6 +554,7 @@ export default function HomeScreen() {
     performMenuShare,
     performMenuExportData,
     performMenuClearData,
+    performMenuCollaborate,
     performMenuDelete,
   } = useAppContextMenu({
     db,
@@ -864,7 +865,12 @@ export default function HomeScreen() {
                   },
                 },
               ]
-            : []),
+            : [
+                {
+                  label: '👥 Collaborate',
+                  onPress: () => { void performMenuCollaborate(); },
+                },
+              ]),
           {
             label: '📁 Move to Folder',
             onPress: handleOpenMovePicker,

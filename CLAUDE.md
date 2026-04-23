@@ -8,7 +8,7 @@ Both perappos and cottix-hub share the same Supabase project.
 
 ## Reference docs (loaded on demand — not every session)
 
-See @docs/context.md for full architecture, data flows, session history
+See docs/context.md for full architecture, data flows, session history
 See @docs/backend-schema.md for DB schema, RPCs, RLS, constraints
 See @docs/status.md for current sprint status and next-up items
 See @docs/technical.md for bridge protocol, merge strategies, NativeWind setup

@@ -1,0 +1,2566 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+    />
+    <meta
+      name="cottix-meta"
+      content='{"icon":"💳","color":"#0A0A0F","description":"Track your subscriptions"}'
+    />
+    <title>Subtrack</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link
+      href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:wght@300;400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --bg: #0a0a0f;
+        --surface: #13131a;
+        --surface2: #1c1c26;
+        --surface3: #252532;
+        --border: rgba(255, 255, 255, 0.07);
+        --border2: rgba(255, 255, 255, 0.12);
+        --text: #f0f0f8;
+        --text2: #8888aa;
+        --text3: #55556a;
+        --accent: #7b6fff;
+        --accent2: #a99fff;
+        --accent-glow: rgba(123, 111, 255, 0.25);
+        --green: #34d399;
+        --green-bg: rgba(52, 211, 153, 0.1);
+        --amber: #fbbf24;
+        --amber-bg: rgba(251, 191, 36, 0.1);
+        --red: #f87171;
+        --red-bg: rgba(248, 113, 113, 0.1);
+        --pink: #f472b6;
+        --r: 16px;
+        --r-sm: 10px;
+        --r-lg: 24px;
+        --sans: 'DM Sans', sans-serif;
+        --serif: 'DM Serif Display', serif;
+        --safe-bottom: env(safe-area-inset-bottom, 0px);
+      }
+
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+        -webkit-tap-highlight-color: transparent;
+      }
+
+      html,
+      body {
+        width: 100%;
+        height: 100%;
+        background: var(--bg);
+        color: var(--text);
+        font-family: var(--sans);
+        font-size: 15px;
+        overflow: hidden;
+        overscroll-behavior: none;
+      }
+
+      #app {
+        width: 100%;
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        position: relative;
+        overflow: hidden;
+      }
+
+      #app::before {
+        content: '';
+        position: fixed;
+        inset: 0;
+        opacity: 0.025;
+        background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+        pointer-events: none;
+        z-index: 9999;
+      }
+
+      /* SCREENS */
+      .screen {
+        display: none;
+        flex-direction: column;
+        flex: 1;
+        overflow: hidden;
+      }
+      .screen.active {
+        display: flex;
+      }
+
+      .scroll-content {
+        flex: 1;
+        overflow-y: auto;
+        overflow-x: hidden;
+        -webkit-overflow-scrolling: touch;
+        padding-bottom: calc(80px + var(--safe-bottom));
+      }
+      .scroll-content::-webkit-scrollbar {
+        display: none;
+      }
+
+      /* HEADER */
+      .header {
+        padding: 56px 20px 0;
+        flex-shrink: 0;
+      }
+      .header-top {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        margin-bottom: 24px;
+      }
+      .greeting {
+        font-family: var(--serif);
+        font-size: 32px;
+        line-height: 1.1;
+      }
+      .greeting span {
+        color: var(--accent2);
+        font-style: italic;
+      }
+      .header-date {
+        font-size: 11px;
+        color: var(--text3);
+        font-weight: 500;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        margin-top: 4px;
+      }
+
+      .add-btn-header {
+        width: 42px;
+        height: 42px;
+        border-radius: 50%;
+        background: var(--accent);
+        border: none;
+        color: #fff;
+        font-size: 22px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        flex-shrink: 0;
+        box-shadow: 0 0 20px var(--accent-glow);
+        transition:
+          transform 0.15s,
+          box-shadow 0.15s;
+      }
+      .add-btn-header:active {
+        transform: scale(0.92);
+      }
+
+      /* HERO CARD */
+      .hero-card {
+        margin: 0 20px 20px;
+        background: linear-gradient(135deg, #1a1730 0%, #0f1020 50%, #1a1024 100%);
+        border-radius: var(--r-lg);
+        border: 1px solid rgba(123, 111, 255, 0.2);
+        padding: 24px;
+        position: relative;
+        overflow: hidden;
+      }
+      .hero-card::before {
+        content: '';
+        position: absolute;
+        top: -60px;
+        right: -60px;
+        width: 200px;
+        height: 200px;
+        background: radial-gradient(circle, rgba(123, 111, 255, 0.18) 0%, transparent 70%);
+        pointer-events: none;
+      }
+      .hero-label {
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--text3);
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        margin-bottom: 8px;
+      }
+      .hero-amount {
+        font-family: var(--serif);
+        font-size: 48px;
+        line-height: 1;
+        margin-bottom: 4px;
+      }
+      .hero-amount .currency {
+        font-size: 24px;
+        vertical-align: super;
+        margin-right: 2px;
+        color: var(--text2);
+        font-style: normal;
+      }
+      .hero-sub {
+        font-size: 13px;
+        color: var(--text2);
+        margin-bottom: 20px;
+      }
+      .hero-stats {
+        display: grid;
+        grid-template-columns: 1fr 1fr 1fr;
+        gap: 12px;
+        position: relative;
+        z-index: 1;
+      }
+      .hero-stat {
+        text-align: center;
+        background: rgba(255, 255, 255, 0.04);
+        border: 1px solid var(--border);
+        border-radius: var(--r-sm);
+        padding: 10px 6px;
+      }
+      .hero-stat-val {
+        font-weight: 600;
+        font-size: 15px;
+      }
+      .hero-stat-lbl {
+        font-size: 10px;
+        color: var(--text3);
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        margin-top: 2px;
+      }
+
+      /* SECTION */
+      .section {
+        padding: 0 20px;
+        margin-bottom: 8px;
+      }
+      .section-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 12px;
+      }
+      .section-title {
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--text3);
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+      .section-action {
+        font-size: 12px;
+        color: var(--accent2);
+        font-weight: 500;
+        cursor: pointer;
+      }
+
+      /* UPCOMING ALERT */
+      .upcoming-alert {
+        margin: 0 20px 16px;
+        background: var(--amber-bg);
+        border: 1px solid rgba(251, 191, 36, 0.2);
+        border-radius: var(--r);
+        padding: 12px 14px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        cursor: pointer;
+      }
+      .upcoming-alert-icon {
+        font-size: 18px;
+      }
+      .upcoming-alert-text {
+        flex: 1;
+        font-size: 13px;
+        color: var(--amber);
+        font-weight: 500;
+        line-height: 1.4;
+      }
+      .upcoming-alert-text span {
+        color: var(--text2);
+        font-weight: 400;
+        font-size: 12px;
+        display: block;
+      }
+
+      /* SUB CARDS */
+      .sub-card {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--r);
+        padding: 14px;
+        margin-bottom: 8px;
+        cursor: pointer;
+        transition:
+          background 0.15s,
+          transform 0.15s;
+        position: relative;
+        overflow: hidden;
+        animation: popIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) both;
+      }
+      .sub-card::before {
+        content: '';
+        position: absolute;
+        left: 0;
+        top: 0;
+        bottom: 0;
+        width: 3px;
+        border-radius: 3px 0 0 3px;
+        background: var(--card-color, var(--accent));
+        opacity: 0.8;
+      }
+      .sub-card:active {
+        transform: scale(0.98);
+        background: var(--surface2);
+      }
+      .sub-icon {
+        width: 46px;
+        height: 46px;
+        border-radius: 12px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 22px;
+        flex-shrink: 0;
+      }
+      .sub-info {
+        flex: 1;
+        min-width: 0;
+      }
+      .sub-name {
+        font-size: 15px;
+        font-weight: 600;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .sub-meta {
+        font-size: 12px;
+        color: var(--text3);
+        margin-top: 2px;
+      }
+      .sub-amount {
+        text-align: right;
+        flex-shrink: 0;
+      }
+      .sub-price {
+        font-size: 16px;
+        font-weight: 600;
+      }
+      .sub-cycle {
+        font-size: 11px;
+        color: var(--text3);
+        margin-top: 2px;
+      }
+
+      .sub-badge {
+        display: inline-block;
+        font-size: 10px;
+        font-weight: 600;
+        letter-spacing: 0.05em;
+        padding: 2px 7px;
+        border-radius: 20px;
+        margin-left: 6px;
+        text-transform: uppercase;
+      }
+      .badge-active {
+        background: var(--green-bg);
+        color: var(--green);
+      }
+      .badge-trial {
+        background: var(--amber-bg);
+        color: var(--amber);
+      }
+      .badge-due {
+        background: var(--red-bg);
+        color: var(--red);
+      }
+      .badge-paused {
+        background: var(--surface3);
+        color: var(--text3);
+      }
+
+      /* EMPTY STATE */
+      .empty-state {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 60px 40px;
+        text-align: center;
+      }
+      .empty-icon {
+        font-size: 52px;
+        margin-bottom: 16px;
+        opacity: 0.5;
+      }
+      .empty-title {
+        font-family: var(--serif);
+        font-size: 22px;
+        color: var(--text2);
+        margin-bottom: 8px;
+      }
+      .empty-sub {
+        font-size: 14px;
+        color: var(--text3);
+        line-height: 1.6;
+      }
+      .empty-btn {
+        margin-top: 24px;
+        padding: 14px 28px;
+        background: var(--accent);
+        border: none;
+        border-radius: var(--r);
+        color: #fff;
+        font-family: var(--sans);
+        font-size: 15px;
+        font-weight: 600;
+        cursor: pointer;
+        box-shadow: 0 0 20px var(--accent-glow);
+      }
+
+      /* ── CALENDAR SCREEN ── */
+      .cal-header {
+        padding: 56px 20px 0;
+        flex-shrink: 0;
+      }
+      .cal-title {
+        font-family: var(--serif);
+        font-size: 32px;
+        margin-bottom: 4px;
+      }
+      .cal-month-nav {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin: 16px 20px 12px;
+      }
+      .cal-month-label {
+        font-family: var(--serif);
+        font-size: 22px;
+        color: var(--text);
+      }
+      .cal-nav-btn {
+        width: 36px;
+        height: 36px;
+        border-radius: 50%;
+        background: var(--surface2);
+        border: 1px solid var(--border2);
+        color: var(--text2);
+        font-size: 16px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        transition: background 0.15s;
+      }
+      .cal-nav-btn:active {
+        background: var(--surface3);
+      }
+
+      .cal-grid-header {
+        display: grid;
+        grid-template-columns: repeat(7, 1fr);
+        padding: 0 20px;
+        margin-bottom: 6px;
+      }
+      .cal-dow {
+        text-align: center;
+        font-size: 10px;
+        font-weight: 600;
+        color: var(--text3);
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        padding: 4px 0;
+      }
+
+      .cal-grid {
+        display: grid;
+        grid-template-columns: repeat(7, 1fr);
+        padding: 0 20px;
+        gap: 4px;
+      }
+
+      .cal-cell {
+        aspect-ratio: 1;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        border-radius: 10px;
+        cursor: pointer;
+        position: relative;
+        transition: background 0.15s;
+        padding: 2px;
+      }
+      .cal-cell:active {
+        background: var(--surface2);
+      }
+      .cal-cell.empty {
+        pointer-events: none;
+      }
+      .cal-cell.today .cal-day-num {
+        background: var(--accent);
+        color: #fff;
+        box-shadow: 0 0 14px var(--accent-glow);
+      }
+      .cal-cell.selected:not(.today) .cal-day-num {
+        background: var(--surface3);
+        border: 1px solid var(--border2);
+      }
+
+      .cal-day-num {
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 14px;
+        font-weight: 500;
+        color: var(--text2);
+        transition: all 0.15s;
+        flex-shrink: 0;
+      }
+      .cal-cell.other-month .cal-day-num {
+        color: var(--text3);
+        opacity: 0.4;
+      }
+
+      /* Renewal dots on calendar */
+      .cal-dots {
+        display: flex;
+        gap: 2px;
+        justify-content: center;
+        margin-top: 2px;
+        min-height: 6px;
+        flex-wrap: nowrap;
+        overflow: hidden;
+        max-width: 100%;
+      }
+      .cal-dot {
+        width: 5px;
+        height: 5px;
+        border-radius: 50%;
+        flex-shrink: 0;
+      }
+
+      /* SELECTED DAY DETAIL */
+      .cal-day-panel {
+        margin: 12px 20px 0;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--r-lg);
+        overflow: hidden;
+      }
+      .cal-day-panel-header {
+        padding: 14px 16px 10px;
+        border-bottom: 1px solid var(--border);
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--text3);
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+      .cal-day-panel-header span {
+        color: var(--text);
+        font-size: 15px;
+        font-weight: 600;
+        text-transform: none;
+        letter-spacing: 0;
+        margin-left: 6px;
+      }
+
+      .cal-renewal-item {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 12px 16px;
+        border-bottom: 1px solid var(--border);
+        cursor: pointer;
+        transition: background 0.1s;
+      }
+      .cal-renewal-item:last-child {
+        border-bottom: none;
+      }
+      .cal-renewal-item:active {
+        background: var(--surface2);
+      }
+      .cal-renewal-icon {
+        width: 36px;
+        height: 36px;
+        border-radius: 10px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 18px;
+        flex-shrink: 0;
+      }
+      .cal-renewal-name {
+        flex: 1;
+        font-size: 14px;
+        font-weight: 500;
+      }
+      .cal-renewal-amount {
+        font-size: 14px;
+        font-weight: 600;
+        color: var(--text);
+      }
+      .cal-no-renewals {
+        padding: 20px 16px;
+        font-size: 13px;
+        color: var(--text3);
+        text-align: center;
+      }
+
+      /* Monthly summary bar at top of calendar */
+      .cal-summary {
+        margin: 0 20px 16px;
+        display: flex;
+        gap: 10px;
+      }
+      .cal-summary-chip {
+        flex: 1;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--r-sm);
+        padding: 10px 12px;
+        text-align: center;
+      }
+      .cal-summary-val {
+        font-size: 15px;
+        font-weight: 600;
+        color: var(--text);
+      }
+      .cal-summary-lbl {
+        font-size: 10px;
+        color: var(--text3);
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        margin-top: 2px;
+      }
+
+      /* INSIGHTS SCREEN */
+      .insights-header {
+        padding: 56px 20px 20px;
+      }
+      .insights-title {
+        font-family: var(--serif);
+        font-size: 32px;
+        margin-bottom: 4px;
+      }
+      .insights-sub {
+        color: var(--text3);
+        font-size: 13px;
+      }
+
+      .chart-card {
+        margin: 0 20px 16px;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--r-lg);
+        padding: 20px;
+      }
+      .chart-title {
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--text3);
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        margin-bottom: 4px;
+      }
+      .chart-amount {
+        font-family: var(--serif);
+        font-size: 28px;
+        color: var(--text);
+        margin-bottom: 16px;
+      }
+
+      .bar-chart {
+        display: flex;
+        align-items: flex-end;
+        gap: 6px;
+        height: 80px;
+      }
+      .bar-col {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 4px;
+        height: 100%;
+        justify-content: flex-end;
+      }
+      .bar {
+        width: 100%;
+        border-radius: 4px 4px 0 0;
+        background: linear-gradient(180deg, var(--accent) 0%, rgba(123, 111, 255, 0.3) 100%);
+        min-height: 4px;
+      }
+      .bar.current {
+        background: linear-gradient(180deg, var(--pink) 0%, rgba(244, 114, 182, 0.3) 100%);
+      }
+      .bar-lbl {
+        font-size: 9px;
+        color: var(--text3);
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+      }
+
+      .category-row {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 14px;
+      }
+      .category-icon {
+        width: 36px;
+        height: 36px;
+        border-radius: 10px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 16px;
+        flex-shrink: 0;
+      }
+      .category-label {
+        flex: 1;
+        font-size: 14px;
+        color: var(--text);
+      }
+      .category-sub {
+        font-size: 11px;
+        color: var(--text3);
+      }
+      .category-progress-wrap {
+        width: 80px;
+      }
+      .category-progress-bar {
+        height: 3px;
+        background: var(--surface3);
+        border-radius: 2px;
+        overflow: hidden;
+        margin-bottom: 3px;
+      }
+      .category-progress-fill {
+        height: 100%;
+        border-radius: 2px;
+        background: var(--accent);
+      }
+      .category-amount {
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--text);
+        text-align: right;
+      }
+
+      /* SETTINGS */
+      .settings-header {
+        padding: 56px 20px 24px;
+      }
+      .settings-title {
+        font-family: var(--serif);
+        font-size: 32px;
+      }
+      .settings-section {
+        margin: 0 20px 20px;
+      }
+      .settings-section-title {
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--text3);
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        margin-bottom: 8px;
+        padding-left: 4px;
+      }
+      .settings-group {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--r);
+        overflow: hidden;
+      }
+      .settings-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 14px 16px;
+        border-bottom: 1px solid var(--border);
+        cursor: pointer;
+        transition: background 0.1s;
+      }
+      .settings-row:last-child {
+        border-bottom: none;
+      }
+      .settings-row:active {
+        background: var(--surface2);
+      }
+      .settings-row-left {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+      .settings-row-icon {
+        width: 32px;
+        height: 32px;
+        border-radius: 8px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 16px;
+      }
+      .settings-row-label {
+        font-size: 14px;
+        font-weight: 500;
+      }
+      .settings-row-right {
+        font-size: 13px;
+        color: var(--text3);
+      }
+
+      /* TAB BAR */
+      .tab-bar {
+        flex-shrink: 0;
+        position: absolute;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        height: calc(64px + var(--safe-bottom));
+        padding-bottom: var(--safe-bottom);
+        background: rgba(10, 10, 15, 0.94);
+        backdrop-filter: blur(24px);
+        -webkit-backdrop-filter: blur(24px);
+        border-top: 1px solid var(--border);
+        display: flex;
+        align-items: center;
+        justify-content: space-around;
+        padding-top: 4px;
+        z-index: 100;
+      }
+      .tab-item {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 4px;
+        cursor: pointer;
+        padding: 6px 0;
+      }
+      .tab-icon {
+        width: 28px;
+        height: 28px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 20px;
+      }
+      .tab-label {
+        font-size: 10px;
+        font-weight: 500;
+        letter-spacing: 0.04em;
+        color: var(--text3);
+        transition: color 0.15s;
+      }
+      .tab-item.active .tab-label {
+        color: var(--accent2);
+      }
+
+      /* SHEETS */
+      .sheet-overlay {
+        display: none;
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.7);
+        backdrop-filter: blur(4px);
+        -webkit-backdrop-filter: blur(4px);
+        z-index: 200;
+        align-items: flex-end;
+      }
+      .sheet-overlay.open {
+        display: flex;
+        animation: fadeIn 0.2s ease;
+      }
+      @keyframes fadeIn {
+        from {
+          opacity: 0;
+        }
+        to {
+          opacity: 1;
+        }
+      }
+
+      .sheet {
+        width: 100%;
+        background: var(--surface);
+        border-radius: 24px 24px 0 0;
+        border-top: 1px solid var(--border2);
+        padding: 12px 20px calc(24px + var(--safe-bottom));
+        max-height: 88vh;
+        overflow-y: auto;
+        animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+      }
+      .sheet::-webkit-scrollbar {
+        display: none;
+      }
+      @keyframes slideUp {
+        from {
+          transform: translateY(100%);
+        }
+        to {
+          transform: translateY(0);
+        }
+      }
+
+      .sheet-handle {
+        width: 36px;
+        height: 4px;
+        background: var(--surface3);
+        border-radius: 2px;
+        margin: 0 auto 20px;
+      }
+      .sheet-title {
+        font-family: var(--serif);
+        font-size: 24px;
+        margin-bottom: 24px;
+      }
+
+      /* FORM */
+      .form-row {
+        margin-bottom: 16px;
+      }
+      .form-label {
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--text3);
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        margin-bottom: 8px;
+        display: block;
+      }
+      .form-input {
+        width: 100%;
+        background: var(--surface2);
+        border: 1px solid var(--border2);
+        border-radius: var(--r-sm);
+        padding: 13px 14px;
+        color: var(--text);
+        font-family: var(--sans);
+        font-size: 15px;
+        outline: none;
+        transition: border-color 0.15s;
+        -webkit-appearance: none;
+      }
+      .form-input:focus {
+        border-color: var(--accent);
+      }
+      .form-input::placeholder {
+        color: var(--text3);
+      }
+      .form-input-prefix {
+        position: relative;
+      }
+      .form-input-prefix .prefix {
+        position: absolute;
+        left: 14px;
+        top: 50%;
+        transform: translateY(-50%);
+        color: var(--text2);
+        font-size: 15px;
+        pointer-events: none;
+      }
+      .form-input-prefix input {
+        padding-left: 30px;
+      }
+      .form-select {
+        width: 100%;
+        background: var(--surface2);
+        border: 1px solid var(--border2);
+        border-radius: var(--r-sm);
+        padding: 13px 14px;
+        color: var(--text);
+        font-family: var(--sans);
+        font-size: 15px;
+        outline: none;
+        -webkit-appearance: none;
+        appearance: none;
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%2355556A' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+        background-repeat: no-repeat;
+        background-position: right 14px center;
+      }
+      .form-select option {
+        background: #1c1c26;
+      }
+
+      .emoji-grid {
+        display: grid;
+        grid-template-columns: repeat(6, 1fr);
+        gap: 8px;
+        margin-top: 4px;
+      }
+      .emoji-btn {
+        aspect-ratio: 1;
+        background: var(--surface2);
+        border: 2px solid transparent;
+        border-radius: var(--r-sm);
+        font-size: 22px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        transition: all 0.15s;
+      }
+      .emoji-btn.selected {
+        border-color: var(--accent);
+        background: rgba(123, 111, 255, 0.15);
+      }
+      .emoji-btn:active {
+        transform: scale(0.9);
+      }
+
+      .color-grid {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        margin-top: 4px;
+      }
+      .color-btn {
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        border: 2px solid transparent;
+        cursor: pointer;
+        transition: transform 0.15s;
+        outline: 3px solid transparent;
+        outline-offset: 2px;
+      }
+      .color-btn.selected {
+        outline-color: var(--text2);
+      }
+      .color-btn:active {
+        transform: scale(0.9);
+      }
+
+      .form-2col {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+      }
+
+      .submit-btn {
+        width: 100%;
+        padding: 16px;
+        background: var(--accent);
+        color: #fff;
+        border: none;
+        border-radius: var(--r);
+        font-family: var(--sans);
+        font-size: 16px;
+        font-weight: 600;
+        cursor: pointer;
+        margin-top: 8px;
+        box-shadow: 0 4px 24px var(--accent-glow);
+        transition:
+          opacity 0.15s,
+          transform 0.15s;
+      }
+      .submit-btn:active {
+        opacity: 0.85;
+        transform: scale(0.98);
+      }
+
+      /* DETAIL SHEET */
+      .detail-sheet {
+        width: 100%;
+        background: var(--surface);
+        border-radius: 24px 24px 0 0;
+        border-top: 1px solid var(--border2);
+        padding: 12px 20px calc(32px + var(--safe-bottom));
+        max-height: 88vh;
+        overflow-y: auto;
+        animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+      }
+      .detail-sheet::-webkit-scrollbar {
+        display: none;
+      }
+      .detail-hero {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        margin-bottom: 28px;
+      }
+      .detail-icon {
+        width: 64px;
+        height: 64px;
+        border-radius: 18px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 30px;
+        flex-shrink: 0;
+      }
+      .detail-name {
+        font-family: var(--serif);
+        font-size: 26px;
+        line-height: 1.1;
+        margin-bottom: 4px;
+      }
+
+      .detail-info-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+        margin-bottom: 16px;
+      }
+      .info-tile {
+        background: var(--surface2);
+        border: 1px solid var(--border);
+        border-radius: var(--r);
+        padding: 14px;
+      }
+      .info-tile-label {
+        font-size: 10px;
+        font-weight: 600;
+        color: var(--text3);
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        margin-bottom: 6px;
+      }
+      .info-tile-value {
+        font-size: 16px;
+        font-weight: 600;
+      }
+      .info-tile-sub {
+        font-size: 11px;
+        color: var(--text3);
+        margin-top: 2px;
+      }
+
+      .notify-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        background: var(--surface2);
+        border: 1px solid var(--border);
+        border-radius: var(--r);
+        padding: 14px;
+        margin-bottom: 10px;
+      }
+      .notify-row-title {
+        font-size: 14px;
+        font-weight: 500;
+      }
+      .notify-row-sub {
+        font-size: 12px;
+        color: var(--text3);
+        margin-top: 2px;
+      }
+
+      .toggle {
+        width: 46px;
+        height: 26px;
+        background: var(--surface3);
+        border-radius: 13px;
+        position: relative;
+        cursor: pointer;
+        transition: background 0.2s;
+        flex-shrink: 0;
+        border: none;
+      }
+      .toggle.on {
+        background: var(--accent);
+      }
+      .toggle::after {
+        content: '';
+        position: absolute;
+        top: 3px;
+        left: 3px;
+        width: 20px;
+        height: 20px;
+        background: #fff;
+        border-radius: 50%;
+        transition: transform 0.2s;
+        box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+      }
+      .toggle.on::after {
+        transform: translateX(20px);
+      }
+
+      .action-row {
+        display: flex;
+        gap: 10px;
+        margin-top: 20px;
+      }
+      .btn-secondary {
+        flex: 1;
+        padding: 14px;
+        background: var(--surface2);
+        border: 1px solid var(--border2);
+        border-radius: var(--r);
+        color: var(--text2);
+        font-family: var(--sans);
+        font-size: 14px;
+        font-weight: 500;
+        cursor: pointer;
+        text-align: center;
+        transition: all 0.15s;
+      }
+      .btn-secondary:active {
+        background: var(--surface3);
+      }
+      .btn-danger {
+        flex: 1;
+        padding: 14px;
+        background: var(--red-bg);
+        border: 1px solid rgba(248, 113, 113, 0.2);
+        border-radius: var(--r);
+        color: var(--red);
+        font-family: var(--sans);
+        font-size: 14px;
+        font-weight: 500;
+        cursor: pointer;
+        text-align: center;
+      }
+
+      @keyframes popIn {
+        from {
+          opacity: 0;
+          transform: scale(0.9) translateY(10px);
+        }
+        to {
+          opacity: 1;
+          transform: scale(1) translateY(0);
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app">
+      <!-- HOME -->
+      <div class="screen active" id="screen-home">
+        <div class="scroll-content">
+          <div class="header">
+            <div class="header-top">
+              <div>
+                <div class="greeting">Your <span>subscriptions</span></div>
+                <div class="header-date" id="header-date"></div>
+              </div>
+              <button class="add-btn-header" onclick="openAddSheet()">+</button>
+            </div>
+          </div>
+
+          <div class="hero-card">
+            <div class="hero-label">Monthly Spending</div>
+            <div class="hero-amount">
+              <span class="currency" id="sym-hero">₹</span><span id="hero-monthly-val">0</span>
+            </div>
+            <div class="hero-sub">Across <span id="hero-count">0</span> active subscriptions</div>
+            <div class="hero-stats">
+              <div class="hero-stat">
+                <div class="hero-stat-val" id="stat-yearly">₹0</div>
+                <div class="hero-stat-lbl">Annual</div>
+              </div>
+              <div class="hero-stat">
+                <div class="hero-stat-val" id="stat-weekly">₹0</div>
+                <div class="hero-stat-lbl">Weekly</div>
+              </div>
+              <div class="hero-stat">
+                <div class="hero-stat-val" id="stat-due">0</div>
+                <div class="hero-stat-lbl">Due soon</div>
+              </div>
+            </div>
+          </div>
+
+          <div
+            class="upcoming-alert"
+            id="upcoming-alert"
+            style="display: none"
+            onclick="openAlertDetail()"
+          >
+            <div class="upcoming-alert-icon">⏰</div>
+            <div class="upcoming-alert-text" id="upcoming-alert-text"></div>
+          </div>
+
+          <div class="section">
+            <div class="section-header">
+              <div class="section-title">All Subscriptions</div>
+              <div class="section-action" onclick="openAddSheet()">+ Add</div>
+            </div>
+            <div id="subs-list"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- CALENDAR -->
+      <div class="screen" id="screen-calendar">
+        <div class="scroll-content">
+          <div class="cal-header">
+            <div class="cal-title">Calendar</div>
+          </div>
+
+          <div class="cal-month-nav">
+            <button class="cal-nav-btn" onclick="calPrev()">‹</button>
+            <div class="cal-month-label" id="cal-month-label"></div>
+            <button class="cal-nav-btn" onclick="calNext()">›</button>
+          </div>
+
+          <div class="cal-summary" id="cal-summary"></div>
+
+          <div class="cal-grid-header">
+            <div class="cal-dow">S</div>
+            <div class="cal-dow">M</div>
+            <div class="cal-dow">T</div>
+            <div class="cal-dow">W</div>
+            <div class="cal-dow">T</div>
+            <div class="cal-dow">F</div>
+            <div class="cal-dow">S</div>
+          </div>
+
+          <div class="cal-grid" id="cal-grid"></div>
+
+          <div class="cal-day-panel" id="cal-day-panel" style="display: none">
+            <div class="cal-day-panel-header">Renewals on<span id="cal-panel-date"></span></div>
+            <div id="cal-panel-list"></div>
+          </div>
+
+          <div style="height: 16px"></div>
+        </div>
+      </div>
+
+      <!-- INSIGHTS -->
+      <div class="screen" id="screen-insights">
+        <div class="scroll-content">
+          <div class="insights-header">
+            <div class="insights-title">Insights</div>
+            <div class="insights-sub">Spending breakdown</div>
+          </div>
+          <div class="chart-card">
+            <div class="chart-title">Monthly Trend</div>
+            <div class="chart-amount" id="chart-total">₹0 / mo</div>
+            <div class="bar-chart" id="bar-chart"></div>
+          </div>
+          <div class="chart-card">
+            <div class="chart-title" style="margin-bottom: 16px">By Category</div>
+            <div id="category-list"></div>
+          </div>
+          <div style="height: 16px"></div>
+        </div>
+      </div>
+
+      <!-- SETTINGS -->
+      <div class="screen" id="screen-settings">
+        <div class="scroll-content">
+          <div class="settings-header"><div class="settings-title">Settings</div></div>
+          <div class="settings-section">
+            <div class="settings-section-title">Currency</div>
+            <div class="settings-group">
+              <div class="settings-row" onclick="cycleCurrency()">
+                <div class="settings-row-left">
+                  <div class="settings-row-icon" style="background: rgba(52, 211, 153, 0.1)">
+                    💱
+                  </div>
+                  <div class="settings-row-label">Currency</div>
+                </div>
+                <div class="settings-row-right" id="currency-display">₹ INR</div>
+              </div>
+            </div>
+          </div>
+          <div class="settings-section">
+            <div class="settings-section-title">Notifications</div>
+            <div class="settings-group">
+              <div class="settings-row">
+                <div class="settings-row-left">
+                  <div class="settings-row-icon" style="background: rgba(123, 111, 255, 0.1)">
+                    🔔
+                  </div>
+                  <div class="settings-row-label">3-day reminder</div>
+                </div>
+                <button
+                  class="toggle on"
+                  id="toggle-3day"
+                  onclick="toggleSetting('notify3day', this)"
+                ></button>
+              </div>
+              <div class="settings-row">
+                <div class="settings-row-left">
+                  <div class="settings-row-icon" style="background: rgba(123, 111, 255, 0.1)">
+                    📅
+                  </div>
+                  <div class="settings-row-label">1-day reminder</div>
+                </div>
+                <button
+                  class="toggle on"
+                  id="toggle-1day"
+                  onclick="toggleSetting('notify1day', this)"
+                ></button>
+              </div>
+            </div>
+          </div>
+          <div class="settings-section">
+            <div class="settings-section-title">Data</div>
+            <div class="settings-group">
+              <div class="settings-row" onclick="clearAllData()">
+                <div class="settings-row-left">
+                  <div class="settings-row-icon" style="background: rgba(248, 113, 113, 0.1)">
+                    🗑️
+                  </div>
+                  <div class="settings-row-label" style="color: var(--red)">Clear all data</div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="settings-section">
+            <div class="settings-section-title">About</div>
+            <div class="settings-group">
+              <div class="settings-row">
+                <div class="settings-row-left">
+                  <div class="settings-row-icon">💳</div>
+                  <div class="settings-row-label">Subtrack</div>
+                </div>
+                <div class="settings-row-right">v2.0</div>
+              </div>
+            </div>
+          </div>
+          <div style="height: 16px"></div>
+        </div>
+      </div>
+
+      <!-- TAB BAR -->
+      <div class="tab-bar">
+        <div class="tab-item active" onclick="switchTab('home')" id="tab-home">
+          <div class="tab-icon">💳</div>
+          <div class="tab-label">Home</div>
+        </div>
+        <div class="tab-item" onclick="switchTab('calendar')" id="tab-calendar">
+          <div class="tab-icon">📅</div>
+          <div class="tab-label">Calendar</div>
+        </div>
+        <div class="tab-item" onclick="switchTab('insights')" id="tab-insights">
+          <div class="tab-icon">📊</div>
+          <div class="tab-label">Insights</div>
+        </div>
+        <div class="tab-item" onclick="switchTab('settings')" id="tab-settings">
+          <div class="tab-icon">⚙️</div>
+          <div class="tab-label">Settings</div>
+        </div>
+      </div>
+
+      <!-- ADD / EDIT SHEET -->
+      <div class="sheet-overlay" id="add-sheet" onclick="handleOverlayClick(event, 'add-sheet')">
+        <div class="sheet" onclick="event.stopPropagation()">
+          <div class="sheet-handle"></div>
+          <div class="sheet-title" id="add-sheet-title">Add Subscription</div>
+
+          <div class="form-row">
+            <label class="form-label">Name</label>
+            <input
+              class="form-input"
+              type="text"
+              id="input-name"
+              placeholder="e.g. Netflix, Spotify…"
+              autocomplete="off"
+            />
+          </div>
+          <div class="form-row">
+            <label class="form-label">Icon</label>
+            <div class="emoji-grid" id="emoji-grid"></div>
+          </div>
+          <div class="form-row">
+            <label class="form-label">Color</label>
+            <div class="color-grid" id="color-grid"></div>
+          </div>
+          <div class="form-2col">
+            <div class="form-row" style="margin-bottom: 0">
+              <label class="form-label">Amount</label>
+              <div class="form-input-prefix">
+                <span class="prefix" id="prefix-symbol">₹</span>
+                <input
+                  class="form-input"
+                  type="number"
+                  id="input-amount"
+                  placeholder="0"
+                  inputmode="decimal"
+                />
+              </div>
+            </div>
+            <div class="form-row" style="margin-bottom: 0">
+              <label class="form-label">Billing</label>
+              <select class="form-select" id="input-cycle">
+                <option value="monthly">Monthly</option>
+                <option value="yearly">Yearly</option>
+                <option value="weekly">Weekly</option>
+                <option value="quarterly">Quarterly</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-row" style="margin-top: 16px">
+            <label class="form-label">Category</label>
+            <select class="form-select" id="input-category">
+              <option value="Entertainment">🎬 Entertainment</option>
+              <option value="Music">🎵 Music</option>
+              <option value="Productivity">⚡ Productivity</option>
+              <option value="Health">💪 Health &amp; Fitness</option>
+              <option value="News">📰 News &amp; Media</option>
+              <option value="Education">📚 Education</option>
+              <option value="Cloud">☁️ Cloud &amp; Storage</option>
+              <option value="Shopping">🛍️ Shopping</option>
+              <option value="Finance">💰 Finance</option>
+              <option value="Other">📦 Other</option>
+            </select>
+          </div>
+          <div class="form-row">
+            <label class="form-label">Next Renewal Date</label>
+            <input class="form-input" type="date" id="input-date" />
+          </div>
+          <div class="form-row">
+            <label class="form-label">Status</label>
+            <select class="form-select" id="input-status">
+              <option value="active">Active</option>
+              <option value="trial">Free Trial</option>
+              <option value="paused">Paused</option>
+            </select>
+          </div>
+          <div class="form-row">
+            <label class="form-label">Notes (optional)</label>
+            <input
+              class="form-input"
+              type="text"
+              id="input-notes"
+              placeholder="Family plan, shared with…"
+            />
+          </div>
+          <button class="submit-btn" onclick="saveSubscription()">Save Subscription</button>
+        </div>
+      </div>
+
+      <!-- DETAIL SHEET -->
+      <div
+        class="sheet-overlay"
+        id="detail-sheet"
+        onclick="handleOverlayClick(event, 'detail-sheet')"
+      >
+        <div class="detail-sheet" onclick="event.stopPropagation()">
+          <div class="sheet-handle"></div>
+          <div class="detail-hero">
+            <div class="detail-icon" id="d-icon"></div>
+            <div>
+              <div class="detail-name" id="d-name"></div>
+              <div id="d-badge"></div>
+            </div>
+          </div>
+          <div class="detail-info-grid">
+            <div class="info-tile">
+              <div class="info-tile-label">Amount</div>
+              <div class="info-tile-value" id="d-amount"></div>
+              <div class="info-tile-sub" id="d-cycle"></div>
+            </div>
+            <div class="info-tile">
+              <div class="info-tile-label">Next Renewal</div>
+              <div class="info-tile-value" id="d-renewal"></div>
+              <div class="info-tile-sub" id="d-days"></div>
+            </div>
+            <div class="info-tile">
+              <div class="info-tile-label">Category</div>
+              <div class="info-tile-value" id="d-category"></div>
+            </div>
+            <div class="info-tile">
+              <div class="info-tile-label">Annual Cost</div>
+              <div class="info-tile-value" id="d-annual"></div>
+              <div class="info-tile-sub">per year</div>
+            </div>
+          </div>
+          <div id="d-notes-row" style="display: none; margin-bottom: 14px">
+            <div class="info-tile">
+              <div class="info-tile-label">Notes</div>
+              <div
+                class="info-tile-value"
+                id="d-notes"
+                style="font-size: 14px; font-weight: 400; color: var(--text2)"
+              ></div>
+            </div>
+          </div>
+          <div class="notify-row">
+            <div>
+              <div class="notify-row-title">3-day reminder</div>
+              <div class="notify-row-sub">Notify before renewal</div>
+            </div>
+            <button class="toggle on" id="d-toggle-3" onclick="toggleDetailNotify(3)"></button>
+          </div>
+          <div class="notify-row">
+            <div>
+              <div class="notify-row-title">1-day reminder</div>
+              <div class="notify-row-sub">Day-before alert</div>
+            </div>
+            <button class="toggle on" id="d-toggle-1" onclick="toggleDetailNotify(1)"></button>
+          </div>
+          <div class="action-row">
+            <button class="btn-secondary" onclick="editSubscription()">✏️ Edit</button>
+            <button class="btn-danger" onclick="deleteSubscription()">🗑️ Delete</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      // ── CONSTANTS ──
+      var EMOJIS = [
+        '📺',
+        '🎵',
+        '☁️',
+        '🎮',
+        '📰',
+        '💪',
+        '📚',
+        '💼',
+        '🛍️',
+        '💰',
+        '🔐',
+        '🎬',
+        '✈️',
+        '🍕',
+        '🏥',
+        '📱',
+        '🤖',
+        '🎨',
+        '🌍',
+        '⚡',
+      ];
+      var COLORS = [
+        '#7B6FFF',
+        '#F472B6',
+        '#34D399',
+        '#FBBF24',
+        '#F87171',
+        '#22D3EE',
+        '#A78BFA',
+        '#FB923C',
+        '#4ADE80',
+        '#60A5FA',
+      ];
+      var CURRENCIES = [
+        { symbol: '₹', code: 'INR', name: '₹ INR' },
+        { symbol: '$', code: 'USD', name: '$ USD' },
+        { symbol: '€', code: 'EUR', name: '€ EUR' },
+        { symbol: '£', code: 'GBP', name: '£ GBP' },
+      ];
+      var CAT_EMOJIS = {
+        Entertainment: '🎬',
+        Music: '🎵',
+        Productivity: '⚡',
+        Health: '💪',
+        News: '📰',
+        Education: '📚',
+        Cloud: '☁️',
+        Shopping: '🛍️',
+        Finance: '💰',
+        Other: '📦',
+      };
+      var CAT_COLORS = {
+        Entertainment: '#F87171',
+        Music: '#34D399',
+        Productivity: '#7B6FFF',
+        Health: '#FBBF24',
+        News: '#22D3EE',
+        Education: '#A78BFA',
+        Cloud: '#60A5FA',
+        Shopping: '#FB923C',
+        Finance: '#4ADE80',
+        Other: '#8888AA',
+      };
+
+      // ── STATE ──
+      var subs = [];
+      var settings = { currency: 0, notify3day: true, notify1day: true };
+      var selectedEmoji = EMOJIS[0];
+      var selectedColor = COLORS[0];
+      var editingId = null;
+      var detailId = null;
+      var calYear,
+        calMonth,
+        calSelectedDay = null;
+
+      // ── STORAGE ──
+      function save(k, v) {
+        try {
+          localStorage.setItem(k, JSON.stringify(v));
+        } catch (e) {}
+      }
+      function load(k, d) {
+        try {
+          var v = localStorage.getItem(k);
+          return v !== null ? JSON.parse(v) : d;
+        } catch (e) {
+          return d;
+        }
+      }
+      function saveSubs() {
+        save('subtrack_subs', subs);
+      }
+      function saveSettings() {
+        save('subtrack_settings', settings);
+      }
+
+      // ── INIT ──
+      function init() {
+        subs = load('subtrack_subs', []);
+        settings = load('subtrack_settings', { currency: 0, notify3day: true, notify1day: true });
+
+        var now = new Date();
+        calYear = now.getFullYear();
+        calMonth = now.getMonth();
+
+        renderDate();
+        buildEmojiGrid();
+        buildColorGrid();
+        setDefaultDate();
+        updateCurrencyUI();
+        renderAll();
+        scheduleAllNotifications();
+      }
+
+      // ── HELPERS ──
+      function uid() {
+        return Math.random().toString(36).slice(2) + Date.now().toString(36);
+      }
+      function getCurrency() {
+        return CURRENCIES[settings.currency % CURRENCIES.length];
+      }
+      function sym() {
+        return getCurrency().symbol;
+      }
+
+      function toMonthly(s) {
+        var a = parseFloat(s.amount) || 0;
+        if (s.cycle === 'monthly') return a;
+        if (s.cycle === 'yearly') return a / 12;
+        if (s.cycle === 'weekly') return a * 4.33;
+        if (s.cycle === 'quarterly') return a / 3;
+        return a;
+      }
+      function toAnnual(s) {
+        var a = parseFloat(s.amount) || 0;
+        if (s.cycle === 'monthly') return a * 12;
+        if (s.cycle === 'yearly') return a;
+        if (s.cycle === 'weekly') return a * 52;
+        if (s.cycle === 'quarterly') return a * 4;
+        return a;
+      }
+      function daysUntil(dateStr) {
+        var today = new Date();
+        today.setHours(0, 0, 0, 0);
+        var d = new Date(dateStr + 'T00:00:00');
+        d.setHours(0, 0, 0, 0);
+        return Math.round((d - today) / 86400000);
+      }
+      function fmt(n) {
+        var s = sym();
+        if (n >= 100000) return s + (n / 100000).toFixed(1) + 'L';
+        if (n >= 1000) return s + (n / 1000).toFixed(1) + 'k';
+        return s + Math.round(n);
+      }
+      function fmtFull(n) {
+        return sym() + parseFloat(n).toLocaleString('en-IN');
+      }
+
+      function renderDate() {
+        document.getElementById('header-date').textContent = new Date()
+          .toLocaleDateString('en-IN', { weekday: 'long', month: 'long', day: 'numeric' })
+          .toUpperCase();
+      }
+
+      // ── RENDER ALL ──
+      function renderAll() {
+        updateStats();
+        renderSubsList();
+        renderCalendar();
+        renderInsights();
+      }
+
+      // ── STATS ──
+      function updateStats() {
+        var active = subs.filter(function (s) {
+          return s.status === 'active';
+        });
+        var monthly = active.reduce(function (a, s) {
+          return a + toMonthly(s);
+        }, 0);
+        var annual = active.reduce(function (a, s) {
+          return a + toAnnual(s);
+        }, 0);
+        var dueSoon = active.filter(function (s) {
+          var d = daysUntil(s.date);
+          return d >= 0 && d <= 7;
+        }).length;
+
+        document.getElementById('hero-monthly-val').textContent =
+          Math.round(monthly).toLocaleString('en-IN');
+        document.getElementById('hero-count').textContent = active.length;
+        document.getElementById('stat-yearly').textContent = fmt(annual);
+        document.getElementById('stat-weekly').textContent = fmt(monthly / 4.33);
+        document.getElementById('stat-due').textContent = dueSoon;
+
+        // upcoming alert
+        var upcoming = active
+          .filter(function (s) {
+            var d = daysUntil(s.date);
+            return d >= 0 && d <= 3;
+          })
+          .sort(function (a, b) {
+            return daysUntil(a.date) - daysUntil(b.date);
+          });
+        var alertEl = document.getElementById('upcoming-alert');
+        if (upcoming.length > 0) {
+          var s = upcoming[0];
+          var d = daysUntil(s.date);
+          var when =
+            d === 0 ? 'renews today' : d === 1 ? 'renews tomorrow' : 'renews in ' + d + ' days';
+          document.getElementById('upcoming-alert-text').innerHTML =
+            '<strong>' +
+            s.name +
+            '</strong> ' +
+            when +
+            ' — ' +
+            fmtFull(s.amount) +
+            '<span>' +
+            (upcoming.length > 1
+              ? '+' + (upcoming.length - 1) + ' more coming up'
+              : 'Tap for details') +
+            '</span>';
+          alertEl.style.display = 'flex';
+          alertEl._alertId = s.id;
+        } else {
+          alertEl.style.display = 'none';
+        }
+      }
+
+      function openAlertDetail() {
+        var id = document.getElementById('upcoming-alert')._alertId;
+        if (id) openDetail(id);
+      }
+
+      // ── SUBS LIST ──
+      function renderSubsList() {
+        var list = document.getElementById('subs-list');
+        if (subs.length === 0) {
+          list.innerHTML =
+            '<div class="empty-state">' +
+            '<div class="empty-icon">💳</div>' +
+            '<div class="empty-title">No subscriptions yet</div>' +
+            '<div class="empty-sub">Tap the + button to track your first subscription</div>' +
+            '<button class="empty-btn" onclick="openAddSheet()">+ Add Subscription</button>' +
+            '</div>';
+          return;
+        }
+        var sorted = subs.slice().sort(function (a, b) {
+          if (a.status !== b.status) return a.status === 'active' ? -1 : 1;
+          return daysUntil(a.date) - daysUntil(b.date);
+        });
+        list.innerHTML = sorted
+          .map(function (s, i) {
+            var days = daysUntil(s.date);
+            var badge =
+              s.status === 'trial'
+                ? '<span class="sub-badge badge-trial">Trial</span>'
+                : s.status === 'paused'
+                  ? '<span class="sub-badge badge-paused">Paused</span>'
+                  : days >= 0 && days <= 3
+                    ? '<span class="sub-badge badge-due">Due</span>'
+                    : '';
+            var cycleLabel =
+              s.cycle === 'monthly'
+                ? '/mo'
+                : s.cycle === 'yearly'
+                  ? '/yr'
+                  : s.cycle === 'weekly'
+                    ? '/wk'
+                    : '/qtr';
+            var daysLabel =
+              days < 0
+                ? 'Overdue'
+                : days === 0
+                  ? 'Renews today'
+                  : days === 1
+                    ? 'Tomorrow'
+                    : 'In ' + days + ' days';
+            var c = s.color || '#7B6FFF';
+            return (
+              '<div class="sub-card" style="--card-color:' +
+              c +
+              ';animation-delay:' +
+              i * 0.04 +
+              's" onclick="openDetail(\'' +
+              s.id +
+              '\')">' +
+              '<div class="sub-icon" style="background:' +
+              c +
+              '18;border:1px solid ' +
+              c +
+              '30">' +
+              s.emoji +
+              '</div>' +
+              '<div class="sub-info">' +
+              '<div class="sub-name">' +
+              s.name +
+              badge +
+              '</div>' +
+              '<div class="sub-meta">' +
+              daysLabel +
+              ' · ' +
+              s.category +
+              '</div>' +
+              '</div>' +
+              '<div class="sub-amount">' +
+              '<div class="sub-price">' +
+              fmtFull(s.amount) +
+              '</div>' +
+              '<div class="sub-cycle">' +
+              cycleLabel +
+              '</div>' +
+              '</div>' +
+              '</div>'
+            );
+          })
+          .join('');
+      }
+
+      // ── CALENDAR ──
+      function renderCalendar() {
+        var monthNames = [
+          'January',
+          'February',
+          'March',
+          'April',
+          'May',
+          'June',
+          'July',
+          'August',
+          'September',
+          'October',
+          'November',
+          'December',
+        ];
+        document.getElementById('cal-month-label').textContent =
+          monthNames[calMonth] + ' ' + calYear;
+
+        var today = new Date();
+        today.setHours(0, 0, 0, 0);
+        var todayStr = today.toISOString().split('T')[0];
+
+        // Build renewal map: "YYYY-MM-DD" -> [sub, ...]
+        var renewalMap = {};
+        subs
+          .filter(function (s) {
+            return s.status === 'active';
+          })
+          .forEach(function (s) {
+            if (!renewalMap[s.date]) renewalMap[s.date] = [];
+            renewalMap[s.date].push(s);
+          });
+
+        // Calendar grid
+        var firstDay = new Date(calYear, calMonth, 1).getDay();
+        var daysInMonth = new Date(calYear, calMonth + 1, 0).getDate();
+        var prevDays = new Date(calYear, calMonth, 0).getDate();
+
+        var cells = '';
+        var cellCount = 0;
+
+        // prev month padding
+        for (var p = firstDay - 1; p >= 0; p--) {
+          var d = prevDays - p;
+          var dateStr =
+            pad(calYear, calMonth - 1 >= 0 ? calYear : calYear - 1) +
+            '-' +
+            pad(calMonth === 0 ? 12 : calMonth, 2) +
+            '-' +
+            pad(d, 2);
+          cells += renderCell(d, dateStr, renewalMap, today, todayStr, true);
+          cellCount++;
+        }
+        // current month
+        for (var day = 1; day <= daysInMonth; day++) {
+          var dateStr2 = calYear + '-' + pad(calMonth + 1, 2) + '-' + pad(day, 2);
+          cells += renderCell(day, dateStr2, renewalMap, today, todayStr, false);
+          cellCount++;
+        }
+        // next month padding
+        var remaining = (7 - (cellCount % 7)) % 7;
+        for (var n = 1; n <= remaining; n++) {
+          var dateStr3 =
+            pad(calYear, calMonth + 2 <= 12 ? calYear : calYear + 1) +
+            '-' +
+            pad(calMonth + 2 > 12 ? 1 : calMonth + 2, 2) +
+            '-' +
+            pad(n, 2);
+          cells += renderCell(n, dateStr3, renewalMap, today, todayStr, true);
+        }
+
+        document.getElementById('cal-grid').innerHTML = cells;
+
+        // Monthly summary for this month
+        var monthSubs = subs.filter(function (s) {
+          if (s.status !== 'active') return false;
+          var d = new Date(s.date + 'T00:00:00');
+          return d.getFullYear() === calYear && d.getMonth() === calMonth;
+        });
+        var monthTotal = monthSubs.reduce(function (a, s) {
+          return a + parseFloat(s.amount) || 0;
+        }, 0);
+        document.getElementById('cal-summary').innerHTML =
+          '<div class="cal-summary-chip"><div class="cal-summary-val">' +
+          monthSubs.length +
+          '</div><div class="cal-summary-lbl">Renewals</div></div>' +
+          '<div class="cal-summary-chip"><div class="cal-summary-val">' +
+          fmt(monthTotal) +
+          '</div><div class="cal-summary-lbl">Due this month</div></div>' +
+          '<div class="cal-summary-chip"><div class="cal-summary-val">' +
+          fmt(
+            subs
+              .filter(function (s) {
+                return s.status === 'active';
+              })
+              .reduce(function (a, s) {
+                return a + toMonthly(s);
+              }, 0)
+          ) +
+          '</div><div class="cal-summary-lbl">Monthly avg</div></div>';
+
+        // Show selected day panel
+        if (calSelectedDay) {
+          showCalPanel(calSelectedDay, renewalMap);
+        } else {
+          // Auto-show today if it has renewals
+          if (
+            renewalMap[todayStr] &&
+            today.getFullYear() === calYear &&
+            today.getMonth() === calMonth
+          ) {
+            calSelectedDay = todayStr;
+            showCalPanel(todayStr, renewalMap);
+          } else {
+            document.getElementById('cal-day-panel').style.display = 'none';
+          }
+        }
+      }
+
+      function pad(n, len) {
+        var s = String(n);
+        while (s.length < (len || 2)) s = '0' + s;
+        return s;
+      }
+
+      function renderCell(day, dateStr, renewalMap, today, todayStr, otherMonth) {
+        var isToday = dateStr === todayStr;
+        var isSelected = dateStr === calSelectedDay;
+        var renewals = renewalMap[dateStr] || [];
+        var cls =
+          'cal-cell' +
+          (otherMonth ? ' other-month' : '') +
+          (isToday ? ' today' : '') +
+          (isSelected && !isToday ? ' selected' : '');
+
+        var dots = '';
+        if (renewals.length > 0) {
+          var shown = renewals.slice(0, 3);
+          dots =
+            '<div class="cal-dots">' +
+            shown
+              .map(function (s) {
+                return (
+                  '<div class="cal-dot" style="background:' + (s.color || '#7B6FFF') + '"></div>'
+                );
+              })
+              .join('') +
+            '</div>';
+        }
+
+        return (
+          '<div class="' +
+          cls +
+          '" onclick="selectCalDay(\'' +
+          dateStr +
+          '\')">' +
+          '<div class="cal-day-num">' +
+          day +
+          '</div>' +
+          dots +
+          '</div>'
+        );
+      }
+
+      function selectCalDay(dateStr) {
+        calSelectedDay = dateStr;
+        renderCalendar();
+      }
+
+      function showCalPanel(dateStr, renewalMap) {
+        var panel = document.getElementById('cal-day-panel');
+        var renewals = renewalMap[dateStr] || [];
+        var d = new Date(dateStr + 'T00:00:00');
+        var label = d.toLocaleDateString('en-IN', {
+          weekday: 'long',
+          day: 'numeric',
+          month: 'long',
+        });
+        document.getElementById('cal-panel-date').textContent = label;
+
+        if (renewals.length === 0) {
+          document.getElementById('cal-panel-list').innerHTML =
+            '<div class="cal-no-renewals">No renewals scheduled</div>';
+        } else {
+          document.getElementById('cal-panel-list').innerHTML = renewals
+            .map(function (s) {
+              var c = s.color || '#7B6FFF';
+              return (
+                '<div class="cal-renewal-item" onclick="openDetail(\'' +
+                s.id +
+                '\')">' +
+                '<div class="cal-renewal-icon" style="background:' +
+                c +
+                '18;border:1px solid ' +
+                c +
+                '30">' +
+                s.emoji +
+                '</div>' +
+                '<div class="cal-renewal-name">' +
+                s.name +
+                '<br><span style="font-size:11px;color:var(--text3)">' +
+                s.category +
+                '</span></div>' +
+                '<div class="cal-renewal-amount">' +
+                fmtFull(s.amount) +
+                '</div>' +
+                '</div>'
+              );
+            })
+            .join('');
+        }
+        panel.style.display = 'block';
+      }
+
+      function calPrev() {
+        calMonth--;
+        if (calMonth < 0) {
+          calMonth = 11;
+          calYear--;
+        }
+        calSelectedDay = null;
+        renderCalendar();
+      }
+      function calNext() {
+        calMonth++;
+        if (calMonth > 11) {
+          calMonth = 0;
+          calYear++;
+        }
+        calSelectedDay = null;
+        renderCalendar();
+      }
+
+      // ── INSIGHTS ──
+      function renderInsights() {
+        var active = subs.filter(function (s) {
+          return s.status === 'active';
+        });
+        var monthly = active.reduce(function (a, s) {
+          return a + toMonthly(s);
+        }, 0);
+        document.getElementById('chart-total').textContent = fmt(monthly) + ' / mo';
+
+        var base = monthly || 0;
+        var months = ['AUG', 'SEP', 'OCT', 'NOV', 'DEC', 'NOW'];
+        var ratios = [0.72, 0.81, 0.88, 0.95, 0.97, 1.0];
+        var maxV = base || 1;
+        document.getElementById('bar-chart').innerHTML = months
+          .map(function (m, i) {
+            var v = base * ratios[i];
+            var h = Math.max(6, (v / maxV) * 68);
+            return (
+              '<div class="bar-col"><div class="bar' +
+              (i === 5 ? ' current' : '') +
+              '" style="height:' +
+              h +
+              'px"></div><div class="bar-lbl">' +
+              m +
+              '</div></div>'
+            );
+          })
+          .join('');
+
+        var cats = {};
+        active.forEach(function (s) {
+          if (!cats[s.category]) cats[s.category] = 0;
+          cats[s.category] += toMonthly(s);
+        });
+        var catArr = Object.keys(cats)
+          .map(function (k) {
+            return { cat: k, val: cats[k] };
+          })
+          .sort(function (a, b) {
+            return b.val - a.val;
+          });
+        var total =
+          catArr.reduce(function (a, c) {
+            return a + c.val;
+          }, 0) || 1;
+
+        document.getElementById('category-list').innerHTML =
+          catArr.length === 0
+            ? '<div style="color:var(--text3);font-size:13px;text-align:center;padding:20px">No data yet</div>'
+            : catArr
+                .map(function (c) {
+                  var pct = Math.round((c.val / total) * 100);
+                  var col = CAT_COLORS[c.cat] || '#7B6FFF';
+                  return (
+                    '<div class="category-row">' +
+                    '<div class="category-icon" style="background:' +
+                    col +
+                    '18">' +
+                    (CAT_EMOJIS[c.cat] || '📦') +
+                    '</div>' +
+                    '<div><div class="category-label">' +
+                    c.cat +
+                    '</div><div class="category-sub">' +
+                    pct +
+                    '%</div></div>' +
+                    '<div class="category-progress-wrap">' +
+                    '<div class="category-progress-bar"><div class="category-progress-fill" style="width:' +
+                    pct +
+                    '%;background:' +
+                    col +
+                    '"></div></div>' +
+                    '<div class="category-amount">' +
+                    fmt(c.val) +
+                    '/mo</div>' +
+                    '</div>' +
+                    '</div>'
+                  );
+                })
+                .join('');
+      }
+
+      // ── FORM ──
+      function buildEmojiGrid() {
+        document.getElementById('emoji-grid').innerHTML = EMOJIS.map(function (e) {
+          return (
+            '<div class="emoji-btn' +
+            (e === selectedEmoji ? ' selected' : '') +
+            '" onclick="selectEmoji(\'' +
+            e +
+            '\',this)">' +
+            e +
+            '</div>'
+          );
+        }).join('');
+      }
+      function buildColorGrid() {
+        document.getElementById('color-grid').innerHTML = COLORS.map(function (c) {
+          return (
+            '<div class="color-btn' +
+            (c === selectedColor ? ' selected' : '') +
+            '" style="background:' +
+            c +
+            '" onclick="selectColor(\'' +
+            c +
+            '\',this)"></div>'
+          );
+        }).join('');
+      }
+      function selectEmoji(e, el) {
+        selectedEmoji = e;
+        document.querySelectorAll('.emoji-btn').forEach(function (b) {
+          b.classList.remove('selected');
+        });
+        el.classList.add('selected');
+      }
+      function selectColor(c, el) {
+        selectedColor = c;
+        document.querySelectorAll('.color-btn').forEach(function (b) {
+          b.classList.remove('selected');
+        });
+        el.classList.add('selected');
+      }
+      function setDefaultDate() {
+        var d = new Date();
+        d.setDate(d.getDate() + 30);
+        document.getElementById('input-date').value = d.toISOString().split('T')[0];
+      }
+
+      function openAddSheet(sub) {
+        editingId = sub ? sub.id : null;
+        document.getElementById('add-sheet-title').textContent = sub
+          ? 'Edit Subscription'
+          : 'Add Subscription';
+        document.getElementById('input-name').value = sub ? sub.name : '';
+        document.getElementById('input-amount').value = sub ? sub.amount : '';
+        document.getElementById('input-cycle').value = sub ? sub.cycle : 'monthly';
+        document.getElementById('input-category').value = sub ? sub.category : 'Entertainment';
+        document.getElementById('input-date').value = sub
+          ? sub.date
+          : (function () {
+              var d = new Date();
+              d.setDate(d.getDate() + 30);
+              return d.toISOString().split('T')[0];
+            })();
+        document.getElementById('input-status').value = sub ? sub.status : 'active';
+        document.getElementById('input-notes').value = sub ? sub.notes || '' : '';
+        selectedEmoji = sub ? sub.emoji : EMOJIS[0];
+        selectedColor = sub ? sub.color : COLORS[0];
+        buildEmojiGrid();
+        buildColorGrid();
+        document.getElementById('prefix-symbol').textContent = sym();
+        document.getElementById('add-sheet').classList.add('open');
+      }
+
+      function saveSubscription() {
+        var name = document.getElementById('input-name').value.trim();
+        var amount = parseFloat(document.getElementById('input-amount').value);
+        var cycle = document.getElementById('input-cycle').value;
+        var category = document.getElementById('input-category').value;
+        var date = document.getElementById('input-date').value;
+        var status = document.getElementById('input-status').value;
+        var notes = document.getElementById('input-notes').value.trim();
+
+        var nameEl = document.getElementById('input-name');
+        if (!name || !amount || !date) {
+          nameEl.style.borderColor = 'var(--red)';
+          setTimeout(function () {
+            nameEl.style.borderColor = '';
+          }, 1500);
+          return;
+        }
+        if (editingId) {
+          var idx = subs.findIndex(function (s) {
+            return s.id === editingId;
+          });
+          if (idx >= 0)
+            subs[idx] = {
+              ...subs[idx],
+              name: name,
+              emoji: selectedEmoji,
+              color: selectedColor,
+              amount: amount,
+              cycle: cycle,
+              category: category,
+              date: date,
+              status: status,
+              notes: notes,
+            };
+        } else {
+          subs.push({
+            id: uid(),
+            name: name,
+            emoji: selectedEmoji,
+            color: selectedColor,
+            amount: amount,
+            cycle: cycle,
+            category: category,
+            date: date,
+            status: status,
+            notes: notes,
+            notify3: true,
+            notify1: true,
+          });
+        }
+        saveSubs();
+        closeSheet('add-sheet');
+        renderAll();
+        scheduleAllNotifications();
+      }
+
+      // ── DETAIL ──
+      function openDetail(id) {
+        var s = subs.find(function (x) {
+          return x.id === id;
+        });
+        if (!s) return;
+        detailId = id;
+        var days = daysUntil(s.date);
+        var c = s.color || '#7B6FFF';
+        document.getElementById('d-icon').style.cssText =
+          'background:' +
+          c +
+          '20;border:1px solid ' +
+          c +
+          '40;width:64px;height:64px;border-radius:18px;display:flex;align-items:center;justify-content:center;font-size:30px;flex-shrink:0;';
+        document.getElementById('d-icon').textContent = s.emoji;
+        document.getElementById('d-name').textContent = s.name;
+        var badge =
+          s.status === 'trial'
+            ? 'badge-trial'
+            : s.status === 'paused'
+              ? 'badge-paused'
+              : days <= 3 && days >= 0
+                ? 'badge-due'
+                : 'badge-active';
+        var badgeTxt =
+          s.status === 'trial'
+            ? 'Free Trial'
+            : s.status === 'paused'
+              ? 'Paused'
+              : days <= 3 && days >= 0
+                ? 'Due Soon'
+                : 'Active';
+        document.getElementById('d-badge').innerHTML =
+          '<span class="sub-badge ' + badge + '">' + badgeTxt + '</span>';
+        document.getElementById('d-amount').textContent = fmtFull(s.amount);
+        document.getElementById('d-cycle').textContent =
+          s.cycle.charAt(0).toUpperCase() + s.cycle.slice(1);
+        document.getElementById('d-renewal').textContent = new Date(
+          s.date + 'T00:00:00'
+        ).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+        document.getElementById('d-days').textContent =
+          days < 0
+            ? 'Overdue'
+            : days === 0
+              ? 'Today!'
+              : days === 1
+                ? 'Tomorrow'
+                : days + ' days away';
+        document.getElementById('d-category').textContent = s.category;
+        document.getElementById('d-annual').textContent = fmtFull(Math.round(toAnnual(s)));
+        var notesRow = document.getElementById('d-notes-row');
+        if (s.notes) {
+          notesRow.style.display = 'block';
+          document.getElementById('d-notes').textContent = s.notes;
+        } else {
+          notesRow.style.display = 'none';
+        }
+        document.getElementById('d-toggle-3').className =
+          'toggle' + (s.notify3 !== false ? ' on' : '');
+        document.getElementById('d-toggle-1').className =
+          'toggle' + (s.notify1 !== false ? ' on' : '');
+        document.getElementById('detail-sheet').classList.add('open');
+      }
+
+      function toggleDetailNotify(days) {
+        var s = subs.find(function (x) {
+          return x.id === detailId;
+        });
+        if (!s) return;
+        var key = days === 3 ? 'notify3' : 'notify1';
+        s[key] = !s[key];
+        document.getElementById(days === 3 ? 'd-toggle-3' : 'd-toggle-1').className =
+          'toggle' + (s[key] ? ' on' : '');
+        saveSubs();
+      }
+
+      function editSubscription() {
+        var s = subs.find(function (x) {
+          return x.id === detailId;
+        });
+        if (!s) return;
+        closeSheet('detail-sheet');
+        setTimeout(function () {
+          openAddSheet(s);
+        }, 200);
+      }
+
+      function deleteSubscription() {
+        var s = subs.find(function (x) {
+          return x.id === detailId;
+        });
+        if (!s) return;
+        if (!confirm('Delete "' + s.name + '"? This cannot be undone.')) return;
+        subs = subs.filter(function (x) {
+          return x.id !== detailId;
+        });
+        saveSubs();
+        closeSheet('detail-sheet');
+        renderAll();
+      }
+
+      // ── TABS ──
+      function switchTab(name) {
+        document.querySelectorAll('.screen').forEach(function (s) {
+          s.classList.remove('active');
+        });
+        document.querySelectorAll('.tab-item').forEach(function (t) {
+          t.classList.remove('active');
+        });
+        document.getElementById('screen-' + name).classList.add('active');
+        document.getElementById('tab-' + name).classList.add('active');
+      }
+
+      // ── SHEETS ──
+      function closeSheet(id) {
+        document.getElementById(id).classList.remove('open');
+      }
+      function handleOverlayClick(e, id) {
+        if (e.target === document.getElementById(id)) closeSheet(id);
+      }
+
+      // ── SETTINGS ──
+      function cycleCurrency() {
+        settings.currency = (settings.currency + 1) % CURRENCIES.length;
+        saveSettings();
+        updateCurrencyUI();
+        renderAll();
+      }
+      function updateCurrencyUI() {
+        var c = getCurrency();
+        document.getElementById('currency-display').textContent = c.name;
+        document.getElementById('prefix-symbol').textContent = c.symbol;
+        document.getElementById('sym-hero').textContent = c.symbol;
+      }
+      function toggleSetting(key, el) {
+        settings[key] = !settings[key];
+        el.className = 'toggle' + (settings[key] ? ' on' : '');
+        saveSettings();
+      }
+      function clearAllData() {
+        if (confirm('Delete ALL subscriptions? This cannot be undone.')) {
+          subs = [];
+          saveSubs();
+          calSelectedDay = null;
+          renderAll();
+        }
+      }
+
+      // ── NOTIFICATIONS ──
+      function scheduleAllNotifications() {
+        if (!window.VaultAPI) return;
+        subs.forEach(function (s) {
+          if (s.status !== 'active') return;
+          var days = daysUntil(s.date);
+          if (s.notify3 !== false && settings.notify3day && days >= 3 && days <= 7) {
+            window.VaultAPI.device
+              .notify({
+                title: s.emoji + ' ' + s.name + ' renews in 3 days',
+                body:
+                  fmtFull(s.amount) +
+                  ' due on ' +
+                  new Date(s.date + 'T00:00:00').toLocaleDateString('en-IN', {
+                    day: 'numeric',
+                    month: 'short',
+                  }),
+                delay_seconds: (days - 3) * 86400,
+              })
+              .catch(function () {});
+          }
+          if (s.notify1 !== false && settings.notify1day && days >= 1 && days <= 5) {
+            window.VaultAPI.device
+              .notify({
+                title: '⏰ ' + s.name + ' renews tomorrow!',
+                body: fmtFull(s.amount) + ' will be charged tomorrow',
+                delay_seconds: (days - 1) * 86400,
+              })
+              .catch(function () {});
+          }
+          if (days === 0) {
+            window.VaultAPI.device
+              .notify({
+                title: '💳 ' + s.name + ' renews today',
+                body: fmtFull(s.amount) + ' is being charged today',
+                delay_seconds: 1,
+              })
+              .catch(function () {});
+          }
+        });
+      }
+
+      init();
+    </script>
+  </body>
+</html>

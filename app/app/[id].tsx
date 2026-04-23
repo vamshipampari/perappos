@@ -727,9 +727,10 @@ export default function AppScreen() {
               allowsInlineMediaPlayback
               webviewDebuggingEnabled={__DEV__}
               mediaPlaybackRequiresUserAction={false}
-              {...({ automaticallyAdjustKeyboardInsets: true } as object)}
+              {...({ automaticallyAdjustKeyboardInsets: true, backgroundColor: '#000000' } as object)}
               contentInsetAdjustmentBehavior="never"
               overScrollMode="never"
+              scalesPageToFit={false}
               onNavigationStateChange={(navState) => setWebCanGoBack(navState.canGoBack)}
               onLoadStart={() => {
                 if (!hasLoadedOnceRef.current) setWebLoading(true);

@@ -390,8 +390,9 @@ export default function CreateScreen() {
   const [error, setError] = useState<string | null>(null);
   const [loadingMsgIndex, setLoadingMsgIndex] = useState(0);
   const [previewHasError, setPreviewHasError] = useState(false);
+  const [isSlowGeneration, setIsSlowGeneration] = useState(false);
 
-  // Generation timeout — if no progress after 90s, surface an actionable error
+  // Tracks when generation started so we can compute elapsed time across re-renders.
   const generationStartRef = useRef<number | null>(null);
 
   const inputRef = useRef<TextInput>(null);
@@ -441,24 +442,51 @@ export default function CreateScreen() {
     }
   }, [activeJob?.status]);
 
-  // Timeout: if stuck generating with no progress for 90 s, surface an error.
+  // Generation timeout — two-stage:
+  // 1. After 90s with no progress: show "still working" hint but keep the PowerSync
+  //    watcher alive (the CF Queue job is still running on the server).
+  // 2. After 5 min total: truly give up.
   useEffect(() => {
     if (status !== 'generating' && status !== 'submitting') {
       generationStartRef.current = null;
+      setIsSlowGeneration(false);
       return;
     }
     if (generationStartRef.current === null) {
       generationStartRef.current = Date.now();
     }
-    const timer = setTimeout(() => {
-      const progressChars = activeJob?.progress_chars ?? 0;
-      if (progressChars === 0) {
-        clearJob();
-        setError('Generation timed out — the server may be busy. Please try again.');
-        setStatus('error');
-      }
-    }, 90_000);
-    return () => clearTimeout(timer);
+
+    const progressChars = activeJob?.progress_chars ?? 0;
+    if (progressChars > 0) setIsSlowGeneration(false);
+
+    const elapsed = Date.now() - generationStartRef.current;
+
+    // Hard limit: 5 minutes from the start of generation.
+    const hardRemaining = 5 * 60_000 - elapsed;
+    if (hardRemaining <= 0) {
+      clearJob();
+      setError('Generation timed out — try a simpler prompt or try again later.');
+      setStatus('error');
+      setIsSlowGeneration(false);
+      return;
+    }
+    const hardTimer = setTimeout(() => {
+      clearJob();
+      setError('Generation timed out — try a simpler prompt or try again later.');
+      setStatus('error');
+      setIsSlowGeneration(false);
+    }, hardRemaining);
+
+    // Soft hint: after 90s with zero progress, show "still working" message.
+    const slowRemaining = 90_000 - elapsed;
+    const slowTimer = slowRemaining > 0 && progressChars === 0
+      ? setTimeout(() => setIsSlowGeneration(true), slowRemaining)
+      : null;
+
+    return () => {
+      clearTimeout(hardTimer);
+      if (slowTimer) clearTimeout(slowTimer);
+    };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status, activeJob?.progress_chars]);
 
@@ -621,9 +649,15 @@ export default function CreateScreen() {
                 <Text style={styles.generatingEmoji}>✨</Text>
                 <ActivityIndicator size="large" color={theme.primary} style={{ marginTop: 16 }} />
                 <Text style={styles.generatingMsg}>
-                  {LOADING_MESSAGES[loadingMsgIndex]}
+                  {isSlowGeneration
+                    ? 'Still working — complex apps take a few minutes…'
+                    : LOADING_MESSAGES[loadingMsgIndex]}
                 </Text>
-                {(activeJob?.progress_chars ?? 0) > 0 ? (
+                {isSlowGeneration ? (
+                  <Text style={styles.generatingHint}>
+                    Running in background. You can close and come back.
+                  </Text>
+                ) : (activeJob?.progress_chars ?? 0) > 0 ? (
                   <Text style={styles.generatingHint}>
                     {(activeJob?.progress_chars ?? 0).toLocaleString()} chars written…
                   </Text>

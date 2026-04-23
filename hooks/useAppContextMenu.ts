@@ -6,7 +6,7 @@
  */
 
 import { useCallback, useState } from 'react';
-import { Alert } from 'react-native';
+import { Alert, Share } from 'react-native';
 import { router } from 'expo-router';
 import type { SQLiteDatabase } from 'expo-sqlite';
 import * as Haptics from 'expo-haptics';
@@ -20,6 +20,8 @@ import { leaveSharedGroup, stopSharingAsOwner } from '@/services/collaborationSe
 import { posthog } from '../src/config/posthog';
 import { powerSyncDb } from '@/services/sync/PowerSyncProvider';
 import { shareApp } from '@/services/shareService';
+import { createSharedInstanceForApp } from '@/services/collaborationService';
+import { deployHtml } from '@/services/htmlDeployer';
 import type { InstalledApp } from '@/types';
 
 interface UseAppContextMenuInput {
@@ -234,6 +236,152 @@ export function useAppContextMenu({
       ]);
     })();
   }, [db, menuTargetApp, showToast]);
+            }
+          },
+        },
+      ]);
+    })();
+  }, [db, menuTargetApp, showToast]);
+
+  const performMenuCollaborate = useCallback(async () => {
+    if (!menuTargetApp) return;
+
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.user?.id) {
+      closeContextMenu();
+      Alert.alert('Sign in required', 'You must sign in before creating a shared app.', [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Sign In', onPress: () => router.push('/auth') },
+      ]);
+      return;
+    }
+
+    if (menuTargetApp.instance_id) {
+      closeContextMenu();
+      Alert.alert('Already shared', 'This app is already in shared mode.');
+      return;
+    }
+
+    let liveApp = menuTargetApp;
+    if (menuTargetApp.source_type === 'html' && !menuTargetApp.source_url) {
+      if (!menuTargetApp.bundle_html) {
+        closeContextMenu();
+        Alert.alert('Cannot Share', 'This app has no cloud URL and no local HTML to deploy. Try reinstalling it.', [{ text: 'OK' }]);
+        return;
+      }
+      try {
+        const { url: cfUrl } = await deployHtml(menuTargetApp.app_id, menuTargetApp.bundle_html);
+        await db.runAsync(
+          `UPDATE apps SET source_url = ?, updated_at = datetime('now') WHERE app_id = ?`,
+          cfUrl,
+          menuTargetApp.app_id
+        );
+        liveApp = { ...menuTargetApp, source_url: cfUrl };
+      } catch {
+        closeContextMenu();
+        Alert.alert('Deploy Failed', 'Could not upload this app to the cloud. Check your internet and try again.', [{ text: 'OK' }]);
+        return;
+      }
+    }
+
+    closeContextMenu();
+    Alert.alert(
+      'Create Shared App?',
+      `Create a shared version of "${liveApp.name}"?\n\nOther people can join with an invite code and you'll all share the same data.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Create Shared App',
+          onPress: async () => {
+            try {
+              const { data: { session: s } } = await supabase.auth.getSession();
+              if (!s?.user?.id) {
+                Alert.alert('Sign in required', 'You must sign in before creating a shared app.');
+                return;
+              }
+
+              const { data: existingData, error: existingError } = await supabase.rpc(
+                'get_own_shared_instance',
+                { p_app_id: liveApp.app_id, p_user_id: s.user.id }
+              );
+              if (existingError) throw existingError;
+              const existing = (existingData as { instance_id: string; invite_code: string }[] | null)?.[0] ?? null;
+
+              if (existing) {
+                const inviteCode = String(existing.invite_code).toUpperCase();
+                await db.runAsync('UPDATE apps SET instance_id = ? WHERE app_id = ?', [existing.instance_id, liveApp.app_id]);
+                await refresh();
+                Alert.alert(
+                  'Existing shared instance found',
+                  `Invite code: ${inviteCode}\n\nSpaced: ${inviteCode.split('').join(' ')}`,
+                  [
+                    { text: 'Copy Code', onPress: () => { void Share.share({ message: inviteCode }); } },
+                    {
+                      text: 'Share via Message',
+                      onPress: () => {
+                        void Share.share({
+                          message: `Join my "${liveApp.name}" on Cottix!\nOpen Cottix -> Settings -> Join Shared App -> Enter code: ${inviteCode}`,
+                        });
+                      },
+                    },
+                    { text: 'Done' },
+                  ]
+                );
+                return;
+              }
+
+              const { data: incrData } = await supabase.rpc('increment_shared_instance_count', { delta: 1 });
+              const incrResult = incrData as { success?: boolean; error?: string; limit?: number } | null;
+              if (incrResult?.error === 'shared_instance_limit_exceeded') {
+                const limitVal = incrResult.limit;
+                Alert.alert(
+                  limitVal === 0 ? 'Upgrade Required' : 'Shared Instance Limit Reached',
+                  limitVal === 0
+                    ? 'Sharing apps requires a Pro or Beta plan. Redeem a promo code in Settings to unlock this feature.'
+                    : `Your plan allows up to ${limitVal} shared instances. Upgrade to Team for unlimited.`,
+                  [{ text: 'OK' }]
+                );
+                return;
+              }
+
+              let result;
+              try {
+                result = await createSharedInstanceForApp(db, powerSyncDb, liveApp);
+              } catch (createError) {
+                void supabase.rpc('increment_shared_instance_count', { delta: -1 }).then(undefined, () => {});
+                throw createError;
+              }
+
+              if (!result.created) {
+                void supabase.rpc('increment_shared_instance_count', { delta: -1 }).then(undefined, () => {});
+              }
+
+              const inviteCode = result.inviteCode.toUpperCase();
+              await refresh();
+              Alert.alert(
+                'Shared app created',
+                `Invite code: ${inviteCode}\n\nSpaced: ${inviteCode.split('').join(' ')}`,
+                [
+                  { text: 'Copy Code', onPress: async () => { await Share.share({ message: inviteCode }); } },
+                  {
+                    text: 'Share via Message',
+                    onPress: async () => {
+                      await Share.share({
+                        message: `Join my "${liveApp.name}" on Cottix!\nOpen Cottix -> Settings -> Join Shared App -> Enter code: ${inviteCode}`,
+                      });
+                    },
+                  },
+                  { text: 'Done' },
+                ]
+              );
+            } catch (error) {
+              Alert.alert('Could not create shared app', error instanceof Error ? error.message : String(error));
+            }
+          },
+        },
+      ]
+    );
+  }, [db, menuTargetApp, closeContextMenu, refresh]);
 
   const performMenuDelete = useCallback(() => {
     if (!menuTargetApp) return;
@@ -420,6 +568,7 @@ export function useAppContextMenu({
     performMenuShare,
     performMenuExportData,
     performMenuClearData,
+    performMenuCollaborate,
     performMenuDelete,
   };
 }

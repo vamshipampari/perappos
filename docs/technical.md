@@ -429,6 +429,12 @@ void supabase.rpc('my_rpc', { param: value }).then(undefined, () => {});
 ```
 For awaited calls, use `try/catch`. Never chain `.catch()` directly on `.rpc()`.
 
+**`%ROWTYPE` cache — recreate function after ALTER TABLE**
+PL/pgSQL functions that declare `v_row table_name%ROWTYPE` cache the row type at compile time. Adding a column to the table does NOT update the function — `row_to_json(v_row)` will omit the new column and direct column references will error with "column does not exist". Fix: `DROP FUNCTION IF EXISTS name(); CREATE OR REPLACE FUNCTION name() ...` with the same body. Prevention: whenever you add a column that an RPC must return, always pair it with a migration that recreates the function.
+
+**Feature flag + local developer mode pattern**
+For features gated by a Supabase column (e.g. `generation_enabled` on `user_profiles`): check the flag via the `get_user_profile` RPC in the relevant hook. For local developer self-activation, store a `dev_mode` key in SQLite `shared_data` (category `'settings'`) and read it on mount with `getFirstAsync`. Gate UI with `supabaseFlag || localDevMode` so either path works. To grant access to a production user: `UPDATE user_profiles SET generation_enabled = true WHERE user_id = '<uuid>'`.
+
 **`installed_apps` PK conflict for multi-user shared apps**
 The Supabase `installed_apps` row `id` must be scoped to `${userId}/${appId}`, not just `app_id`. When user B joins a shared app, a naive upsert on `id = app_id` conflicts with user A's existing row — the UPDATE path fails RLS (`user_id = auth.uid()` doesn't match user A). Fix in `SupabaseConnector.ts`: use a `supabaseRowId()` helper that returns `${userId}/${appId}` for `installed_apps` in all PUT, PATCH, and DELETE paths. Requires `ALTER TABLE installed_apps ALTER COLUMN id TYPE TEXT;` in Supabase (composite string is not a valid UUID).
 

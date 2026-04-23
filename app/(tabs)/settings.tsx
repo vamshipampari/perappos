@@ -627,6 +627,51 @@ export default function SettingsScreen() {
     );
   };
 
+  const handleDeleteAccount = () => {
+    Alert.alert(
+      'Delete Account',
+      'This will permanently delete your account, all installed apps, and all your data. This cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete My Account',
+          style: 'destructive',
+          onPress: () => {
+            Alert.alert(
+              'Are you absolutely sure?',
+              'Your account and all data will be permanently deleted. You will be signed out immediately.',
+              [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                  text: 'Yes, Delete Everything',
+                  style: 'destructive',
+                  onPress: async () => {
+                    try {
+                      const { error: rpcError } = await supabase.rpc('delete_own_account');
+                      if (rpcError) throw rpcError;
+
+                      await db.execAsync(`
+                        DELETE FROM app_data;
+                        DELETE FROM shared_data;
+                        DELETE FROM apps;
+                      `);
+                      await syncDb.execute('DELETE FROM installed_apps');
+                      await syncDb.execute('DELETE FROM app_data');
+
+                      await supabase.auth.signOut();
+                    } catch {
+                      Alert.alert('Error', 'Account deletion failed. Please try again or contact support.');
+                    }
+                  },
+                },
+              ]
+            );
+          },
+        },
+      ]
+    );
+  };
+
   const handleDebugSync = async () => {
     try {
       const rows = await syncDb.getAll<{ app_id: string; key: string; value: string }>(
@@ -925,15 +970,7 @@ export default function SettingsScreen() {
         {/* Data */}
         <Section title="Data" theme={theme}>
           <Row kind="value" label="Storage Used" value={formatBytes(storageUsed)} theme={theme} />
-          <Row kind="chevron" label="Export All Data" onPress={handleExportData} theme={theme} />
-          <Row
-            kind="chevron"
-            label="Clear All Data"
-            labelColor={theme.destructive}
-            onPress={handleClearAllData}
-            isLast
-            theme={theme}
-          />
+          <Row kind="chevron" label="Export All Data" onPress={handleExportData} isLast theme={theme} />
         </Section>
 
         {/* API Keys */}
@@ -1056,6 +1093,27 @@ export default function SettingsScreen() {
           <Row kind="info" label="Built with ❤️ in Hyderabad" centered theme={theme} />
           <Row kind="info" label="Cottix — Personal App OS" centered isLast theme={theme} />
         </Section>
+
+        {/* Danger Zone */}
+        {userEmail && (
+          <Section title="Danger Zone" theme={theme}>
+            <Row
+              kind="chevron"
+              label="Clear All Data"
+              labelColor={theme.destructive}
+              onPress={handleClearAllData}
+              theme={theme}
+            />
+            <Row
+              kind="chevron"
+              label="Delete Account"
+              labelColor={theme.destructive}
+              onPress={handleDeleteAccount}
+              isLast
+              theme={theme}
+            />
+          </Section>
+        )}
       </ScrollView>
 
       {/* Edit Profile modal */}

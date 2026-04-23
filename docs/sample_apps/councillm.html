@@ -1,0 +1,685 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
+    />
+    <meta
+      name="cottix-meta"
+      content='{"icon":"⚖️","description":"Multi-LLM council with judge synthesis"}'
+    />
+    <title>CouncilLM</title>
+    <style>
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        background: #f2f2f7;
+        color: #1c1c1e;
+        height: 100vh;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+      }
+      .topbar {
+        background: #fff;
+        border-bottom: 0.5px solid #c8c8cc;
+        padding: 10px 14px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-shrink: 0;
+      }
+      .topbar h1 {
+        font-size: 17px;
+        font-weight: 700;
+        flex: 1;
+      }
+      .dots {
+        display: flex;
+        gap: 5px;
+      }
+      .dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: #ddd;
+        transition: background 0.3s;
+      }
+      .dot.active {
+        background: #f0a500;
+      }
+      .dot.done {
+        background: #1c1c1e;
+      }
+      .cfg-btn {
+        background: none;
+        border: 0.5px solid #c8c8cc;
+        border-radius: 8px;
+        padding: 5px 10px;
+        font-size: 13px;
+        cursor: pointer;
+        color: #333;
+      }
+
+      .panel {
+        background: #fff;
+        border-bottom: 0.5px solid #c8c8cc;
+        padding: 12px 14px;
+        flex-shrink: 0;
+        display: none;
+      }
+      .panel.open {
+        display: block;
+      }
+      .row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 8px;
+      }
+      .row:last-child {
+        margin-bottom: 0;
+      }
+      .lbl {
+        font-size: 12px;
+        color: #666;
+        width: 62px;
+        flex-shrink: 0;
+      }
+      .sel {
+        flex: 1;
+        padding: 7px 8px;
+        border: 0.5px solid #c8c8cc;
+        border-radius: 8px;
+        font-size: 13px;
+        background: #f9f9f9;
+        font-family: inherit;
+        outline: none;
+        -webkit-appearance: none;
+        appearance: none;
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23999'/%3E%3C/svg%3E");
+        background-repeat: no-repeat;
+        background-position: right 8px center;
+        padding-right: 24px;
+      }
+      .inp {
+        flex: 1;
+        padding: 7px 8px;
+        border: 0.5px solid #c8c8cc;
+        border-radius: 8px;
+        font-size: 13px;
+        background: #f9f9f9;
+        font-family: monospace;
+        outline: none;
+        min-width: 0;
+      }
+      .sbtn {
+        padding: 6px 11px;
+        border: 0.5px solid #c8c8cc;
+        border-radius: 8px;
+        font-size: 12px;
+        background: none;
+        cursor: pointer;
+        white-space: nowrap;
+      }
+      .hint {
+        font-size: 11px;
+        margin-top: 3px;
+        padding-left: 70px;
+      }
+      .hint.ok {
+        color: #30a060;
+      }
+      .hint.err {
+        color: #c0392b;
+      }
+      .hint.muted {
+        color: #999;
+      }
+
+      .feed {
+        flex: 1;
+        overflow-y: auto;
+        padding: 12px 14px;
+        -webkit-overflow-scrolling: touch;
+      }
+      .empty {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        height: 100%;
+        color: #aaa;
+        font-size: 14px;
+        gap: 6px;
+      }
+
+      .q-bubble {
+        background: #1c1c1e;
+        color: #fff;
+        border-radius: 14px 14px 4px 14px;
+        padding: 10px 13px;
+        margin-bottom: 14px;
+        font-size: 14px;
+        line-height: 1.5;
+        max-width: 85%;
+        margin-left: auto;
+      }
+      .ph {
+        font-size: 10px;
+        font-weight: 600;
+        color: #999;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        margin: 12px 0 6px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .ph-line {
+        flex: 1;
+        height: 0.5px;
+        background: #e0e0e0;
+      }
+      .mc {
+        background: #fff;
+        border: 0.5px solid #e0e0e0;
+        border-radius: 10px;
+        padding: 10px 12px;
+        margin-bottom: 6px;
+      }
+      .mt {
+        display: inline-flex;
+        font-size: 11px;
+        font-weight: 600;
+        padding: 2px 7px;
+        border-radius: 99px;
+        margin-bottom: 6px;
+      }
+      .ct {
+        font-size: 13px;
+        line-height: 1.6;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+      .ct.p {
+        color: #aaa;
+        font-style: italic;
+      }
+      .ct.e {
+        color: #c0392b;
+      }
+      .sw {
+        background: #1c1c1e;
+        border-radius: 12px;
+        padding: 12px 14px;
+        margin-top: 4px;
+        margin-bottom: 16px;
+      }
+      .sl {
+        font-size: 10px;
+        font-weight: 600;
+        color: #888;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        margin-bottom: 8px;
+      }
+      .st {
+        font-size: 14px;
+        line-height: 1.7;
+        color: #f0f0f0;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+      .st.p {
+        color: #555;
+        font-style: italic;
+      }
+
+      .ibar {
+        background: #fff;
+        border-top: 0.5px solid #c8c8cc;
+        padding: 10px 12px;
+        padding-bottom: max(10px, env(safe-area-inset-bottom));
+        display: flex;
+        gap: 8px;
+        align-items: flex-end;
+        flex-shrink: 0;
+      }
+      .ibar textarea {
+        flex: 1;
+        border: 0.5px solid #c8c8cc;
+        border-radius: 20px;
+        padding: 8px 14px;
+        font-size: 14px;
+        font-family: inherit;
+        resize: none;
+        outline: none;
+        line-height: 1.4;
+        min-height: 36px;
+        max-height: 100px;
+        background: #f9f9f9;
+      }
+      .sbtn2 {
+        width: 36px;
+        height: 36px;
+        border-radius: 50%;
+        background: #1c1c1e;
+        border: none;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+      }
+      .sbtn2:disabled {
+        opacity: 0.35;
+      }
+      .sbtn2 svg {
+        fill: #fff;
+        width: 16px;
+        height: 16px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="topbar">
+      <h1>⚖️ CouncilLM</h1>
+      <div class="dots">
+        <div class="dot" id="d1"></div>
+        <div class="dot" id="d2"></div>
+        <div class="dot" id="d3"></div>
+      </div>
+      <button class="cfg-btn" onclick="togglePanel()">⚙️ Config</button>
+    </div>
+
+    <div class="panel" id="panel">
+      <!-- Key row -->
+      <div class="row">
+        <span class="lbl">OR Key</span>
+        <input class="inp" type="password" id="keyInp" placeholder="sk-or-v1-..." />
+        <button class="sbtn" onclick="saveKey()">Save</button>
+      </div>
+      <div class="hint muted" id="keyHint">Get a free key at openrouter.ai</div>
+
+      <div class="row" style="margin-top: 8px">
+        <span class="lbl">Members</span>
+        <select class="sel" id="cntSel" onchange="renderSlots()">
+          <option value="2">2 models</option>
+          <option value="3">3 models</option>
+          <option value="4">4 models</option>
+        </select>
+      </div>
+      <div id="slotRows"></div>
+    </div>
+
+    <div class="feed" id="feed">
+      <div class="empty" id="emptyEl">
+        <div style="font-size: 32px">🧠</div>
+        <div>Ask the council anything</div>
+        <div style="font-size: 12px; color: #bbb">Set your OpenRouter key in Config first</div>
+      </div>
+    </div>
+
+    <div class="ibar">
+      <textarea
+        id="pi"
+        placeholder="Ask the council..."
+        rows="1"
+        oninput="ar(this)"
+        onkeydown="hk(event)"
+      ></textarea>
+      <button class="sbtn2" id="sendBtn" onclick="run()">
+        <svg viewBox="0 0 24 24"><path d="M2 21l21-9L2 3v7l15 2-15 2v7z" /></svg>
+      </button>
+    </div>
+
+    <script>
+      const MODELS = {
+        'anthropic/claude-haiku-4-5': { label: 'Claude Haiku 4.5', color: '#7F5AF0' },
+        'anthropic/claude-sonnet-4.6': { label: 'Claude Sonnet 4.6', color: '#7F5AF0' },
+        'anthropic/claude-opus-4.7': { label: 'Claude Opus 4.7', color: '#7F5AF0' },
+        'openai/gpt-oss-120b': { label: 'OSS-120b', color: '#10A37F' },
+        'openai/gpt-4o-mini': { label: 'GPT-4o mini', color: '#10A37F' },
+        'openai/gpt-5.4': { label: 'GPT-5.4', color: '#10A37F' },
+        'google/gemini-2.5-flash-lite': { label: 'Gemini 2.5 Flash Lite', color: '#4285F4' },
+        'google/gemini-3-flash-preview': { label: 'Gemini 3.0 Flash Preview', color: '#4285F4' },
+        'google/gemini-3.1-pro-preview': { label: 'Gemini 3.1 Pro Preview', color: '#4285F4' },
+        'x-ai/grok-4.1-fast': { label: 'Grok 4.1 Fast', color: '#555' },
+        'x-ai/grok-4.20': { label: 'Grok 4.20', color: '#555' },
+      };
+      const MIDs = Object.keys(MODELS);
+      const JUDGE = 'anthropic/claude-sonnet-4-5';
+      const SECRET = 'OPENROUTER_API_KEY';
+      const OR = 'https://openrouter.ai/api/v1/chat/completions';
+
+      let slots = [
+        'anthropic/claude-haiku-4-5',
+        'openai/gpt-4o-mini',
+        'google/google/gemini-2.5-flash-lite',
+        'x-ai/grok-4.1-fast',
+      ];
+      let running = false;
+
+      // On load — show saved key status
+      async function init() {
+        // Check if key saved via VaultAPI.secrets (set by this app previously)
+        // or fall back to localStorage for browser dev
+        const saved = await getKey();
+        if (saved) {
+          document.getElementById('keyInp').value = '••••••••';
+          setHint('✓ Key saved', 'ok');
+        }
+        renderSlots();
+      }
+
+      async function getKey() {
+        if (window.VaultAPI?.secrets) {
+          return await VaultAPI.secrets.has(SECRET);
+        }
+        return !!localStorage.getItem('_orkey');
+      }
+
+      async function saveKey() {
+        const v = document.getElementById('keyInp').value.trim();
+        if (!v || v === '••••••••') {
+          setHint('Paste your actual key first', 'err');
+          return;
+        }
+        if (!v.startsWith('sk-or')) {
+          setHint('Key should start with sk-or-v1-...', 'err');
+          return;
+        }
+
+        setHint('Saving...', 'muted');
+        try {
+          if (window.VaultAPI?.secrets) {
+            const ok = await VaultAPI.secrets.set(SECRET, v);
+            if (ok) {
+              setHint('✓ Key saved to device keychain', 'ok');
+              document.getElementById('keyInp').value = '••••••••';
+            } else {
+              setHint('Failed to save — try again', 'err');
+            }
+          } else {
+            localStorage.setItem('_orkey', v);
+            setHint('✓ Saved locally (dev mode)', 'ok');
+            document.getElementById('keyInp').value = '••••••••';
+          }
+        } catch (e) {
+          setHint('Error: ' + e.message, 'err');
+        }
+      }
+
+      function setHint(msg, cls) {
+        const h = document.getElementById('keyHint');
+        h.textContent = msg;
+        h.className = 'hint ' + cls;
+      }
+
+      async function callOR(modelId, messages, system) {
+        const body = JSON.stringify({
+          model: modelId,
+          max_tokens: 1000,
+          messages: [...(system ? [{ role: 'system', content: system }] : []), ...messages],
+        });
+
+        if (window.VaultAPI?.secrets) {
+          const res = await VaultAPI.secrets.fetch(SECRET, {
+            url: OR,
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: 'Bearer {{secret}}',
+              'HTTP-Referer': 'https://cottix.co',
+              'X-Title': 'CouncilLM',
+            },
+            body,
+          });
+          if (res.error)
+            throw new Error(
+              res.error === 'secret_not_found'
+                ? 'Key not saved — open Config and save your key'
+                : res.error
+            );
+          const data = JSON.parse(res.body);
+          if (data.error) throw new Error(data.error.message || JSON.stringify(data.error));
+          return data.choices[0].message.content;
+        } else {
+          const key = localStorage.getItem('_orkey');
+          if (!key) throw new Error('No API key — open Config and save your key');
+          const res = await fetch(OR, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: 'Bearer ' + key,
+              'HTTP-Referer': 'https://cottix.co',
+              'X-Title': 'CouncilLM',
+            },
+            body,
+          });
+          const data = await res.json();
+          if (data.error) throw new Error(data.error.message || JSON.stringify(data.error));
+          return data.choices[0].message.content;
+        }
+      }
+
+      function renderSlots() {
+        const count = parseInt(document.getElementById('cntSel').value);
+        const c = document.getElementById('slotRows');
+        c.innerHTML = '';
+        for (let i = 0; i < count; i++) {
+          const row = document.createElement('div');
+          row.className = 'row';
+          row.style.marginTop = '8px';
+          const lbl = document.createElement('span');
+          lbl.className = 'lbl';
+          lbl.textContent = 'Model ' + (i + 1);
+          const sel = document.createElement('select');
+          sel.className = 'sel';
+          sel.onchange = () => {
+            slots[i] = sel.value;
+          };
+          MIDs.forEach((id) => {
+            const o = document.createElement('option');
+            o.value = id;
+            o.textContent = MODELS[id].label;
+            if (id === slots[i]) o.selected = true;
+            sel.appendChild(o);
+          });
+          row.appendChild(lbl);
+          row.appendChild(sel);
+          c.appendChild(row);
+        }
+      }
+
+      function togglePanel() {
+        document.getElementById('panel').classList.toggle('open');
+      }
+      function ar(el) {
+        el.style.height = 'auto';
+        el.style.height = Math.min(el.scrollHeight, 100) + 'px';
+      }
+      function hk(e) {
+        if (e.key === 'Enter' && !e.shiftKey) {
+          e.preventDefault();
+          run();
+        }
+      }
+      function setDots(p) {
+        const m = {
+          idle: [0, 0, 0],
+          r1: [1, 0, 0],
+          r2: [2, 1, 0],
+          synth: [2, 2, 1],
+          done: [2, 2, 2],
+        };
+        const s = m[p] || [0, 0, 0];
+        [1, 2, 3].forEach((n, i) => {
+          document.getElementById('d' + n).className =
+            'dot' + (s[i] === 2 ? ' done' : s[i] === 1 ? ' active' : '');
+        });
+      }
+
+      async function run() {
+        if (running) return;
+        const prompt = document.getElementById('pi').value.trim();
+        if (!prompt) return;
+        document.getElementById('pi').value = '';
+        document.getElementById('pi').style.height = 'auto';
+        document.getElementById('sendBtn').disabled = true;
+        document.getElementById('panel').classList.remove('open');
+        running = true;
+
+        const count = parseInt(document.getElementById('cntSel').value);
+        const asl = slots.slice(0, count);
+        const feed = document.getElementById('feed');
+        document.getElementById('emptyEl')?.remove();
+
+        const qb = document.createElement('div');
+        qb.className = 'q-bubble';
+        qb.textContent = prompt;
+        feed.appendChild(qb);
+        feed.scrollTop = feed.scrollHeight;
+
+        // R1
+        setDots('r1');
+        const r1s = mkPhase('Round 1 — independent');
+        const r1e = {};
+        asl.forEach((m, i) => {
+          const [c, t] = mkCard(m);
+          r1e[i] = t;
+          r1s.appendChild(c);
+        });
+        feed.appendChild(r1s);
+        feed.scrollTop = feed.scrollHeight;
+        const r1 = {};
+        await Promise.all(
+          asl.map(async (m, i) => {
+            try {
+              r1[i] = await callOR(
+                m,
+                [{ role: 'user', content: prompt }],
+                'You are a thoughtful expert. Answer clearly and concisely.'
+              );
+              r1e[i].className = 'ct';
+              r1e[i].textContent = r1[i];
+            } catch (e) {
+              r1[i] = 'Error: ' + e.message;
+              r1e[i].className = 'ct e';
+              r1e[i].textContent = r1[i];
+            }
+            feed.scrollTop = feed.scrollHeight;
+          })
+        );
+
+        // R2
+        setDots('r2');
+        const allR1 = asl.map((m, i) => `[${MODELS[m].label}]:\n${r1[i]}`).join('\n\n---\n\n');
+        const r2s = mkPhase('Round 2 — peer review');
+        const r2e = {};
+        asl.forEach((m, i) => {
+          const [c, t] = mkCard(m, 'Reviewing peers...');
+          r2e[i] = t;
+          r2s.appendChild(c);
+        });
+        feed.appendChild(r2s);
+        feed.scrollTop = feed.scrollHeight;
+        const r2 = {};
+        await Promise.all(
+          asl.map(async (m, i) => {
+            try {
+              r2[i] = await callOR(
+                m,
+                [
+                  {
+                    role: 'user',
+                    content: `Question: ${prompt}\n\nAll Round 1 responses:\n${allR1}\n\nNow give your refined answer.`,
+                  },
+                ],
+                'You are reviewing a multi-model discussion. Refine or affirm your view.'
+              );
+              r2e[i].className = 'ct';
+              r2e[i].textContent = r2[i];
+            } catch (e) {
+              r2[i] = 'Error: ' + e.message;
+              r2e[i].className = 'ct e';
+              r2e[i].textContent = r2[i];
+            }
+            feed.scrollTop = feed.scrollHeight;
+          })
+        );
+
+        // Synthesis
+        setDots('synth');
+        const allR2 = asl
+          .map((m, i) => `[${MODELS[m].label} refined]:\n${r2[i]}`)
+          .join('\n\n---\n\n');
+        const sw = document.createElement('div');
+        sw.className = 'sw';
+        const sl = document.createElement('div');
+        sl.className = 'sl';
+        sl.textContent = '⚖️ Judge synthesis';
+        const st = document.createElement('div');
+        st.className = 'st p';
+        st.textContent = 'Synthesising...';
+        sw.appendChild(sl);
+        sw.appendChild(st);
+        feed.appendChild(sw);
+        feed.scrollTop = feed.scrollHeight;
+        try {
+          const s = await callOR(
+            JUDGE,
+            [
+              {
+                role: 'user',
+                content: `Question: ${prompt}\n\nRound 2 responses:\n${allR2}\n\nProduce the definitive synthesised answer.`,
+              },
+            ],
+            'You are a wise judge synthesising a council of AI models. Give the single best answer. Note where models agreed or differed.'
+          );
+          st.className = 'st';
+          st.textContent = s;
+        } catch (e) {
+          st.className = 'st e';
+          st.style.color = '#f88';
+          st.textContent = 'Error: ' + e.message;
+        }
+
+        setDots('done');
+        feed.scrollTop = feed.scrollHeight;
+        document.getElementById('sendBtn').disabled = false;
+        running = false;
+      }
+
+      function mkPhase(label) {
+        const d = document.createElement('div');
+        d.innerHTML = `<div class="ph">${label}<div class="ph-line"></div></div>`;
+        return d;
+      }
+      function mkCard(mid, pend) {
+        const p = MODELS[mid],
+          c = document.createElement('div');
+        c.className = 'mc';
+        const t = document.createElement('div');
+        t.className = 'mt';
+        t.style.cssText = `background:${p.color}22;color:${p.color}`;
+        t.textContent = p.label;
+        const x = document.createElement('div');
+        x.className = 'ct p';
+        x.textContent = pend || 'Thinking...';
+        c.appendChild(t);
+        c.appendChild(x);
+        return [c, x];
+      }
+
+      init();
+    </script>
+  </body>
+</html>
