@@ -662,8 +662,12 @@ export default function SettingsScreen() {
                       await syncDb.execute('DELETE FROM app_data');
 
                       await supabase.auth.signOut();
-                    } catch {
-                      Alert.alert('Error', 'Account deletion failed. Please try again or contact support.');
+                      router.replace('/login');
+                    } catch (err) {
+                      const msg = (err as Record<string, unknown>)?.message ?? String(err);
+                      const code = (err as Record<string, unknown>)?.code;
+                      console.error('[DeleteAccount] failed:', code, msg, err);
+                      Alert.alert('Error', `Account deletion failed: ${msg}`);
                     }
                   },
                 },
@@ -1139,7 +1143,6 @@ export default function SettingsScreen() {
             }}
             theme={theme}
           />
-          <Row kind="info" label="Built with ❤️ in Hyderabad" centered theme={theme} />
           <Row kind="info" label="Cottix — Personal App OS" centered isLast theme={theme} />
         </Section>
 
