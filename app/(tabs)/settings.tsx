@@ -4,9 +4,10 @@ import * as Haptics from 'expo-haptics';
 import * as LocalAuthentication from 'expo-local-authentication';
 import { router, useFocusEffect } from 'expo-router';
 import * as Sharing from 'expo-sharing';
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Alert,
+  Linking,
   Modal,
   ScrollView,
   Switch,
@@ -302,8 +303,10 @@ export default function SettingsScreen() {
   const [editName, setEditName] = useState('');
   const [editEmoji, setEditEmoji] = useState('👤');
   const [editProfileSaving, setEditProfileSaving] = useState(false);
+  const versionTapCount = useRef(0);
+  const versionTapTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const { profile, limits, redeemPromoCode, refresh: refreshProfile, updateDisplayName, updateAvatarEmoji } = useUserProfile();
+  const { profile, limits, purchasedViaPlatform, redeemPromoCode, refresh: refreshProfile, updateDisplayName, updateAvatarEmoji } = useUserProfile();
   const { apps } = useInstalledApps();
   // Use local SQLite count (not Supabase counter) so Settings matches the Home screen.
   // The Supabase app_install_count can drift after device wipes or multi-device use.
@@ -818,22 +821,6 @@ export default function SettingsScreen() {
               {/* Action buttons */}
               <View style={{ flexDirection: 'row', gap: 10 }}>
                 <TouchableOpacity
-                  onPress={() => setPromoSheetVisible(true)}
-                  activeOpacity={0.7}
-                  style={{
-                    flex: 1,
-                    height: 36,
-                    borderRadius: 8,
-                    backgroundColor: theme.primary,
-                    justifyContent: 'center',
-                    alignItems: 'center',
-                  }}
-                >
-                  <Text style={{ fontSize: 14, fontWeight: '600', color: '#FFFFFF' }}>
-                    Redeem Code
-                  </Text>
-                </TouchableOpacity>
-                <TouchableOpacity
                   activeOpacity={0.7}
                   onPress={handleOpenEditProfile}
                   style={{
@@ -850,6 +837,64 @@ export default function SettingsScreen() {
                   </Text>
                 </TouchableOpacity>
               </View>
+
+              {/* Plan upgrade / management row */}
+              {profile.plan === 'free' && (
+                <TouchableOpacity
+                  activeOpacity={0.7}
+                  onPress={() => router.push('/paywall' as any)}
+                  style={{
+                    marginTop: 10,
+                    height: 36,
+                    borderRadius: 8,
+                    backgroundColor: theme.primary,
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                  }}
+                >
+                  <Text style={{ fontSize: 14, fontWeight: '600', color: '#FFFFFF' }}>
+                    ⭐ Upgrade to Pro
+                  </Text>
+                </TouchableOpacity>
+              )}
+              {profile.plan === 'pro' && purchasedViaPlatform && (
+                <TouchableOpacity
+                  activeOpacity={0.7}
+                  onPress={() => void Linking.openURL('https://apps.apple.com/account/subscriptions')}
+                  style={{
+                    marginTop: 10,
+                    height: 36,
+                    borderRadius: 8,
+                    backgroundColor: theme.background,
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    borderWidth: 0.5,
+                    borderColor: theme.separator,
+                  }}
+                >
+                  <Text style={{ fontSize: 14, fontWeight: '600', color: theme.label }}>
+                    Pro · Manage Subscription
+                  </Text>
+                </TouchableOpacity>
+              )}
+              {profile.plan === 'pro' && !purchasedViaPlatform && (
+                <View
+                  style={{
+                    marginTop: 10,
+                    height: 36,
+                    borderRadius: 8,
+                    backgroundColor: theme.background,
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    borderWidth: 0.5,
+                    borderColor: theme.separator,
+                  }}
+                >
+                  <Text style={{ fontSize: 14, color: theme.labelSecondary }}>
+                    Pro · Active via promo code
+                  </Text>
+                </View>
+              )}
 
               {/* App limit */}
               <View style={{ marginTop: 12 }}>
@@ -904,12 +949,6 @@ export default function SettingsScreen() {
                 kind="chevron"
                 label="Join Shared App"
                 onPress={() => router.push('/join-shared-app' as any)}
-                theme={theme}
-              />
-              <Row
-                kind="chevron"
-                label="Debug: Check Sync DB"
-                onPress={handleDebugSync}
                 theme={theme}
               />
               <Row
@@ -1085,9 +1124,19 @@ export default function SettingsScreen() {
             theme={theme}
           />
           <Row
-            kind="value"
+            kind="chevron"
             label="Version"
             value={`${Constants.expoConfig?.version ?? '0.0.0'} (${Constants.expoConfig?.extra?.eas?.projectId ? 'EAS' : 'dev'})`}
+            onPress={() => {
+              versionTapCount.current += 1;
+              if (versionTapTimer.current) clearTimeout(versionTapTimer.current);
+              if (versionTapCount.current >= 5) {
+                versionTapCount.current = 0;
+                void handleDebugSync();
+              } else {
+                versionTapTimer.current = setTimeout(() => { versionTapCount.current = 0; }, 3000);
+              }
+            }}
             theme={theme}
           />
           <Row kind="info" label="Built with ❤️ in Hyderabad" centered theme={theme} />
