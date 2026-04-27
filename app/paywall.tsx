@@ -45,16 +45,17 @@ export default function PaywallScreen() {
     void (async () => {
       try {
         const offerings = await getOfferings();
-        console.log('RC offerings:', JSON.stringify(offerings));
         const current = offerings.current;
+        const pkgTypes = current?.availablePackages.map(p => p.packageType).join(', ') ?? 'none';
+        Alert.alert('RC Debug', `current: ${current ? 'yes' : 'null'}\npkgs: ${pkgTypes}`);
         if (!current) return;
         for (const pkg of current.availablePackages) {
           const id = pkg.packageType;
           if (id === 'MONTHLY') setMonthlyPkg(pkg);
           if (id === 'ANNUAL') setYearlyPkg(pkg);
         }
-      } catch {
-        // Offerings unavailable — user can still restore.
+      } catch (err) {
+        Alert.alert('RC Error', String((err as Record<string,unknown>)?.message ?? err));
       } finally {
         setOfferingsLoading(false);
       }
