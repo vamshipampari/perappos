@@ -33,7 +33,7 @@ type BillingPeriod = 'monthly' | 'yearly';
 export default function PaywallScreen() {
   const router = useRouter();
   const theme = useTheme();
-  const { refreshProfile } = useUserProfile();
+  const { refresh: refreshProfile } = useUserProfile();
 
   const [billingPeriod, setBillingPeriod] = useState<BillingPeriod>('yearly');
   const [monthlyPkg, setMonthlyPkg] = useState<PurchasesPackage | null>(null);
@@ -79,8 +79,8 @@ export default function PaywallScreen() {
       await refreshProfile();
       router.dismiss();
     } catch (err: unknown) {
-      const code = (err as { code?: number }).code;
-      if (code === PURCHASES_ERROR_CODE.PURCHASE_CANCELLED_ERROR) {
+      const code = (err as { code?: string | number }).code;
+      if (code === PURCHASES_ERROR_CODE.PURCHASE_CANCELLED_ERROR || String(code) === String(PURCHASES_ERROR_CODE.PURCHASE_CANCELLED_ERROR)) {
         // User tapped Cancel — no alert needed.
         return;
       }

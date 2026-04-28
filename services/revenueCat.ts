@@ -14,6 +14,9 @@ let _rcAvailable = false;
 export function initRevenueCat(userId: string): void {
   try {
     Purchases.configure({ apiKey: IOS_KEY, appUserID: userId });
+    if (__DEV__) {
+      Purchases.setLogLevel(Purchases.LOG_LEVEL.DEBUG);
+    }
     _rcAvailable = true;
   } catch (err) {
     // Native module not linked yet — needs `pod install` + a dev/production build.

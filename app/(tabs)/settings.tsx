@@ -306,7 +306,7 @@ export default function SettingsScreen() {
   const versionTapCount = useRef(0);
   const versionTapTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const { profile, limits, purchasedViaPlatform, redeemPromoCode, refresh: refreshProfile, updateDisplayName, updateAvatarEmoji } = useUserProfile();
+  const { profile, limits, redeemPromoCode, refresh: refreshProfile, updateDisplayName, updateAvatarEmoji } = useUserProfile();
   const { apps } = useInstalledApps();
   // Use local SQLite count (not Supabase counter) so Settings matches the Home screen.
   // The Supabase app_install_count can drift after device wipes or multi-device use.
@@ -861,7 +861,7 @@ export default function SettingsScreen() {
                   </Text>
                 </TouchableOpacity>
               )}
-              {profile.plan === 'pro' && purchasedViaPlatform && (
+              {profile.plan !== 'free' && (
                 <TouchableOpacity
                   activeOpacity={0.7}
                   onPress={() => void Linking.openURL('https://apps.apple.com/account/subscriptions')}
@@ -880,24 +880,6 @@ export default function SettingsScreen() {
                     Pro · Manage Subscription
                   </Text>
                 </TouchableOpacity>
-              )}
-              {profile.plan === 'pro' && !purchasedViaPlatform && (
-                <View
-                  style={{
-                    marginTop: 10,
-                    height: 36,
-                    borderRadius: 8,
-                    backgroundColor: theme.background,
-                    justifyContent: 'center',
-                    alignItems: 'center',
-                    borderWidth: 0.5,
-                    borderColor: theme.separator,
-                  }}
-                >
-                  <Text style={{ fontSize: 14, color: theme.labelSecondary }}>
-                    Pro · Active via promo code
-                  </Text>
-                </View>
               )}
 
               {/* App limit */}
