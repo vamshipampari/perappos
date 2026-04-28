@@ -1,8 +1,44 @@
 # Cottix — Status
 
-**Last Updated**: 2026-04-15 (Session 18)
+**Last Updated**: 2026-04-28 (Session 19)
 
-## Current Sprint: Queue-Based AI Generation
+## Current Sprint: RevenueCat IAP Integration
+
+### ✅ Session 19 — RevenueCat Paywall + Delete Account Fix + UX Cleanup (2026-04-28)
+
+**RevenueCat integration (`services/revenueCat.ts`, `app/paywall.tsx`, `app/_layout.tsx`):**
+- Added `react-native-purchases` + `react-native-purchases-ui` to `package.json`
+- `services/revenueCat.ts` — `initRevenueCat`, `getOfferings`, `purchasePackage`, `restorePurchases`, `getCustomerInfo`, `hasProAccess`
+- `app/paywall.tsx` — full paywall screen: yearly/monthly toggle, price display from RC offerings, Start Pro CTA, Restore Purchases, fine print
+- `app/_layout.tsx` — `initRevenueCat(userId)` called on auth sign-in
+- Route `/paywall` registered as modal in root Stack
+- Settings Account section: "Upgrade to Pro" button shown for free-plan users; "Manage Subscription" shown for pro users
+
+**Delete account fix (`supabase/migrations/20260423_delete_user_account.sql`):**
+- Fixed `operator does not exist: uuid = text` — removed incorrect `::text` casts from all columns that are `uuid` type in Supabase
+- `generation_jobs.user_id` confirmed as `uuid` (not text despite schema docs saying text)
+- Added `router.replace('/login')` after `signOut()` — auth row deletion doesn't always trigger `SIGNED_OUT` event
+
+**UX cleanup:**
+- Removed "Built with ❤️ in Hyderabad" tagline from Settings
+- TypeScript fixes: `refreshProfile` → `refresh`, removed `purchasedViaPlatform` (not in `UserProfileState`)
+
+**App Store submission status:**
+- Build 23 submitted to TestFlight via `eas submit`
+- Products `com.cottix.app.pro.monthly` + `com.cottix.app.pro.yearly` created in App Store Connect (status: Ready to Submit)
+- RevenueCat offerings configured with both products
+- Pending: submit app version for review to activate sandbox testing of IAP products
+
+### 🔜 Next Up
+- [ ] Submit app version for App Review (attach both subscription products to the version) — required to activate sandbox IAP testing
+- [ ] Reply to Apple rejection (Guideline 2.1 + 2.2) with business model explanation + test account
+- [ ] Remove RC debug alert from `app/paywall.tsx` before next production build
+- [ ] Verify paywall button activates end-to-end with sandbox Apple ID after App Review submission
+- [ ] Remove one-time queue flush from `PowerSyncProvider` after confirming clean CRUD queues
+
+---
+
+## Previous Sprint: Queue-Based AI Generation
 
 ### ✅ Session 18 — Queue-Based AI Generation + Edit with AI (2026-04-15)
 

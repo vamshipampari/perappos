@@ -235,7 +235,7 @@ Job status table — CF Worker inserts on enqueue, patches on completion. PowerS
 | Column | Type | Notes |
 |---|---|---|
 | id | TEXT PK | Job UUID |
-| user_id | TEXT | auth.uid() |
+| user_id | UUID | auth.uid() — confirmed uuid type, not text |
 | app_id | TEXT | Cloudflare KV key (= `conversationId` for modify jobs) |
 | status | TEXT | `'pending'` \| `'processing'` \| `'complete'` \| `'error'` |
 | progress_chars | INTEGER | Characters written so far (updated every ~2000 chars) |
@@ -274,6 +274,7 @@ Create via migration (Phase 3 Step 3.4).
 | `increment_shared_instance_count` | `(delta int)` | ±1 on create/stop |
 | `freeze_owner_instances` | `(p_owner_id uuid)` | Called by get_user_profile on expiry detection |
 | `unfreeze_owner_instances` | `(p_owner_id uuid)` | Called by redeem_promo_code on plan upgrade |
+| `delete_own_account` | `()` | SECURITY DEFINER — deletes all user data + auth.users row; all columns use uuid (no ::text casts) |
 | `upsert_shared_app_data_versioned` | `(..., p_last_editor_user_id TEXT DEFAULT NULL, p_last_editor_display_name TEXT DEFAULT NULL)` | Versioned upsert; new attribution params have DEFAULT NULL for deploy-before-migration safety |
 
 ---
