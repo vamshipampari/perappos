@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Linking,
   ScrollView,
   Text,
   TouchableOpacity,
@@ -46,8 +47,6 @@ export default function PaywallScreen() {
       try {
         const offerings = await getOfferings();
         const current = offerings.current;
-        const pkgTypes = current?.availablePackages.map(p => p.packageType).join(', ') ?? 'none';
-        Alert.alert('RC Debug', `current: ${current ? 'yes' : 'null'}\npkgs: ${pkgTypes}`);
         if (!current) return;
         for (const pkg of current.availablePackages) {
           const id = pkg.packageType;
@@ -238,8 +237,17 @@ export default function PaywallScreen() {
 
         {/* Fine print */}
         <Text style={{ fontSize: 12, color: '#8E8E93', textAlign: 'center', lineHeight: 18 }}>
-          Billed via Apple. Cancel anytime in iOS Settings.
+          Billed via Apple. Cancel anytime in iOS Settings.{'\n'}Subscription automatically renews unless cancelled.
         </Text>
+        <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 16, marginTop: 8 }}>
+          <TouchableOpacity onPress={() => void Linking.openURL('https://cottix.co/terms')}>
+            <Text style={{ fontSize: 12, color: '#007AFF' }}>Terms of Use</Text>
+          </TouchableOpacity>
+          <Text style={{ fontSize: 12, color: '#8E8E93' }}>·</Text>
+          <TouchableOpacity onPress={() => void Linking.openURL('https://cottix.co/privacy')}>
+            <Text style={{ fontSize: 12, color: '#007AFF' }}>Privacy Policy</Text>
+          </TouchableOpacity>
+        </View>
       </ScrollView>
     </SafeAreaView>
   );
