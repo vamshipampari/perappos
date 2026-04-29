@@ -46,7 +46,7 @@ export async function restorePurchases(): Promise<CustomerInfo> {
 }
 
 export function hasProAccess(customerInfo: CustomerInfo): boolean {
-  return typeof customerInfo.entitlements.active['pro'] !== 'undefined';
+  return typeof customerInfo.entitlements.active['Cottix Pro'] !== 'undefined';
 }
 
 export function isRevenueCatAvailable(): boolean {

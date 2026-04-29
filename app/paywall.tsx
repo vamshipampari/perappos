@@ -53,8 +53,8 @@ export default function PaywallScreen() {
           if (id === 'MONTHLY') setMonthlyPkg(pkg);
           if (id === 'ANNUAL') setYearlyPkg(pkg);
         }
-      } catch (err) {
-        Alert.alert('RC Error', String((err as Record<string,unknown>)?.message ?? err));
+      } catch {
+        // Offerings unavailable — prices will show fallback strings
       } finally {
         setOfferingsLoading(false);
       }
@@ -79,8 +79,21 @@ export default function PaywallScreen() {
       router.dismiss();
     } catch (err: unknown) {
       const code = (err as { code?: string | number }).code;
-      if (code === PURCHASES_ERROR_CODE.PURCHASE_CANCELLED_ERROR || String(code) === String(PURCHASES_ERROR_CODE.PURCHASE_CANCELLED_ERROR)) {
+      const codeStr = String(code);
+      if (codeStr === String(PURCHASES_ERROR_CODE.PURCHASE_CANCELLED_ERROR)) {
         // User tapped Cancel — no alert needed.
+        return;
+      }
+      if (codeStr === String(PURCHASES_ERROR_CODE.PRODUCT_ALREADY_PURCHASED_ERROR)) {
+        // Already subscribed — restore so the app reflects the active subscription.
+        try {
+          await restorePurchases();
+          await refreshProfile();
+          router.dismiss();
+        } catch {
+          await refreshProfile();
+          router.dismiss();
+        }
         return;
       }
       const message = err instanceof Error ? err.message : 'Something went wrong.';
