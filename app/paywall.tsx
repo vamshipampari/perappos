@@ -41,25 +41,31 @@ export default function PaywallScreen() {
   const [yearlyPkg, setYearlyPkg] = useState<PurchasesPackage | null>(null);
   const [loading, setLoading] = useState(false);
   const [offeringsLoading, setOfferingsLoading] = useState(true);
+  const [offeringsError, setOfferingsError] = useState(false);
 
-  useEffect(() => {
-    void (async () => {
-      try {
-        const offerings = await getOfferings();
-        const current = offerings.current;
-        if (!current) return;
-        for (const pkg of current.availablePackages) {
-          const id = pkg.packageType;
-          if (id === 'MONTHLY') setMonthlyPkg(pkg);
-          if (id === 'ANNUAL') setYearlyPkg(pkg);
-        }
-      } catch {
-        // Offerings unavailable — prices will show fallback strings
-      } finally {
-        setOfferingsLoading(false);
+  const loadOfferings = async () => {
+    setOfferingsLoading(true);
+    setOfferingsError(false);
+    try {
+      const offerings = await getOfferings();
+      const current = offerings.current;
+      if (!current) {
+        setOfferingsError(true);
+        return;
       }
-    })();
-  }, []);
+      for (const pkg of current.availablePackages) {
+        const id = pkg.packageType;
+        if (id === 'MONTHLY') setMonthlyPkg(pkg);
+        if (id === 'ANNUAL') setYearlyPkg(pkg);
+      }
+    } catch {
+      setOfferingsError(true);
+    } finally {
+      setOfferingsLoading(false);
+    }
+  };
+
+  useEffect(() => { void loadOfferings(); }, []);
 
   const selectedPkg = billingPeriod === 'monthly' ? monthlyPkg : yearlyPkg;
 
@@ -197,6 +203,11 @@ export default function PaywallScreen() {
         <View style={{ alignItems: 'center', marginBottom: 20, gap: 4 }}>
           {offeringsLoading ? (
             <ActivityIndicator color="#007AFF" />
+          ) : offeringsError ? (
+            <TouchableOpacity onPress={() => void loadOfferings()} style={{ alignItems: 'center', gap: 6 }}>
+              <Text style={{ fontSize: 14, color: '#8E8E93' }}>Could not load pricing.</Text>
+              <Text style={{ fontSize: 14, color: '#007AFF', fontWeight: '600' }}>Tap to retry</Text>
+            </TouchableOpacity>
           ) : (
             <>
               <Text style={{ fontSize: 32, fontWeight: '700', color: '#1C1C1E' }}>
