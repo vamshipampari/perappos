@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { log } from '@/lib/logger';
 import { supabase } from '../services/supabase';
+import { getCustomerInfo, hasProAccess } from '../services/revenueCat';
 
 export type PlanType = 'free' | 'beta' | 'pro' | 'team';
 
@@ -38,7 +39,9 @@ export interface UserProfileState {
   isProOrAbove: boolean;
   canInstallMoreApps: boolean;
   canCreateSharedInstance: boolean;
+  purchasedViaPlatform: boolean;
   refresh: () => Promise<void>;
+  refreshProfile: () => Promise<void>;
   redeemPromoCode: (code: string) => Promise<{ success: boolean; message: string }>;
   updateDisplayName: (name: string) => Promise<void>;
   updateAvatarEmoji: (emoji: string) => Promise<void>;
@@ -48,6 +51,7 @@ export function useUserProfile(): UserProfileState {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [purchasedViaPlatform, setPurchasedViaPlatform] = useState(false);
 
   const fetchProfile = useCallback(async () => {
     try {
@@ -59,7 +63,22 @@ export function useUserProfile(): UserProfileState {
       if (rpcError) throw rpcError;
       if (!data) throw new Error('No profile returned');
 
-      setProfile(data as UserProfile);
+      const profileData = data as UserProfile;
+
+      // Check RevenueCat — overrides Supabase plan if active entitlement found.
+      let rcPlatformPurchase = false;
+      try {
+        const customerInfo = await getCustomerInfo();
+        if (hasProAccess(customerInfo)) {
+          profileData.plan = 'pro';
+          rcPlatformPurchase = true;
+        }
+      } catch {
+        // RC unavailable — fall back to Supabase plan only.
+      }
+
+      setPurchasedViaPlatform(rcPlatformPurchase);
+      setProfile(profileData);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Failed to load profile';
       log.error('[useUserProfile] fetch error:', err);
@@ -153,7 +172,9 @@ export function useUserProfile(): UserProfileState {
     isProOrAbove: plan === 'pro' || plan === 'team' || plan === 'beta',
     canInstallMoreApps,
     canCreateSharedInstance,
+    purchasedViaPlatform,
     refresh: fetchProfile,
+    refreshProfile: fetchProfile,
     redeemPromoCode,
     updateDisplayName,
     updateAvatarEmoji,

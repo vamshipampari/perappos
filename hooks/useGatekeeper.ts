@@ -1,4 +1,5 @@
 import { Alert } from 'react-native';
+import { useRouter } from 'expo-router';
 import { useUserProfile } from './useUserProfile';
 
 /**
@@ -14,6 +15,7 @@ import { useUserProfile } from './useUserProfile';
  *   };
  */
 export function useGatekeeper() {
+  const router = useRouter();
   const { profile, limits, canInstallMoreApps, canCreateSharedInstance } = useUserProfile();
 
   /**
@@ -31,8 +33,11 @@ export function useGatekeeper() {
 
     Alert.alert(
       'App Limit Reached',
-      `Your plan allows up to ${limits.appLimit} apps. Redeem a promo code or upgrade to Pro for unlimited apps.`,
-      [{ text: 'OK' }]
+      `Your plan allows up to ${limits.appLimit} apps. Upgrade to Pro for unlimited apps.`,
+      [
+        { text: 'Not Now', style: 'cancel' },
+        { text: 'Upgrade to Pro', onPress: () => router.push('/paywall' as any) },
+      ]
     );
     return false;
   };
@@ -43,14 +48,20 @@ export function useGatekeeper() {
     if (limits.sharedInstanceLimit === 0) {
       Alert.alert(
         'Upgrade Required',
-        'Sharing apps requires a Pro or Beta plan. Redeem a promo code to unlock this feature.',
-        [{ text: 'OK' }]
+        'Sharing apps requires a Pro plan.',
+        [
+          { text: 'Not Now', style: 'cancel' },
+          { text: 'Upgrade to Pro', onPress: () => router.push('/paywall' as any) },
+        ]
       );
     } else {
       Alert.alert(
         'Shared Instance Limit Reached',
-        `Your plan allows up to ${limits.sharedInstanceLimit} shared instances. Upgrade to Team for unlimited.`,
-        [{ text: 'OK' }]
+        `Your plan allows up to ${limits.sharedInstanceLimit} shared instances. Upgrade to Pro for more.`,
+        [
+          { text: 'Not Now', style: 'cancel' },
+          { text: 'Upgrade to Pro', onPress: () => router.push('/paywall' as any) },
+        ]
       );
     }
     return false;

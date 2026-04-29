@@ -22,6 +22,7 @@ import { PowerSyncProvider } from '../services/sync/PowerSyncProvider';
 import { supabase } from '../services/supabase';
 import { track } from '../services/analytics';
 import { posthog } from '../src/config/posthog';
+import { initRevenueCat } from '../services/revenueCat';
 
 SplashScreen.preventAutoHideAsync();
 initSentry();
@@ -233,11 +234,19 @@ function AuthChangeGuard({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const { needsWipe, pendingUserEmail, checkUserChange, persistUserId, confirmWipe, cancelWipe } =
     useUserChangeGuard();
+  const [userId, setUserId] = useState<string | null>(null);
+
+  // Initialize RevenueCat whenever a user ID becomes known.
+  useEffect(() => {
+    if (!userId) return;
+    initRevenueCat(userId);
+  }, [userId]);
 
   useEffect(() => {
     // Check existing session on mount (covers app restart with active session).
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (!session) return;
+      setUserId(session.user.id);
       const changed = await checkUserChange(session.user.id, session.user.email);
       if (!changed) {
         await persistUserId(session.user.id);
@@ -249,6 +258,7 @@ function AuthChangeGuard({ children }: { children: React.ReactNode }) {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
         if ((event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') && session) {
+          setUserId(session.user.id);
           const changed = await checkUserChange(session.user.id, session.user.email);
           if (!changed) {
             await persistUserId(session.user.id);
@@ -510,6 +520,13 @@ function RootLayout() {
                     headerShown: false,
                     presentation: 'card',
                     animation: 'slide_from_right',
+                  }}
+                />
+                <Stack.Screen
+                  name="paywall"
+                  options={{
+                    presentation: 'modal',
+                    headerShown: false,
                   }}
                 />
               </Stack>
