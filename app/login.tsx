@@ -1,4 +1,5 @@
 import { router } from 'expo-router';
+import { Storage as KVStore } from 'expo-sqlite/kv-store';
 import { useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -38,6 +39,11 @@ export default function LoginScreen() {
   const cooldownRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const passwordRef = useRef<TextInput>(null);
   const theme = useTheme();
+
+  const navigateAfterAuth = async () => {
+    const done = await KVStore.getItem('onboarding_complete');
+    router.replace(done ? '/(tabs)' : '/onboarding');
+  };
 
   const startCooldown = () => {
     setCooldown(RESEND_COOLDOWN);
@@ -80,7 +86,7 @@ export default function LoginScreen() {
           setError(authError.message);
         }
       } else {
-        router.replace('/(tabs)');
+        void navigateAfterAuth();
       }
     } catch {
       setError('Something went wrong. Please try again.');
@@ -158,7 +164,7 @@ export default function LoginScreen() {
           posthog.capture('user_signed_up', { email: user.email ?? null, first_signup_date: new Date().toISOString() });
         }
         setLoading(false);
-        router.replace('/(tabs)');
+        void navigateAfterAuth();
         return;
       }
     } catch {
@@ -278,7 +284,7 @@ export default function LoginScreen() {
       if (updateError) {
         setError(updateError.message);
       } else {
-        router.replace('/(tabs)');
+        void navigateAfterAuth();
       }
     } catch {
       setError('Something went wrong. Please try again.');
