@@ -5,6 +5,7 @@ import * as LocalAuthentication from 'expo-local-authentication';
 import { Stack, usePathname, useGlobalSearchParams, useRouter } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { SQLiteProvider, useSQLiteContext } from 'expo-sqlite';
+import { Storage as KVStore } from 'expo-sqlite/kv-store';
 import { Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, AppState, Text, TouchableOpacity, View } from 'react-native';
 import { PostHogProvider } from 'posthog-react-native';
@@ -360,12 +361,14 @@ function RootLayout() {
     return () => subscription.unsubscribe();
   }, [router]);
 
-  // Once both checks are done, redirect unauthenticated users to login.
+  // Once both checks are done, route appropriately.
+  // Unauthenticated → /login. Authenticated first-timers → /onboarding. Otherwise do nothing.
   useEffect(() => {
     if (!isDeepLinkReady || !sessionChecked) return;
-    if (!hasSession) {
-      router.replace('/login');
-    }
+    if (!hasSession) { router.replace('/login'); return; }
+    void KVStore.getItem('onboarding_complete').then((done) => {
+      if (!done) router.replace('/onboarding');
+    });
   }, [isDeepLinkReady, sessionChecked, hasSession, router]);
 
   useEffect(() => {
@@ -528,6 +531,10 @@ function RootLayout() {
                     presentation: 'modal',
                     headerShown: false,
                   }}
+                />
+                <Stack.Screen
+                  name="onboarding"
+                  options={{ headerShown: false, gestureEnabled: false }}
                 />
               </Stack>
               </AppLockGate>
