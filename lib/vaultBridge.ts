@@ -447,9 +447,25 @@ export async function handleVaultMessage(
         break;
       }
 
-      case 'app_get_info':
-        respond(manifest);
+      case 'app_get_info': {
+        let userRole: 'owner' | 'member' | null = null;
+        if (isShared && instanceId) {
+          const { userId: roleUserId } = await getBridgeUser();
+          if (roleUserId) {
+            const roleRow = await syncDb.getOptional<{ role: string }>(
+              `SELECT role FROM instance_members
+               WHERE instance_id = ? AND user_id = ? AND status = 'active'
+               LIMIT 1`,
+              [instanceId, roleUserId]
+            );
+            userRole = (roleRow?.role as 'owner' | 'member') ?? null;
+          }
+        }
+        const infoPayload = { ...manifest, userRole };
+        console.log('[vaultBridge] app_get_info response:', JSON.stringify(infoPayload));
+        respond(infoPayload);
         break;
+      }
 
       // ── VaultAPI.secrets ──────────────────────────────────────────────────
       // Secrets are stored in expo-secure-store, namespaced to this app.

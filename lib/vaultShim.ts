@@ -295,6 +295,8 @@ export interface VaultAPI {
       source_url: string | null;
       installed_at: string;
       open_count: number;
+      /** null for personal apps; 'owner' or 'member' for shared apps. */
+      userRole: 'owner' | 'member' | null;
     }>;
   };
   secrets: {
