@@ -34,6 +34,7 @@ export default function LoginScreen() {
   const [mode, setMode] = useState<Mode>('login');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [otpInfoMessage, setOtpInfoMessage] = useState<string | null>(null);
   const [cooldown, setCooldown] = useState(0);
   const [showPassword, setShowPassword] = useState(false);
   const cooldownRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -80,6 +81,7 @@ export default function LoginScreen() {
         if (authError.message === 'Email not confirmed') {
           // User signed up but never confirmed — resend OTP and go to verification
           await supabase.auth.resend({ type: 'signup', email: trimmed });
+          setOtpInfoMessage(`Your email isn't verified yet. We've sent a new code to ${trimmed}.`);
           setStep('otp');
           startCooldown();
         } else {
@@ -333,7 +335,7 @@ export default function LoginScreen() {
             }}
           >
             {step === 'otp'
-              ? 'Check your email for a 6-digit confirmation code.'
+              ? (otpInfoMessage ?? 'Check your email for a 6-digit confirmation code.')
               : step === 'forgot'
                 ? 'Reset your password'
                 : step === 'forgot_otp'
@@ -829,6 +831,7 @@ export default function LoginScreen() {
                     setStep('credentials');
                     setOtp('');
                     setError(null);
+                    setOtpInfoMessage(null);
                   }}
                   activeOpacity={0.7}
                 >

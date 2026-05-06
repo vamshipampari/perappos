@@ -15,6 +15,7 @@ import {
 import { track } from '@/services/analytics';
 import { posthog } from '../src/config/posthog';
 import { supabase } from '@/services/supabase';
+import { log } from '@/lib/logger';
 import { useTheme, type Colors } from '@/lib/theme';
 
 type FeedbackType = 'bug' | 'feature' | 'other';
@@ -174,7 +175,7 @@ export function FeedbackSheet({ visible, onClose }: FeedbackSheetProps) {
       }, 1800);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : JSON.stringify(e);
-      console.error('[FeedbackSheet] insert failed:', msg);
+      log.error('[FeedbackSheet] insert failed:', msg);
       setErrorMsg(msg);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
     } finally {

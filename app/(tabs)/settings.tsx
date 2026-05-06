@@ -666,7 +666,7 @@ export default function SettingsScreen() {
                     } catch (err) {
                       const msg = (err as Record<string, unknown>)?.message ?? String(err);
                       const code = (err as Record<string, unknown>)?.code;
-                      console.error('[DeleteAccount] failed:', code, msg, err);
+                      log.error('[DeleteAccount] failed:', code, msg, err);
                       Alert.alert('Error', `Account deletion failed: ${msg}`);
                     }
                   },
@@ -846,7 +846,7 @@ export default function SettingsScreen() {
               {profile.plan === 'free' && (
                 <TouchableOpacity
                   activeOpacity={0.7}
-                  onPress={() => router.push('/paywall' as any)}
+                  onPress={() => router.push('/paywall')}
                   style={{
                     marginTop: 10,
                     height: 36,
@@ -925,7 +925,7 @@ export default function SettingsScreen() {
                       kind="chevron"
                       label={`⏳ ${pj.app_name}`}
                       value="Pending approval"
-                      onPress={() => router.push(`/join-shared-app?code=${pj.invite_code}` as any)}
+                      onPress={() => router.push(`/join-shared-app?code=${pj.invite_code}`)}
                       theme={theme}
                     />
                   ))}
@@ -934,7 +934,7 @@ export default function SettingsScreen() {
               <Row
                 kind="chevron"
                 label="Join Shared App"
-                onPress={() => router.push('/join-shared-app' as any)}
+                onPress={() => router.push('/join-shared-app')}
                 theme={theme}
               />
               <Row

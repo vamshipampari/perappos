@@ -36,7 +36,7 @@ export function useGatekeeper() {
       `Your plan allows up to ${limits.appLimit} apps. Upgrade to Pro for unlimited apps.`,
       [
         { text: 'Not Now', style: 'cancel' },
-        { text: 'Upgrade to Pro', onPress: () => router.push('/paywall' as any) },
+        { text: 'Upgrade to Pro', onPress: () => router.push('/paywall') },
       ]
     );
     return false;
@@ -51,7 +51,7 @@ export function useGatekeeper() {
         'Sharing apps requires a Pro plan.',
         [
           { text: 'Not Now', style: 'cancel' },
-          { text: 'Upgrade to Pro', onPress: () => router.push('/paywall' as any) },
+          { text: 'Upgrade to Pro', onPress: () => router.push('/paywall') },
         ]
       );
     } else {
@@ -60,7 +60,7 @@ export function useGatekeeper() {
         `Your plan allows up to ${limits.sharedInstanceLimit} shared instances. Upgrade to Pro for more.`,
         [
           { text: 'Not Now', style: 'cancel' },
-          { text: 'Upgrade to Pro', onPress: () => router.push('/paywall' as any) },
+          { text: 'Upgrade to Pro', onPress: () => router.push('/paywall') },
         ]
       );
     }

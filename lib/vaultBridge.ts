@@ -9,6 +9,8 @@
  *  - "db_*" / "device_*" / "auth_*" / "app_*" : VaultAPI calls with `id`, need response
  */
 
+import { log } from '@/lib/logger';
+
 // Lazy-load native modules to avoid crashing the bridge at import time
 // if any native module isn't linked (e.g. Expo Go, stale dev-client build).
 function lazyModule<T>(loader: () => Promise<T>): () => Promise<T> {
@@ -525,7 +527,7 @@ export async function handleVaultMessage(
               (d) => reqHostname === d || reqHostname.endsWith(`.${d}`)
             );
             if (!allowed) {
-              console.error('[vaultBridge] secrets_fetch blocked: domain not in allowlist', reqHostname);
+              log.error('[vaultBridge] secrets_fetch blocked: domain not in allowlist', reqHostname);
               respond(null, 'domain_not_allowed');
               break;
             }
@@ -551,7 +553,7 @@ export async function handleVaultMessage(
           const responseBody = await httpRes.text();
           respond({ status: httpRes.status, body: responseBody });
         } catch (fetchErr) {
-          console.error('[vaultBridge] secrets_fetch network error for key:', sfName, fetchErr);
+          log.error('[vaultBridge] secrets_fetch network error for key:', sfName, fetchErr);
           respond(null, 'request_failed');
         }
         break;

@@ -19,7 +19,7 @@ export default function ShareCodeScreen() {
           This link format is deprecated. Use Settings, then Join Shared App, and enter the invite code{code ? `: ${code}` : ''}.
         </Text>
         <TouchableOpacity
-          onPress={() => router.replace('/join-shared-app' as any)}
+          onPress={() => router.replace('/join-shared-app')}
           style={{
             marginTop: 18,
             backgroundColor: theme.primary,
