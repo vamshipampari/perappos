@@ -16,13 +16,11 @@
       }
     },
     "production": {
-      "autoIncrement": true,
       "android": {
         "buildType": "app-bundle"
       }
     },
     "testflight": {
-      "autoIncrement": true,
       "ios": {
         "simulator": false
       }
