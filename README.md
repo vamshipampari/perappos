@@ -159,9 +159,3 @@ Data is stored in the `app_data` SQLite table, scoped to the app's `app_id`. Rea
 ## Contributing
 
 Issues and PRs welcome. The project uses TypeScript throughout — run `npx tsc --noEmit` before submitting.
-
----
-
-## License
-
-MIT
