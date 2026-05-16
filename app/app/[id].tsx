@@ -290,6 +290,11 @@ export default function AppScreen() {
   const [offlineEnabled, setOfflineEnabled] = useState(false);
   const [offlineLoading, setOfflineLoading] = useState(false);
 
+  // Incrementing this key forces a full WebView remount — needed when shimJS
+  // changes (e.g. after Collaborate) because .reload() on an HTML-source WebView
+  // navigates to baseUrl (http://localhost/) which doesn't exist → network error.
+  const [webViewKey, setWebViewKey] = useState(0);
+
   // Stale offline bundle detection
   const [hasStaleBundle, setHasStaleBundle] = useState(false);
 
@@ -342,6 +347,17 @@ export default function AppScreen() {
     webViewRef.current?.reload();
   }, [hasLoadedOnceRef, webOpacity, webViewRef]);
 
+  // Forces a full WebView remount via key change — use this after shimJS changes
+  // (e.g. Collaborate) so the new injectedJavaScriptBeforeContentLoaded is applied.
+  // Unlike .reload(), remounting re-applies the source prop, so HTML apps work correctly.
+  const remountWebView = useCallback(() => {
+    setWebError(null);
+    setWebLoading(true);
+    hasLoadedOnceRef.current = false;
+    webOpacity.value = 0;
+    setWebViewKey((k) => k + 1);
+  }, [hasLoadedOnceRef, webOpacity]);
+
   useLiveSyncPush(
     app?.instance_id,
     app?.app_id,
@@ -369,6 +385,7 @@ export default function AppScreen() {
     setAppInfoVisible,
     rebuildShimForApp,
     refreshWebView,
+    remountWebView,
     showToast,
   });
 
@@ -697,6 +714,7 @@ export default function AppScreen() {
         ) : (
           <Animated.View style={webViewAnimStyle}>
             <WebView
+              key={webViewKey}
               ref={webViewRef}
               source={webViewSource}
               style={styles.webView}

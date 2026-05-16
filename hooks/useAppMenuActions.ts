@@ -35,6 +35,7 @@ interface UseAppMenuActionsInput {
   setAppInfoVisible: (v: boolean) => void;
   rebuildShimForApp: (app: InstalledApp) => Promise<void>;
   refreshWebView: () => void;
+  remountWebView: () => void;
   showToast: (message: string, type: 'success' | 'error') => void;
 }
 
@@ -58,6 +59,7 @@ export function useAppMenuActions({
   setAppInfoVisible,
   rebuildShimForApp,
   refreshWebView,
+  remountWebView,
   showToast,
 }: UseAppMenuActionsInput): UseAppMenuActionsResult {
   const [checkingUpdate, setCheckingUpdate] = useState(false);
@@ -144,7 +146,7 @@ export function useAppMenuActions({
                 const updatedApp = { ...app, instance_id: String(existing.instance_id) };
                 setApp(updatedApp);
                 await rebuildShimForApp(updatedApp);
-                setTimeout(() => refreshWebView(), 0);
+                remountWebView();
                 Alert.alert(
                   'Existing shared instance found',
                   `Invite code: ${inviteCode}\n\nSpaced: ${inviteCode.split('').join(' ')}`,
@@ -175,9 +177,12 @@ export function useAppMenuActions({
                 Alert.alert(
                   limitVal === 0 ? 'Upgrade Required' : 'Shared Instance Limit Reached',
                   limitVal === 0
-                    ? 'Sharing apps requires a Pro or Beta plan. Redeem a promo code in Settings to unlock this feature.'
-                    : `Your plan allows up to ${limitVal} shared instances. Upgrade to Team for unlimited.`,
-                  [{ text: 'OK' }]
+                    ? 'Sharing apps requires a Pro or Beta plan.'
+                    : `Your plan allows up to ${limitVal} shared instances. Upgrade for unlimited.`,
+                  [
+                    { text: 'Not Now', style: 'cancel' },
+                    { text: 'Upgrade to Pro', onPress: () => router.push('/paywall') },
+                  ]
                 );
                 return;
               }
@@ -200,8 +205,8 @@ export function useAppMenuActions({
               const updatedApp = { ...liveApp, instance_id: result.instanceId };
               setApp(updatedApp);
               await rebuildShimForApp(updatedApp);
-              log.info('[share] shim rebuilt for shared instance, reloading WebView');
-              setTimeout(() => refreshWebView(), 0);
+              log.info('[share] shim rebuilt for shared instance, remounting WebView');
+              remountWebView();
               Alert.alert(
                 'Shared app created',
                 `Invite code: ${inviteCode}\n\nSpaced: ${inviteCode.split('').join(' ')}`,
