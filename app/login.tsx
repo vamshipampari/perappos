@@ -124,9 +124,9 @@ export default function LoginScreen() {
         setError(authError.message);
       } else if (data.session) {
         // Supabase email confirmations are disabled — session granted immediately, no OTP needed.
-        // Navigate directly rather than showing an OTP screen nobody can complete.
+        // This is always a fresh signup, so always show onboarding.
         void track('signup_completed');
-        void navigateAfterAuth();
+        router.replace('/onboarding');
       } else if (!data.user || data.user.identities?.length === 0) {
         // Supabase silently "succeeds" for already-registered emails — detect it.
         // Two cases: (a) confirmed account → must sign in, (b) unconfirmed → resend OTP.
@@ -186,7 +186,9 @@ export default function LoginScreen() {
           posthog.capture('user_signed_up', { email: user.email ?? null, first_signup_date: new Date().toISOString() });
         }
         setLoading(false);
-        void navigateAfterAuth();
+        // OTP verification is only reachable during signup — always route to onboarding.
+        // (Login goes directly to /(tabs) without this step.)
+        router.replace('/onboarding');
         return;
       }
     } catch {
