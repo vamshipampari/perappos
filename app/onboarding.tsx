@@ -177,6 +177,55 @@ function WelcomeSlideView({ slide, onNext }: { slide: WelcomeSlide; onNext: () =
   );
 }
 
+/**
+ * Extract a YouTube video ID from any YouTube URL format:
+ *   https://www.youtube.com/watch?v=ID
+ *   https://www.youtube.com/shorts/ID
+ *   https://www.youtube.com/embed/ID
+ *   https://youtu.be/ID
+ * Returns null if the URL doesn't look like YouTube.
+ */
+function extractYouTubeId(url: string): string | null {
+  try {
+    const u = new URL(url);
+    // /shorts/ID or /embed/ID path forms
+    const pathMatch = u.pathname.match(/\/(?:shorts|embed)\/([^/?#]+)/);
+    if (pathMatch) return pathMatch[1];
+    // youtu.be/ID
+    if (u.hostname === 'youtu.be') return u.pathname.slice(1).split(/[/?#]/)[0] || null;
+    // ?v=ID
+    const v = u.searchParams.get('v');
+    return v ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function buildVideoHtml(videoUrl: string): string {
+  const ytId = extractYouTubeId(videoUrl);
+  const embedSrc = ytId
+    ? `https://www.youtube.com/embed/${ytId}?playsinline=1&rel=0&modestbranding=1`
+    : videoUrl; // fall back to direct URL (e.g. MP4 hosted elsewhere)
+
+  if (ytId) {
+    // YouTube: wrap in HTML so the iframe gets a real origin and loads correctly
+    return `<!DOCTYPE html><html><head>
+<meta name="viewport" content="width=device-width,initial-scale=1,shrink-to-fit=no">
+<style>*{margin:0;padding:0;box-sizing:border-box}html,body{width:100%;height:100%;background:#000;overflow:hidden}iframe{width:100%;height:100%;border:none}</style>
+</head><body>
+<iframe src="${embedSrc}" allow="autoplay;encrypted-media;fullscreen" allowfullscreen></iframe>
+</body></html>`;
+  }
+
+  // Direct video file (MP4 etc.)
+  return `<!DOCTYPE html><html><head>
+<meta name="viewport" content="width=device-width,initial-scale=1,shrink-to-fit=no">
+<style>*{margin:0;padding:0}html,body{width:100%;height:100%;background:#000}video{width:100%;height:100%;object-fit:contain}</style>
+</head><body>
+<video src="${embedSrc}" autoplay playsinline controls></video>
+</body></html>`;
+}
+
 function VideoSlideView({
   slide,
   onNext,
@@ -186,17 +235,22 @@ function VideoSlideView({
   onNext: () => void;
   onBack: () => void;
 }) {
+  const html = buildVideoHtml(slide.video_url);
+
   return (
     <View style={styles.slide}>
       <BackButton onPress={onBack} />
       <Text style={styles.sectionHeading}>{slide.heading}</Text>
       <View style={styles.videoWrapper}>
         <WebView
-          source={{ uri: slide.video_url }}
+          source={{ html, baseUrl: 'https://www.youtube.com' }}
           style={styles.webview}
+          originWhitelist={['*']}
           allowsInlineMediaPlayback
+          allowsFullscreenVideo
           mediaPlaybackRequiresUserAction={false}
           javaScriptEnabled
+          scrollEnabled={false}
         />
       </View>
       <View style={styles.buttonArea}>
