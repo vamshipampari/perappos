@@ -16,10 +16,11 @@ export type WelcomeSlide = {
   subtext: string;
 };
 
-export type VideoSlide = {
-  type: 'video';
-  heading: string;
-  video_url: string;
+export type ImageSlide = {
+  type: 'image';
+  heading?: string;
+  subheading?: string;
+  image_url: string;
 };
 
 export type DemoAppsSlide = {
@@ -46,12 +47,12 @@ export type PaywallSlide = {
 
 export type OnboardingSlide =
   | WelcomeSlide
-  | VideoSlide
+  | ImageSlide
   | DemoAppsSlide
   | FeatureSlide
   | PaywallSlide;
 
-const KNOWN_TYPES = new Set(['welcome', 'video', 'demo_apps', 'feature', 'paywall']);
+const KNOWN_TYPES = new Set(['welcome', 'image', 'demo_apps', 'feature', 'paywall']);
 
 const DEFAULT_SLIDES: OnboardingSlide[] = [
   {
@@ -61,9 +62,34 @@ const DEFAULT_SLIDES: OnboardingSlide[] = [
       'Cottix wraps your vibe-coded apps with offline storage, real-time sync, and native device features — no backend needed.',
   },
   {
-    type: 'video',
-    heading: 'See it in action',
-    video_url: 'https://www.youtube.com/embed/dQw4w9WgXcQ',
+    type: 'image',
+    heading: 'Install any web app',
+    subheading: 'Paste a URL or drop HTML — it lives on your home screen',
+    image_url: '',
+  },
+  {
+    type: 'image',
+    heading: 'Works offline, always',
+    subheading: 'SQLite keeps your data safe without internet',
+    image_url: '',
+  },
+  {
+    type: 'image',
+    heading: 'Real-time collaboration',
+    subheading: 'Share an app with your team — everyone syncs instantly',
+    image_url: '',
+  },
+  {
+    type: 'image',
+    heading: 'Native device features',
+    subheading: 'Haptics, notifications, photos and more',
+    image_url: '',
+  },
+  {
+    type: 'image',
+    heading: 'Create apps with AI',
+    subheading: 'Describe what you need — Cottix builds it in seconds',
+    image_url: '',
   },
   {
     type: 'demo_apps',
