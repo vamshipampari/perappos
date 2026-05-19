@@ -18,6 +18,7 @@ import {
   checkForUpdates,
 } from '@/lib/appUpdates';
 import { clearAppData, isInstanceOwner } from '@/lib/clearAppData';
+import { useGatekeeper } from '@/hooks/useGatekeeper';
 import { log } from '@/lib/logger';
 import { createSharedInstanceForApp, leaveSharedGroup, stopSharingAsOwner } from '@/services/collaborationService';
 import { deployHtml } from '@/services/htmlDeployer';
@@ -63,9 +64,11 @@ export function useAppMenuActions({
   showToast,
 }: UseAppMenuActionsInput): UseAppMenuActionsResult {
   const [checkingUpdate, setCheckingUpdate] = useState(false);
+  const { gateSharedInstanceCreate } = useGatekeeper();
 
   const handleCollaborate = useCallback(async () => {
     if (!app) return;
+    if (!gateSharedInstanceCreate()) return;
     if (!signedInUserId) {
       setMenuVisible(false);
       Alert.alert('Sign in required', 'You must sign in before creating a shared app.', [

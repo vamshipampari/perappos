@@ -79,11 +79,16 @@ export default function LoginScreen() {
       });
       if (authError) {
         if (authError.message === 'Email not confirmed') {
-          // User signed up but never confirmed — resend OTP and go to verification
-          await supabase.auth.resend({ type: 'signup', email: trimmed });
-          setOtpInfoMessage(`Your email isn't verified yet. We've sent a new code to ${trimmed}.`);
-          setStep('otp');
-          startCooldown();
+          // User signed up but never confirmed — resend OTP and go to verification.
+          // Check resend result: if it fails the email doesn't exist (anti-enumeration response).
+          const { error: resendError } = await supabase.auth.resend({ type: 'signup', email: trimmed });
+          if (resendError) {
+            setError('Invalid login credentials.');
+          } else {
+            setOtpInfoMessage(`Your email isn't verified yet. We've sent a new code to ${trimmed}.`);
+            setStep('otp');
+            startCooldown();
+          }
         } else {
           setError(authError.message);
         }
@@ -117,9 +122,24 @@ export default function LoginScreen() {
       });
       if (authError) {
         setError(authError.message);
+      } else if (data.session) {
+        // Supabase email confirmations are disabled — session granted immediately, no OTP needed.
+        // Navigate directly rather than showing an OTP screen nobody can complete.
+        void track('signup_completed');
+        void navigateAfterAuth();
       } else if (!data.user || data.user.identities?.length === 0) {
-        // Supabase silently "succeeds" for already-registered emails — detect it
-        setError('An account with this email already exists. Try signing in instead.');
+        // Supabase silently "succeeds" for already-registered emails — detect it.
+        // Two cases: (a) confirmed account → must sign in, (b) unconfirmed → resend OTP.
+        const { error: resendError } = await supabase.auth.resend({ type: 'signup', email: trimmed });
+        if (resendError) {
+          // Account is fully confirmed — resend fails → direct to sign-in
+          setError('An account with this email already exists. Try signing in instead.');
+        } else {
+          // Account exists but is unconfirmed — OTP resent, let them complete signup
+          setOtpInfoMessage(`We found an unconfirmed account for ${trimmed}. Check your email for a confirmation code.`);
+          setStep('otp');
+          startCooldown();
+        }
       } else {
         setStep('otp');
         startCooldown();
