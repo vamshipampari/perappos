@@ -24,6 +24,7 @@
 - Forgot password mobile: resetPasswordForEmail sends magic link (opens browser, no in-app handler) → use signInWithOtp(shouldCreateUser:false) + verifyOtp(type:'email') + updateUser({password}) for full in-app OTP reset flow
 - useWebViewApp bundle load: never call FileSystem.readAsStringAsync when bundle_path is '' → guard with if (bundle_path) before read; empty path resolves to Expo web asset on physical device instead of throwing
 - EAS builds: only committed files are included → always commit + push before triggering eas build, especially from a worktree
+- EAS appVersionSource: never use "remote" → use "local" so app.json is the single source of truth; "remote" silently ignores app.json and Info.plist causing version mismatch on every build
 
 ## Architecture decisions (why, not what — see docs/context.md for detail)
 
@@ -34,6 +35,7 @@
 
 ## Session log (rolling — keep last 30 days only)
 
+2026-05-01: IAP subscription submission fix (new product IDs com.cottix.app.subscription.*) · EAS appVersionSource "remote"→"local" · freeze_owner_instances overload conflict fix (drop all, recreate UUID-only) · Pro plan showing correctly after purchase
 2026-04-16: AI generation JS fix (DOMContentLoaded/IIFE scopes onclick fns → banned; function decls at top of end-of-body script) · max_tokens 8192→16000 · router.dismissAll() for multi-modal clear · create.tsx submitting blank screen fix · 90s generation timeout · preview error overlay
 2026-04-15: CF Queue generation (durable jobs, PowerSync watch + polling fallback) · Edit with AI modify flow (appId=conversationId) · modal dismiss fix (router.dismiss) · iOS design system in system prompt · wrangler --config deploy gotcha
 2026-04-03: Forgot password OTP flow (magic link → signInWithOtp in-app) · shared_instance_limit data fix migration · add_instance_member UUID cast bug · PostgrestError message extraction fix

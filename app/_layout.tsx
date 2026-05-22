@@ -33,6 +33,7 @@ const DB_NAME = 'cottix.db';
 const initializeDatabase = async (db: import('expo-sqlite').SQLiteDatabase) => {
   await db.execAsync(`
     PRAGMA journal_mode = WAL;
+    PRAGMA busy_timeout = 5000;
 
     CREATE TABLE IF NOT EXISTS apps (
       app_id TEXT PRIMARY KEY,

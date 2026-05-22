@@ -112,12 +112,15 @@ export function buildSyncShim(
     return new Promise(function(resolve, reject) {
       _pending[id] = { resolve: resolve, reject: reject };
       _post(payload);
+      /* secrets_fetch makes outbound HTTP calls (e.g. slow LLM APIs) —
+         give it a much longer window than synchronous device ops. */
+      var _timeoutMs = (type === "secrets_fetch") ? 120000 : 10000;
       setTimeout(function() {
         if (_pending[id]) {
           delete _pending[id];
           reject(new Error("VaultAPI timeout: " + type));
         }
-      }, 10000);
+      }, _timeoutMs);
     });
   }
 

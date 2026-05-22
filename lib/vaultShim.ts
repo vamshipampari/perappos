@@ -67,13 +67,16 @@ export function buildVaultShim(
     return new Promise(function(resolve, reject) {
       _pending[id] = { resolve: resolve, reject: reject };
       _post(payload);
-      /* Guard against native never responding (e.g. device sleeping). */
+      /* Guard against native never responding (e.g. device sleeping).
+         secrets_fetch makes outbound HTTP calls (including slow LLM APIs)
+         so it gets a much longer window than synchronous device ops. */
+      var _timeoutMs = (type === "secrets_fetch") ? 120000 : 10000;
       setTimeout(function() {
         if (_pending[id]) {
           delete _pending[id];
           reject(new Error("VaultAPI timeout: " + type));
         }
-      }, 10000);
+      }, _timeoutMs);
     });
   }
 
