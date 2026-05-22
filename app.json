@@ -2,7 +2,7 @@
   "expo": {
     "name": "Cottix",
     "slug": "perappos",
-    "version": "1.0.3",
+    "version": "1.0.4",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "scheme": "cottix",
@@ -20,7 +20,7 @@
         "ITSAppUsesNonExemptEncryption": false,
         "NSFaceIDUsageDescription": "Cottix uses Face ID to lock your apps and keep them private."
       },
-      "buildNumber": "3"
+      "buildNumber": "4"
     },
     "android": {
       "adaptiveIcon": {
@@ -35,7 +35,7 @@
         "NOTIFICATIONS",
         "VIBRATE"
       ],
-      "versionCode": 9
+      "versionCode": 10
     },
     "web": {
       "bundler": "metro",
