@@ -123,7 +123,7 @@ function renderSlide(slide: OnboardingSlide, props: SlideProps) {
     case 'welcome':
       return <WelcomeSlideView slide={slide} onNext={props.goNext} />;
     case 'image':
-      return <ImageSlideView slide={slide} onNext={props.goNext} onBack={props.goBack} />;
+      return <ImageSlideView slide={slide} onNext={props.goNext} onBack={props.goBack} onSkip={props.onSkip} />;
     case 'demo_apps':
       return (
         <DemoAppsSlideView
@@ -181,10 +181,12 @@ function ImageSlideView({
   slide,
   onNext,
   onBack,
+  onSkip,
 }: {
   slide: ImageSlide;
   onNext: () => void;
   onBack: () => void;
+  onSkip: () => void;
 }) {
   const [imgError, setImgError] = useState(false);
 
@@ -196,7 +198,7 @@ function ImageSlideView({
           <Image
             source={{ uri: slide.image_url }}
             style={styles.slideImage}
-            resizeMode="cover"
+            resizeMode="contain"
             onError={() => setImgError(true)}
           />
         ) : (
@@ -207,6 +209,9 @@ function ImageSlideView({
       {slide.subheading ? <Text style={styles.imageSubheading}>{slide.subheading}</Text> : null}
       <View style={styles.buttonArea}>
         <PrimaryButton label="Continue →" onPress={onNext} />
+        <TouchableOpacity onPress={onSkip} style={styles.skipLink} activeOpacity={0.7}>
+          <Text style={styles.skipLinkText}>Skip</Text>
+        </TouchableOpacity>
       </View>
     </View>
   );
@@ -425,10 +430,10 @@ const styles = StyleSheet.create({
     marginTop: 48,
   },
   imageWrapper: {
+    flex: 1,
     borderRadius: 16,
     overflow: 'hidden',
-    marginBottom: 24,
-    aspectRatio: 9 / 16,
+    marginBottom: 16,
     backgroundColor: '#F2F2F7',
   },
   slideImage: {
