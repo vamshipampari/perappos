@@ -1,6 +1,6 @@
 {
   "cli": {
-    "version": ">= 18.0.5",
+    "version": ">= 19.0.0",
     "appVersionSource": "local",
     "promptToConfigurePushNotifications": false
   },
@@ -16,18 +16,33 @@
       }
     },
     "production": {
+      "ios": {
+        "autoIncrement": "buildNumber"
+      },
       "android": {
-        "buildType": "app-bundle"
+        "buildType": "app-bundle",
+        "autoIncrement": "versionCode"
       }
     },
     "testflight": {
       "ios": {
-        "simulator": false
+        "simulator": false,
+        "autoIncrement": "buildNumber"
       }
     }
   },
   "submit": {
-    "production": {},
-    "testflight": {}
+    "production": {
+      "ios": {
+        "ascAppId": "6760843217",
+        "appleTeamId": "U45N6GLUV2"
+      }
+    },
+    "testflight": {
+      "ios": {
+        "ascAppId": "6760843217",
+        "appleTeamId": "U45N6GLUV2"
+      }
+    }
   }
 }
