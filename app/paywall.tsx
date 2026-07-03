@@ -14,6 +14,7 @@ import type { PurchasesPackage } from 'react-native-purchases';
 import { PURCHASES_ERROR_CODE } from 'react-native-purchases';
 
 import { useTheme } from '@/lib/theme';
+import { isUpgradeAvailable } from '@/lib/upgrade';
 import { useUserProfile } from '@/hooks/useUserProfile';
 import {
   getOfferings,
@@ -43,6 +44,16 @@ export default function PaywallScreen() {
   const [offeringsLoading, setOfferingsLoading] = useState(true);
   const [offeringsError, setOfferingsError] = useState(false);
 
+  // Android has no RevenueCat provisioning yet, so the purchase flow can't work.
+  // Guard against reaching this screen via a stale deep link or leftover entry
+  // point by redirecting away before any RevenueCat calls run.
+  useEffect(() => {
+    if (!isUpgradeAvailable) {
+      if (router.canDismiss()) router.dismiss();
+      else router.replace('/(tabs)');
+    }
+  }, [router]);
+
   const loadOfferings = async () => {
     setOfferingsLoading(true);
     setOfferingsError(false);
@@ -65,7 +76,10 @@ export default function PaywallScreen() {
     }
   };
 
-  useEffect(() => { void loadOfferings(); }, []);
+  useEffect(() => {
+    if (!isUpgradeAvailable) return;
+    void loadOfferings();
+  }, []);
 
   const selectedPkg = billingPeriod === 'monthly' ? monthlyPkg : yearlyPkg;
 
@@ -122,6 +136,9 @@ export default function PaywallScreen() {
       setLoading(false);
     }
   }, [refreshProfile, router]);
+
+  // Redirect is in-flight on Android — render nothing rather than the paywall UI.
+  if (!isUpgradeAvailable) return null;
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: '#FFFFFF' }} edges={['top', 'bottom']}>

@@ -23,6 +23,7 @@ import {
   useAppConfig,
 } from '@/hooks/useAppConfig';
 import { installUrlApp } from '@/services/appInstaller';
+import { isUpgradeAvailable } from '@/lib/upgrade';
 
 type ImportStatus = 'idle' | 'loading' | 'done';
 
@@ -52,6 +53,12 @@ export default function OnboardingScreen() {
 
   const handlePaywallUpgrade = async () => {
     await markDone();
+    // Android has no RevenueCat provisioning yet, so the paywall is a dead-end.
+    // Skip straight into the app instead of pushing a screen that redirects back.
+    if (!isUpgradeAvailable) {
+      router.replace('/(tabs)');
+      return;
+    }
     router.push('/paywall');
   };
 
