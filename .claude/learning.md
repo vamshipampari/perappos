@@ -25,6 +25,7 @@
 - useWebViewApp bundle load: never call FileSystem.readAsStringAsync when bundle_path is '' → guard with if (bundle_path) before read; empty path resolves to Expo web asset on physical device instead of throwing
 - EAS builds: only committed files are included → always commit + push before triggering eas build, especially from a worktree
 - EAS appVersionSource: never use "remote" → use "local" so app.json is the single source of truth; "remote" silently ignores app.json and Info.plist causing version mismatch on every build
+- RevenueCat is iOS-only right now: services/revenueCat.ts configures the iOS key on every platform (no Android key/entitlement/offering) → any purchase on Android fails. Gate every paywall entry point behind `isUpgradeAvailable` (lib/upgrade.ts = Platform.OS === 'ios'), never inline Platform.OS checks → flipping Android on later is one line. Entry points: settings.tsx upgrade button, /paywall route guard, useGatekeeper + useAppMenuActions limit alerts, onboarding paywall slide.
 
 ## Architecture decisions (why, not what — see docs/context.md for detail)
 
@@ -35,6 +36,7 @@
 
 ## Session log (rolling — keep last 30 days only)
 
+2026-07-03: Hide Android "Upgrade to Pro" flow (RevenueCat iOS-only, no Android provisioning) before Play production ship · new lib/upgrade.ts isUpgradeAvailable flag · gated settings CTA (→ "Pro for Android — coming soon" row), /paywall route redirect guard, useGatekeeper + useAppMenuActions limit alerts, onboarding upgrade slide · services/revenueCat.ts left untouched
 2026-05-01: IAP subscription submission fix (new product IDs com.cottix.app.subscription.*) · EAS appVersionSource "remote"→"local" · freeze_owner_instances overload conflict fix (drop all, recreate UUID-only) · Pro plan showing correctly after purchase
 2026-04-16: AI generation JS fix (DOMContentLoaded/IIFE scopes onclick fns → banned; function decls at top of end-of-body script) · max_tokens 8192→16000 · router.dismissAll() for multi-modal clear · create.tsx submitting blank screen fix · 90s generation timeout · preview error overlay
 2026-04-15: CF Queue generation (durable jobs, PowerSync watch + polling fallback) · Edit with AI modify flow (appId=conversationId) · modal dismiss fix (router.dismiss) · iOS design system in system prompt · wrangler --config deploy gotcha

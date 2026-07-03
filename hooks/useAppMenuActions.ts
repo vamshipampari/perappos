@@ -18,6 +18,7 @@ import {
   checkForUpdates,
 } from '@/lib/appUpdates';
 import { clearAppData, isInstanceOwner } from '@/lib/clearAppData';
+import { isUpgradeAvailable } from '@/lib/upgrade';
 import { useGatekeeper } from '@/hooks/useGatekeeper';
 import { log } from '@/lib/logger';
 import { createSharedInstanceForApp, leaveSharedGroup, stopSharingAsOwner } from '@/services/collaborationService';
@@ -177,15 +178,21 @@ export function useAppMenuActions({
               const incrResult = incrData as { success?: boolean; error?: string; limit?: number } | null;
               if (incrResult?.error === 'shared_instance_limit_exceeded') {
                 const limitVal = incrResult.limit;
-                Alert.alert(
-                  limitVal === 0 ? 'Upgrade Required' : 'Shared Instance Limit Reached',
+                const limitMsg =
                   limitVal === 0
                     ? 'Sharing apps requires a Pro or Beta plan.'
-                    : `Your plan allows up to ${limitVal} shared instances. Upgrade for unlimited.`,
-                  [
-                    { text: 'Not Now', style: 'cancel' },
-                    { text: 'Upgrade to Pro', onPress: () => router.push('/paywall') },
-                  ]
+                    : `Your plan allows up to ${limitVal} shared instances.${isUpgradeAvailable ? ' Upgrade for unlimited.' : ''}`;
+                Alert.alert(
+                  limitVal === 0 ? 'Upgrade Required' : 'Shared Instance Limit Reached',
+                  isUpgradeAvailable
+                    ? limitMsg
+                    : limitMsg + '\n\nUpgrades aren’t available on Android yet — coming soon.',
+                  isUpgradeAvailable
+                    ? [
+                        { text: 'Not Now', style: 'cancel' },
+                        { text: 'Upgrade to Pro', onPress: () => router.push('/paywall') },
+                      ]
+                    : [{ text: 'OK', style: 'cancel' }]
                 );
                 return;
               }

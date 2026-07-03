@@ -25,6 +25,7 @@ import { useInstalledApps } from '@/hooks/useInstalledApps';
 import { useUserProfile, type PlanType } from '@/hooks/useUserProfile';
 import { log } from '@/lib/logger';
 import { useTheme, useSetTheme, type Colors, type ThemeMode } from '@/lib/theme';
+import { isUpgradeAvailable } from '@/lib/upgrade';
 import { track } from '@/services/analytics';
 import { posthog } from '../../src/config/posthog';
 import { supabase } from '../../services/supabase';
@@ -843,7 +844,7 @@ export default function SettingsScreen() {
               </View>
 
               {/* Plan upgrade / management row */}
-              {profile.plan === 'free' && (
+              {profile.plan === 'free' && isUpgradeAvailable && (
                 <TouchableOpacity
                   activeOpacity={0.7}
                   onPress={() => router.push('/paywall')}
@@ -860,6 +861,26 @@ export default function SettingsScreen() {
                     ⭐ Upgrade to Pro
                   </Text>
                 </TouchableOpacity>
+              )}
+              {profile.plan === 'free' && !isUpgradeAvailable && (
+                // Android has no RevenueCat provisioning yet — show an informational,
+                // non-interactive row instead of a dead-end upgrade CTA.
+                <View
+                  style={{
+                    marginTop: 10,
+                    height: 36,
+                    borderRadius: 8,
+                    backgroundColor: theme.background,
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    borderWidth: 0.5,
+                    borderColor: theme.separator,
+                  }}
+                >
+                  <Text style={{ fontSize: 14, fontWeight: '600', color: theme.labelSecondary }}>
+                    Pro for Android — coming soon
+                  </Text>
+                </View>
               )}
               {profile.plan !== 'free' && (
                 <TouchableOpacity
