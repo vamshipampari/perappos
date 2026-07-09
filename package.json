@@ -12,6 +12,8 @@
     "format": "prettier --write \"**/*.{ts,tsx}\" --ignore-path .gitignore",
     "build:ios:testflight": "eas build --platform ios --profile testflight",
     "submit:ios:testflight": "eas submit --platform ios --profile testflight",
+    "submit:android:beta": "eas submit --platform android --profile beta",
+    "submit:android:production": "eas submit --platform android --profile production",
     "deploy": "npx expo export -p web && wrangler deploy",
     "preview": "npx expo export -p web && wrangler dev"
   },

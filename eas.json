@@ -36,12 +36,22 @@
       "ios": {
         "ascAppId": "6760843217",
         "appleTeamId": "U45N6GLUV2"
+      },
+      "android": {
+        "serviceAccountKeyPath": "./google-service-account.json",
+        "track": "production"
       }
     },
     "testflight": {
       "ios": {
         "ascAppId": "6760843217",
         "appleTeamId": "U45N6GLUV2"
+      }
+    },
+    "beta": {
+      "android": {
+        "serviceAccountKeyPath": "./google-service-account.json",
+        "track": "beta"
       }
     }
   }
