@@ -1,3 +1,4 @@
+import { Platform } from 'react-native';
 import Purchases, {
   type CustomerInfo,
   type PurchasesOfferings,
@@ -5,7 +6,10 @@ import Purchases, {
 } from 'react-native-purchases';
 import { log } from '@/lib/logger';
 
-const IOS_KEY = process.env.EXPO_PUBLIC_REVENUECAT_IOS_KEY ?? '';
+const RC_API_KEY =
+  Platform.OS === 'ios'
+    ? process.env.EXPO_PUBLIC_REVENUECAT_IOS_KEY ?? ''
+    : process.env.EXPO_PUBLIC_REVENUECAT_ANDROID_KEY ?? '';
 
 // Set to true once configure() succeeds. Guards all subsequent calls so a
 // missing native module (Expo Go, un-prebuilt dev client) never crashes the app.
@@ -13,7 +17,7 @@ let _rcAvailable = false;
 
 export function initRevenueCat(userId: string): void {
   try {
-    Purchases.configure({ apiKey: IOS_KEY, appUserID: userId });
+    Purchases.configure({ apiKey: RC_API_KEY, appUserID: userId });
     if (__DEV__) {
       Purchases.setLogLevel(Purchases.LOG_LEVEL.DEBUG);
     }

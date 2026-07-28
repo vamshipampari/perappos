@@ -4,6 +4,7 @@ import {
   ActivityIndicator,
   Alert,
   Linking,
+  Platform,
   ScrollView,
   Text,
   TouchableOpacity,
@@ -261,7 +262,10 @@ export default function PaywallScreen() {
 
         {/* Fine print */}
         <Text style={{ fontSize: 12, color: '#8E8E93', textAlign: 'center', lineHeight: 18 }}>
-          Billed via Apple. Cancel anytime in iOS Settings.{'\n'}Subscription automatically renews unless cancelled.
+          {Platform.OS === 'ios'
+            ? 'Billed via Apple. Cancel anytime in iOS Settings.'
+            : 'Billed via Google Play. Cancel anytime in Play Store subscriptions.'}
+          {'\n'}Subscription automatically renews unless cancelled.
         </Text>
         <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 16, marginTop: 8 }}>
           <TouchableOpacity onPress={() => void Linking.openURL('https://cottix.co/terms')}>

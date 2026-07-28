@@ -20,7 +20,7 @@
         "ITSAppUsesNonExemptEncryption": false,
         "NSFaceIDUsageDescription": "Cottix uses Face ID to lock your apps and keep them private."
       },
-      "buildNumber": "4"
+      "buildNumber": "5"
     },
     "android": {
       "adaptiveIcon": {
@@ -35,7 +35,7 @@
         "NOTIFICATIONS",
         "VIBRATE"
       ],
-      "versionCode": 10
+      "versionCode": 14
     },
     "web": {
       "bundler": "metro",

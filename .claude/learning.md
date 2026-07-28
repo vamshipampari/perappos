@@ -26,6 +26,8 @@
 - EAS builds: only committed files are included → always commit + push before triggering eas build, especially from a worktree
 - EAS appVersionSource: never use "remote" → use "local" so app.json is the single source of truth; "remote" silently ignores app.json and Info.plist causing version mismatch on every build
 - Android submit: use eas submit with serviceAccountKeyPath + track (beta=Open testing, alpha=Closed, internal, production) → no android submit config existed before, manual Play Console AAB upload was the only path; see docs/android-release.md
+- EAS autoIncrement writes app.json locally but doesn't commit → after any `production`-profile build, `versionCode`/`buildNumber` in the working tree can silently drift ahead of the last commit; verify against `eas build:list` before trusting app.json, and commit the bump
+- Cross-platform native SDK keys (RevenueCat, etc.): select by Platform.OS at the single init call site → never hardcode one platform's key; check init call sites for stray Platform.OS gates that would skip the other platform entirely
 
 ## Architecture decisions (why, not what — see docs/context.md for detail)
 
@@ -36,6 +38,7 @@
 
 ## Session log (rolling — keep last 30 days only)
 
+2026-07-28: RevenueCat Android support (Platform.OS key selection in initRevenueCat, platform-aware paywall fine print) · confirmed app.json version/build numbers (1.0.4 / iOS 5 / Android 14) match latest EAS builds but are uncommitted (autoIncrement drift)
 2026-07-09: Android eas submit automation (serviceAccountKeyPath + beta/production tracks) · docs/android-release.md · unblocked Open Testing release (empty-draft AAB-not-attached errors, uploaded existing versionCode-12 build)
 2026-05-01: IAP subscription submission fix (new product IDs com.cottix.app.subscription.*) · EAS appVersionSource "remote"→"local" · freeze_owner_instances overload conflict fix (drop all, recreate UUID-only) · Pro plan showing correctly after purchase
 2026-04-16: AI generation JS fix (DOMContentLoaded/IIFE scopes onclick fns → banned; function decls at top of end-of-body script) · max_tokens 8192→16000 · router.dismissAll() for multi-modal clear · create.tsx submitting blank screen fix · 90s generation timeout · preview error overlay
