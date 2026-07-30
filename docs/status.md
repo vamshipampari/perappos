@@ -1,8 +1,18 @@
 # Cottix — Status
 
-**Last Updated**: 2026-04-28 (Session 19)
+**Last Updated**: 2026-07-28 (Session 20)
 
 ## Current Sprint: RevenueCat IAP Integration
+
+### ✅ Session 20 — RevenueCat Android support (2026-07-28)
+
+RevenueCat Android products are now live in the dashboard, attached to the same "Cottix Pro" entitlement and "default_v2" offering used for iOS. Client code was iOS-only until now.
+
+- `services/revenueCat.ts` — `initRevenueCat` now selects the RC public SDK key by `Platform.OS`: `EXPO_PUBLIC_REVENUECAT_IOS_KEY` on iOS, new `EXPO_PUBLIC_REVENUECAT_ANDROID_KEY` on Android
+- `app/paywall.tsx` — fine-print billing copy is now platform-aware ("Billed via Apple / iOS Settings" vs "Billed via Google Play / Play Store subscriptions"); `getOfferings()`/`purchasePackage()`/`restorePurchases()` and RC error-code handling confirmed already cross-platform, no changes needed
+- `app/_layout.tsx` — `initRevenueCat(userId)` call confirmed already ungated by `Platform.OS` (no `Platform` import even present) — runs for both platforms as-is
+- **Required before Android testing**: add `EXPO_PUBLIC_REVENUECAT_ANDROID_KEY` to `.env` (gitignored, same pattern as the iOS key), then `eas build --platform android --profile preview` for a local test APK, or `--profile production` for a store-track build
+- **Build/version audit**: confirmed `app.json` (`version` 1.0.4, iOS `buildNumber` 5, Android `versionCode` 14) matches the most recent finished EAS builds for both platforms (`eas build:list`) — these values are correct but still uncommitted locally (EAS `autoIncrement` writes to `app.json` after a `production`-profile build finishes but does not commit); commit this bump before the next build to keep git in sync
 
 ### ✅ Session 19 — RevenueCat Paywall + Delete Account Fix + UX Cleanup (2026-04-28)
 

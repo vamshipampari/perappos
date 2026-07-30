@@ -113,7 +113,7 @@ Cottix is a personal app OS that lets users install web apps from URLs or ZIPs, 
 - **CRUD upload**: `SupabaseConnector.ts` handles PUT/PATCH/DELETE with special logic for `shared_app_data` (natural-key upsert)
 
 ### EAS (Expo Application Services)
-- **Build profiles**: iOS TestFlight, Android preview
+- **Build profiles**: iOS TestFlight, Android preview; Android submit: see docs/android-release.md
 - **Project ID**: `2ebec141-aefa-43b8-b6f3-377add3fcc4d`
 - **Bundle ID**: `com.cottix.app`
 
