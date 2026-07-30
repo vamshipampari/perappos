@@ -35,7 +35,7 @@
         "NOTIFICATIONS",
         "VIBRATE"
       ],
-      "versionCode": 14
+      "versionCode": 15
     },
     "web": {
       "bundler": "metro",
